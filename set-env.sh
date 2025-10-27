@@ -23,7 +23,7 @@ dc() {
     -v "$HOST_WORKDIR":"$CONTAINER_WORKDIR":rw \
     -w "$(dc_pwd)" \
     cjdev \
-    bash -c "source $CONTAINER_WORKDIR/src/dc_exports.sh && $*"
+    bash -c "source /home/cjdev/.bashrc && $*"
 }
 
 source "$HOST_WORKDIR"/src/aliases.sh
