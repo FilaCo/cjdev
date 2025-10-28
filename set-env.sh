@@ -23,10 +23,10 @@ dc() {
     -v "$HOST_WORKDIR":"$CONTAINER_WORKDIR":rw \
     -w "$(dc_pwd)" \
     cjdev \
-    bash -c "source /home/cjdev/.bashrc && $*"
+    "$@"
 }
 
-source "$HOST_WORKDIR"/src/aliases.sh
+source "$HOST_WORKDIR"/aliases.sh
 
 for alias in "${ALIASES[@]}"; do
   alias "$alias=dc $alias"
