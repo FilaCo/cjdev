@@ -1,9 +1,6 @@
-HOST_WORKDIR=/home/filaco/Projects/cjdev
-CONTAINER_WORKDIR=/home/cjdev/Projects
+# TODO: use args instead of global vars
 
-docker buildx build -t cjdev "$HOST_WORKDIR"
-
-dc_pwd() {
+dc::pwd() {
   # Cut the prefix
   # /home/filaco/Projects/cjdev/a/b/c -> /a/b/c
   local relpath="${PWD#"$HOST_WORKDIR"}"
@@ -16,18 +13,16 @@ dc_pwd() {
   echo "$res"
 }
 
+dc::setup() {
+  docker buildx build -t cjdev "$HOST_WORKDIR"
+}
+
 dc() {
   docker container run \
     -it \
     --rm \
     -v "$HOST_WORKDIR":"$CONTAINER_WORKDIR":rw \
-    -w "$(dc_pwd)" \
+    -w "$(dc::pwd)" \
     cjdev \
     "$@"
 }
-
-source "$HOST_WORKDIR"/aliases.sh
-
-for alias in "${ALIASES[@]}"; do
-  alias "$alias=dc $alias"
-done

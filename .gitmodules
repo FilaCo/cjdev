@@ -18,3 +18,11 @@
 	path = cangjie_test_framework
 	url = https://gitcode.com/filaco/cangjie_test_framework.git
 	branch = dev
+[submodule "cangjie_stdx"]
+	path = cangjie_stdx
+  url = https://gitcode.com/filaco/cangjie_stdx.git
+  branch = dev
+[submodule "cangjie_tools"]
+	path = cangjie_tools
+  url = https://gitcode.com/filaco/cangjie_tools.git
+	branch = dev

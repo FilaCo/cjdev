@@ -8,4 +8,5 @@ USER cjdev
 
 WORKDIR /home/cjdev
 
+# Make gnustep available
 RUN echo "source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh" >> "$HOME/.bashrc"
