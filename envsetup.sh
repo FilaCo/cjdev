@@ -4,6 +4,8 @@ HOST_WORKDIR=/home/filaco/Projects/cjdev
 CONTAINER_WORKDIR=/home/cjdev/Projects
 VERSION="$(<"$HOST_WORKDIR"/VERSION)"
 
+source "$HOST_WORKDIR/src/lib/ansi.sh"
+
 source "$HOST_WORKDIR/src/lib/dc.sh"
 
 # Setup aliases to commands that desired to be executed in the docker container
@@ -13,3 +15,4 @@ for alias in "${ALIASES[@]}"; do
 done
 
 source "$HOST_WORKDIR/src/lib/git-mm.sh"
+source "$HOST_WORKDIR/src/lib/cjdev.sh"

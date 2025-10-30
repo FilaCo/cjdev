@@ -13,10 +13,20 @@ $(ansi::green)Commands:$(ansi::resetFg)
   $(ansi::cyan)upload, u$(ansi::resetFg)  Upload branches to upstreams
 
 See '$(ansi::cyan)git mm help <command>$(ansi::resetFg)' for more information on a specific command."
+  exit 1
 }
 
 git-mm::version() {
   echo "git mm $VERSION"
+  exit 0
+}
+
+git-mm::sync() {
+  echo -e "git mm sync"
+}
+
+git-mm::start() {
+  echo -e "git mm start"
 }
 
 git-mm() {
@@ -33,11 +43,13 @@ git-mm() {
     case "$1" in
     -V | --version)
       git-mm::version
-      exit 0
       ;;
-    -h | --help | *)
+    -h | --help)
       git-mm::help
-      exit 1
+      ;;
+    --)
+      shift
+      break
       ;;
     esac
   done

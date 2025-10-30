@@ -3,6 +3,10 @@ ANSI_CSI="${ANSI_ESC}["
 ANSI_OSC="${ANSI_ESC}]"
 ANSI_ST="${ANSI_ESC}\\"
 
+ansi::red() {
+  printf '%s31m' "$ANSI_CSI"
+}
+
 ansi::green() {
   printf '%s32m' "$ANSI_CSI"
 }
