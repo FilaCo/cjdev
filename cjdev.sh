@@ -7,21 +7,18 @@ IFS=$'\n\t'
 HOST_WORKDIR=/home/filaco/Projects/cjdev
 # absolute path of a workspace directory in a container
 CONTAINER_WORKDIR=/home/cjdev/Projects
-CJDEV_NAME="$0"
 CJDEV_VERSION="$(<"$HOST_WORKDIR"/VERSION)"
 
-source "$HOST_WORKDIR/src/util/ansi.sh"
-source "$HOST_WORKDIR/src/command/build.sh"
-source "$HOST_WORKDIR/src/command/git-mm.sh"
+source "$HOST_WORKDIR"/src/util/ansi.sh
 
-cjdev::usage() {
-  echo -e "$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$CJDEV_NAME [OPTIONS] [COMMAND]$(ansi::resetFg)"
-}
+source "$HOST_WORKDIR"/src/command/build.sh
+source "$HOST_WORKDIR"/src/command/git-mm.sh
+source "$HOST_WORKDIR"/src/command/dc.sh
 
 cjdev::help::all() {
   echo -e "Cangjie's developer util script
 
-$(cjdev::usage)
+$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 [OPTIONS] [COMMAND]$(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
   $(ansi::cyan)-V, --version$(ansi::resetFg)  Print version info and exit
@@ -30,8 +27,9 @@ $(ansi::green)Options:$(ansi::resetFg)
 $(ansi::green)Commands:$(ansi::resetFg)
   $(ansi::cyan)build$(ansi::resetFg)    Build Cangjie's projects
   $(ansi::cyan)git-mm$(ansi::resetFg)   Git utils for Cangjie's repositories management
+  $(ansi::cyan)dc$(ansi::resetFg)       Execute a command in a container
 
-See '$(ansi::cyan)$CJDEV_NAME help <command>$(ansi::resetFg)' for more information on a specific command."
+See '$(ansi::cyan)$0 help <command>$(ansi::resetFg)' for more information on a specific command."
 
   exit 1
 }
@@ -40,7 +38,7 @@ cjdev::help() {
   [ "$#" -eq 0 ] && cjdev::help::all
 
   local p
-  if ! p=$(getopt -q -o bg -l build,git-mm -- "$@"); then
+  if ! p=$(getopt -q -o bgd -l build,git-mm,dc -- "$@"); then
     #TODO:: to error report utils
     echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`${1#--}\`" >&2
     cjdev::help
@@ -53,6 +51,9 @@ cjdev::help() {
     ;;
   --git-mm)
     cjdev::git-mm::help
+    ;;
+  --dc)
+    cjdev::dc::help
     ;;
   esac
 }
@@ -85,7 +86,7 @@ cjdev::getopt() {
       cjdev::version
       ;;
     *)
-      cmd_opts+="$opt"
+      cmd_opts+=("$opt")
       ;;
     esac
   done
@@ -99,9 +100,15 @@ cjdev::getopt() {
     fi
   fi
 
-  if [ "$#" -gt 0 ]; then
-    cmd_opts+="--$1"
-  fi
+  while [ "$#" -gt 0 ]; do
+    local opt="$1"
+    shift
+    if [ "$cmd" = help ]; then
+      cmd_opts+=("--$opt")
+      break
+    fi
+    cmd_opts+=("$opt")
+  done
 }
 
 cjdev() {
@@ -111,14 +118,17 @@ cjdev() {
   cjdev::getopt "$@"
 
   case "$cmd" in
+  help)
+    cjdev::help "${cmd_opts[@]}"
+    ;;
   build)
     cjdev::build "${cmd_opts[@]}"
     ;;
   git-mm)
     cjdev::git-mm "${cmd_opts[@]}"
     ;;
-  help)
-    cjdev::help "${cmd_opts[@]}"
+  dc)
+    cjdev::dc "${cmd_opts[@]}"
     ;;
   *)
     #TODO:: to error report utils
