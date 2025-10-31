@@ -1,7 +1,7 @@
-cjdev::build::help() {
+build::help() {
   echo "implement cjdev::build::help"
 }
 
-cjdev::build() {
+build() {
   echo "implement cjdev::build"
 }

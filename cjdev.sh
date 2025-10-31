@@ -37,23 +37,22 @@ See '$(ansi::cyan)$0 help <command>$(ansi::resetFg)' for more information on a s
 cjdev::help() {
   [ "$#" -eq 0 ] && cjdev::help::all
 
-  local p
-  if ! p=$(getopt -q -o bgd -l build,git-mm,dc -- "$@"); then
+  local cmd="$1"
+  shift
+  case "$cmd" in
+  build)
+    build::help "$@"
+    ;;
+  git-mm)
+    git-mm::help "$@"
+    ;;
+  dc)
+    dc::help "$@"
+    ;;
+  *)
     #TODO:: to error report utils
-    echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`${1#--}\`" >&2
+    echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`$cmd\`" >&2
     cjdev::help
-  fi
-
-  eval set -- "$p"
-  case "$1" in
-  --build)
-    cjdev::build::help
-    ;;
-  --git-mm)
-    cjdev::git-mm::help
-    ;;
-  --dc)
-    cjdev::dc::help
     ;;
   esac
 }
@@ -101,13 +100,8 @@ cjdev::getopt() {
   fi
 
   while [ "$#" -gt 0 ]; do
-    local opt="$1"
+    cmd_opts+=("$1")
     shift
-    if [ "$cmd" = help ]; then
-      cmd_opts+=("--$opt")
-      break
-    fi
-    cmd_opts+=("$opt")
   done
 }
 
@@ -122,13 +116,13 @@ cjdev() {
     cjdev::help "${cmd_opts[@]}"
     ;;
   build)
-    cjdev::build "${cmd_opts[@]}"
+    build "${cmd_opts[@]}"
     ;;
   git-mm)
-    cjdev::git-mm "${cmd_opts[@]}"
+    git-mm "${cmd_opts[@]}"
     ;;
   dc)
-    cjdev::dc "${cmd_opts[@]}"
+    dc "${cmd_opts[@]}"
     ;;
   *)
     #TODO:: to error report utils
