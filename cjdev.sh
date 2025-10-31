@@ -11,6 +11,8 @@ CJDEV_NAME="$0"
 CJDEV_VERSION="$(<"$HOST_WORKDIR"/VERSION)"
 
 source "$HOST_WORKDIR/src/util/ansi.sh"
+source "$HOST_WORKDIR/src/command/build.sh"
+source "$HOST_WORKDIR/src/command/git-mm.sh"
 
 cjdev::usage() {
   echo -e "$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$CJDEV_NAME [OPTIONS] [COMMAND]$(ansi::resetFg)"
@@ -30,23 +32,29 @@ $(ansi::green)Commands:$(ansi::resetFg)
   $(ansi::cyan)git-mm$(ansi::resetFg)   Git utils for Cangjie's repositories management
 
 See '$(ansi::cyan)$CJDEV_NAME help <command>$(ansi::resetFg)' for more information on a specific command."
+
   exit 1
 }
 
 cjdev::help() {
-  while true; do
-    case "$1" in
-    'build')
-      cjdev::build::help
-      ;;
-    'git-mm')
-      cjdev::git-mm::help
-      ;;
-    *)
-      cjdev::help::all
-      ;;
-    esac
-  done
+  [ "$#" -eq 0 ] && cjdev::help::all
+
+  local p
+  if ! p=$(getopt -q -o bg -l build,git-mm -- "$@"); then
+    #TODO:: to error report utils
+    echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`${1#--}\`" >&2
+    cjdev::help
+  fi
+
+  eval set -- "$p"
+  case "$1" in
+  --build)
+    cjdev::build::help
+    ;;
+  --git-mm)
+    cjdev::git-mm::help
+    ;;
+  esac
 }
 
 cjdev::version() {
@@ -54,49 +62,70 @@ cjdev::version() {
   exit 0
 }
 
-cjdev() {
+cjdev::getopt() {
+  [ "$#" -eq 0 ] && set -- help
   local p
-  p="$(getopt -q -o Vh -l help,version -n "$0" -- "$@")"
+  if ! p=$(getopt -o hV -l help,version -n "$0" -- "$@"); then
+    cjdev::help
+  fi
 
   eval set -- "$p"
-  while true; do
-    case "$1" in
+
+  while [ "$#" -gt 0 ]; do
+    local opt="$1"
+    shift
+    case "$opt" in
+    --)
+      break
+      ;;
+    -h | --help)
+      cmd=help
+      ;;
     -V | --version)
       cjdev::version
       ;;
-    --)
-      shift
-      break
-      ;;
     *)
-      shift
+      cmd_opts+="$opt"
       ;;
     esac
   done
 
-  [ "$#" = 0 ] && cjdev::help::all
+  if [ -z "$cmd" ]; then
+    if [ "$#" -gt 0 ]; then
+      cmd="$1"
+      shift
+    else
+      cmd=help
+    fi
+  fi
 
-  local cmd="$1"
-  eval set -- "$p"
-  while true; do
-    case "$cmd" in
-    build)
-      cjdev::build "$@"
-      ;;
-    git-mm)
-      cjdev::git-mm "$@"
-      ;;
-    help)
-      cjdev::help "$@"
-      ;;
-    *)
-      #TODO:: to error report utils
-      echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`$cmd\`" >&2
-      cjdev::usage
-      exit 1
-      ;;
-    esac
-  done
+  if [ "$#" -gt 0 ]; then
+    cmd_opts+="--$1"
+  fi
+}
+
+cjdev() {
+  local cmd=
+  local cmd_opts=()
+
+  cjdev::getopt "$@"
+
+  case "$cmd" in
+  build)
+    cjdev::build "${cmd_opts[@]}"
+    ;;
+  git-mm)
+    cjdev::git-mm "${cmd_opts[@]}"
+    ;;
+  help)
+    cjdev::help "${cmd_opts[@]}"
+    ;;
+  *)
+    #TODO:: to error report utils
+    echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`$cmd\`" >&2
+    cjdev::help
+    ;;
+  esac
 }
 
 cjdev "$@"
