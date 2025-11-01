@@ -7,6 +7,7 @@ $(ansi::green)Options:$(ansi::resetFg)
   $(ansi::cyan)-h, --help$(ansi::resetFg)     Print help
 
 $(ansi::green)Commands:$(ansi::resetFg)
+  $(ansi::cyan)init, i$(ansi::resetFg)    Init git-mm environment
   $(ansi::cyan)sync$(ansi::resetFg)       Sync all repos with upstreams
   $(ansi::cyan)start$(ansi::resetFg)      Start a new branch
   $(ansi::cyan)upload, u$(ansi::resetFg)  Upload branches to upstreams
@@ -14,6 +15,22 @@ $(ansi::green)Commands:$(ansi::resetFg)
 See '$(ansi::cyan)$0 git-mm help <command>$(ansi::resetFg)' for more information on a specific command."
   exit 1
 
+}
+
+git-mm::init() {
+  echo todo
+}
+
+git-mm::sync() {
+  echo "todo"
+}
+
+git-mm::start() {
+  echo "todo"
+}
+
+git-mm::upload() {
+  echo "todo"
 }
 
 git-mm::help() {
@@ -42,21 +59,18 @@ git-mm::help() {
 git-mm::getopt() {
   [ "$#" -eq 0 ] && set -- help
   local p
-  if ! p=$(getopt -o h -l help -n "$0" -- "$@"); then
+  if ! p=$(getopt -o b -l --branch -n "$0" git-mm -- "$@"); then
     git-mm::help
   fi
 
   eval set -- "$p"
-
+  unset p
   while [ "$#" -gt 0 ]; do
     local opt="$1"
     shift
     case "$opt" in
     --)
       break
-      ;;
-    -h | --help)
-      cmd=help
       ;;
     *)
       cmd_opts+=("$opt")

@@ -16,9 +16,9 @@ $(ansi::green)Options:$(ansi::resetFg)
 dc::pwd() {
   # Cut the prefix
   # /home/filaco/Projects/cjdev/a/b/c -> /a/b/c
-  local relpath="${PWD#"$HOST_WORKDIR"}"
+  local relpath="${PWD#"$CJDEV_HOST_WORKDIR"}"
 
-  local res="$CONTAINER_WORKDIR"
+  local res="$CJDEV_CONTAINER_WORKDIR"
   if [ -n "$relpath" ]; then
     res="$res$relpath"
   fi
@@ -26,15 +26,15 @@ dc::pwd() {
   echo "$res"
 }
 
-dc::setup() {
-  docker buildx build -t cjdev "$HOST_WORKDIR"
+dc::init() {
+  docker buildx build -t cjdev "$CJDEV_HOST_WORKDIR"
 }
 
 dc() {
   docker container run \
     -it \
     --rm \
-    -v "$HOST_WORKDIR":"$CONTAINER_WORKDIR":rw \
+    -v "$CJDEV_HOST_WORKDIR":"$CJDEV_CONTAINER_WORKDIR":rw \
     -w "$(dc::pwd)" \
     cjdev \
     "$@"
