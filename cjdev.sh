@@ -33,7 +33,7 @@ source "$CJDEV_HOST_WORKDIR"/src/command/build.sh
 source "$CJDEV_HOST_WORKDIR"/src/command/git-mm.sh
 source "$CJDEV_HOST_WORKDIR"/src/command/dc.sh
 
-cjdev::help::all() {
+cjdev::help() {
   echo -e "Cangjie's developer util script
 
 $(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 [OPTIONS] [COMMAND]$(ansi::resetFg)
@@ -46,39 +46,9 @@ $(ansi::green)Commands:$(ansi::resetFg)
   $(ansi::cyan)init, i$(ansi::resetFg)  Init cjdev environment
   $(ansi::cyan)build$(ansi::resetFg)    Build Cangjie's projects
   $(ansi::cyan)git-mm$(ansi::resetFg)   Git utils for Cangjie's repositories management
-  $(ansi::cyan)dc$(ansi::resetFg)       Execute a command in a container
+  $(ansi::cyan)dc$(ansi::resetFg)       Execute a command in a container."
 
-See '$(ansi::cyan)$0 help <command>$(ansi::resetFg)' for more information on a specific command."
   exit 1
-}
-
-cjdev::help() {
-  [ "$#" -eq 0 ] && cjdev::help::all
-
-  local cmd="$1"
-  shift
-  case "$cmd" in
-  help)
-    cjdev::help
-    ;;
-  i | init)
-    init::help "$@"
-    ;;
-  build)
-    build::help "$@"
-    ;;
-  git-mm)
-    git-mm::help "$@"
-    ;;
-  dc)
-    dc::help "$@"
-    ;;
-  *)
-    #TODO:: to error report utils
-    echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`$cmd\`" >&2
-    cjdev::help
-    ;;
-  esac
 }
 
 cjdev::version() {
@@ -87,69 +57,52 @@ cjdev::version() {
 }
 
 cjdev::getopt() {
-  [ "$#" -eq 0 ] && set -- help
-  local p
-  if ! p=$(getopt -o hVb -l help,version,branch -n "$0" -- "$@"); then
-    cjdev::help
-  fi
-
-  eval set -- "$p"
-  unset p
+  [ "$#" -eq 0 ] && set -- --help
   while [ "$#" -gt 0 ]; do
-    local opt="$1"
+    local arg="$1"
     shift
-    case "$opt" in
-    --)
-      break
-      ;;
+    case "$arg" in
     -h | --help)
-      cmd=help
+      help_requested=true
       ;;
     -V | --version)
       cjdev::version
       ;;
+    -*)
+      cmd_opts+=("$arg")
+      ;;
     *)
-      cmd_opts+=("$opt")
+      cmd_positionals+=("$arg")
       ;;
     esac
-  done
-
-  if [ -z "$cmd" ]; then
-    if [ "$#" -gt 0 ]; then
-      cmd="$1"
-      shift
-    else
-      cmd=help
-    fi
-  fi
-
-  while [ "$#" -gt 0 ]; do
-    cmd_opts+=("$1")
-    shift
   done
 }
 
 cjdev() {
-  local cmd=
+  local help_requested=
+  local cmd_positionals=()
   local cmd_opts=()
 
   cjdev::getopt "$@"
+  if [ "${#cmd_positionals[@]}" -eq 0 ] && [ "$help_requested" == true ]; then
+    cjdev::help
+  fi
 
-  case "$cmd" in
-  help)
-    cjdev::help "${cmd_opts[@]}"
-    ;;
+  local cmd="${cmd_positionals[0]}"
+  unset "${cmd_positionals[0]}"
+  local cmd_args="${cmd_positionals[*]}" -- "${cmd_opts[*]}"
+  case "${cmd}" in
   i | init)
-    init "${cmd_opts[@]}"
+    init "$cmd_args"
     ;;
   build)
-    build "${cmd_opts[@]}"
+    build "$cmd_args"
     ;;
   git-mm)
-    git-mm "${cmd_opts[@]}"
+    git-mm "$cmd_args"
     ;;
   dc)
-    dc "${cmd_opts[@]}"
+    dc "$cmd_args"
     ;;
   *)
     #TODO:: to error report utils

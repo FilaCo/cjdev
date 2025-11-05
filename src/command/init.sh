@@ -5,7 +5,7 @@ $(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 init [OPTIONS]$(ansi::reset
 
 $(ansi::green)Options:$(ansi::resetFg)
   $(ansi::cyan)-b, --branch$(ansi::resetFg)   A remote branch for tracking updates
-  $(ansi::cyan)-h, --help$(ansi::resetFg)     Print help"
+  $(ansi::cyan)-h, --help$(ansi::resetFg)     Print help."
   exit 1
 }
 
@@ -33,6 +33,10 @@ init::getopt() {
 }
 
 init() {
+  if [ "$help_requested" == true ]; then
+    init::help
+  fi
+
   local branch=
 
   init::getopt "$@"
