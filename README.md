@@ -1,6 +1,10 @@
-# CjDev
+# `cjdev.sh`
 
 Cangjie's developer util script
+
+## 🚨 WARNING 🚨
+
+`cjdev.sh` is in the early stages of development. Important features are missing. Documentation is sparse. DO NOT USE until this warning removed.
 
 ## Features
 
