@@ -92,6 +92,8 @@ git-mm::init::getopt() {
 }
 
 git-mm::init::impl() {
+  git submodule init
+  git submodule update
   for project in "${!CJDEV_ORIGINS[@]}"; do
     git submodule add --branch "$1" --force --depth 1 "${CJDEV_ORIGINS[$project]}"
     cd "$project"
@@ -115,8 +117,7 @@ git-mm::sync() {
   fi
 
   git submodule foreach "$(
-    echo "$toplevel"
-    git pull upstream dev
+    git pull upstream dev || git pull origin dev
     git rebase upstream/dev
   )"
 }
