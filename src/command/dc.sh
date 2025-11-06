@@ -31,8 +31,12 @@ dc::init() {
 }
 
 dc() {
-  if [ "$help_requested" == true ]; then
+  if [[ "$help_requested" == true ]]; then
     dc::help
+  fi
+
+  if [[ "$#" -gt 0 ]] && [[ "$1" == -- ]]; then
+    shift
   fi
 
   docker container run \
