@@ -91,14 +91,36 @@ git-mm::init::getopt() {
   fi
 }
 
-git-mm::init::impl() {
-  git submodule update --init --depth 1
-  for project in "${!CJDEV_ORIGINS[@]}"; do
-    git submodule set-branch --branch "$1" "$project"
+# TODO: to utils
+# $1 - config full key, e.g. module.cangjie_compiler.origin
+git-mm::config::get() {
+  git config get -f "$CJDEV_GIT_MM_CONFIG_FILE" "$1"
+}
 
-    cd "$project"
+#TODO: to utils
+# $1 - config full key, e.g. module.cangjie_compiler.branch
+# $2 - value
+git-mm::config::set() {
+  git config set -f "$CJDEV_GIT_MM_CONFIG_FILE" "$1" "$2"
+}
+
+# TODO: to utils
+# $1 - config key
+git-mm::config::iter() {
+  git config -f "$CJDEV_GIT_MM_CONFIG_FILE" --list | grep "$1"= | sed "s/.*$1\s*=\s*//" | tr -d ' '
+}
+
+git-mm::init::impl() {
+  for path in $(git-mm::config::iter path); do
+    if [[ ! -e "$path" ]]; then
+      git clone --branch "$1" "$(git-mm::config::get module."$path".origin)" "$path"
+    fi
+
+    git-mm::config::set module."$path".branch "$1"
+
+    cd "$path"
     if ! git remote | grep -q "^upstream$"; then
-      git remote add upstream "${CJDEV_UPSTREAMS[$project]}"
+      git remote add upstream "$(git-mm::config::get module."$path".upstream)"
     fi
     cd - >/dev/null
   done
@@ -120,13 +142,12 @@ git-mm::sync() {
     git-mm::sync::help
   fi
 
-  #
-  git submodule foreach 'git fetch upstream; \
-      branch="$(git config -f $toplevel/.gitmodules submodule.$name.branch)"; \
-      git switch "$branch"; \
-      git rebase upstream/"$branch";'
-
-  # git submodule update --init --rebase
+  for path in $(git-mm::config::iter path); do
+    cd "$path"
+    git fetch upstream
+    git rebase upstream/"$(git-mm::config::get module."$path".branch)"
+    cd - >/dev/null
+  done
 }
 
 git-mm::start::getopt() {
@@ -164,7 +185,11 @@ git-mm::start() {
 
   local branch=
   git-mm::start::getopt "$@"
-  git submodule foreach "git switch -c $branch 2>/dev/null || git switch $branch"
+  for path in $(git-mm::config::iter path); do
+    cd "$path"
+    git switch -c "$branch" 2>/dev/null || git switch "$branch"
+    cd - >/dev/null
+  done
 }
 
 git-mm::upload() {

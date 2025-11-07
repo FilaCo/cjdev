@@ -9,25 +9,7 @@ CJDEV_HOST_WORKDIR=/home/filaco/Projects/cjdev
 CJDEV_CONTAINER_WORKDIR=/home/cjdev/Projects
 CJDEV_VERSION="$(<"$CJDEV_HOST_WORKDIR"/VERSION)"
 
-# TODO: TOML/JSON/XML config file
-declare -A CJDEV_ORIGINS=(
-  [cangjie_compiler]='https://gitcode.com/filaco/cangjie_compiler.git'
-  [cangjie_multiplatform_interop]='https://gitcode.com/filaco/cangjie_multiplatform_interop.git'
-  [cangjie_runtime]='https://gitcode.com/filaco/cangjie_runtime.git'
-  [cangjie_stdx]='https://gitcode.com/filaco/cangjie_stdx.git'
-  [cangjie_test]='https://gitcode.com/filaco/cangjie_test.git'
-  [cangjie_test_framework]='https://gitcode.com/filaco/cangjie_test_framework.git'
-  [cangjie_tools]='https://gitcode.com/filaco/cangjie_tools.git'
-)
-declare -A CJDEV_UPSTREAMS=(
-  [cangjie_compiler]='https://gitcode.com/Cangjie/cangjie_compiler.git'
-  [cangjie_multiplatform_interop]='https://gitcode.com/Cangjie/cangjie_multiplatform_interop.git'
-  [cangjie_runtime]='https://gitcode.com/Cangjie/cangjie_runtime.git'
-  [cangjie_stdx]='https://gitcode.com/Cangjie/cangjie_stdx.git'
-  [cangjie_test]='https://gitcode.com/Cangjie/cangjie_test.git'
-  [cangjie_test_framework]='https://gitcode.com/Cangjie/cangjie_test_framework.git'
-  [cangjie_tools]='https://gitcode.com/Cangjie/cangjie_tools.git'
-)
+CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_HOST_WORKDIR"/.git-mm
 
 source "$CJDEV_HOST_WORKDIR"/src/util/ansi.sh
 

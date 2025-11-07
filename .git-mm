@@ -1,0 +1,35 @@
+[module "cangjie_compiler"]
+  path = cangjie_compiler
+  origin = https://gitcode.com/filaco/cangjie_compiler.git
+  upstream = https://gitcode.com/Cangjie/cangjie_compiler.git
+	branch = dev
+[module "cangjie_multiplatform_interop"]
+	path = cangjie_multiplatform_interop
+  origin = https://gitcode.com/filaco/cangjie_multiplatform_interop.git
+  upstream = https://gitcode.com/Cangjie/cangjie_multiplatform_interop.git
+	branch = dev
+[module "cangjie_runtime"]
+	path = cangjie_runtime
+  origin = https://gitcode.com/filaco/cangjie_runtime.git
+  upstream = https://gitcode.com/Cangjie/cangjie_runtime.git
+	branch = dev
+[module "cangjie_stdx"]
+	path = cangjie_stdx
+  origin = https://gitcode.com/filaco/cangjie_stdx.git
+  upstream = https://gitcode.com/Cangjie/cangjie_stdx.git
+	branch = dev
+[module "cangjie_test"]
+	path = cangjie_test
+  origin = https://gitcode.com/filaco/cangjie_test.git
+  upstream = https://gitcode.com/Cangjie/cangjie_test.git
+	branch = dev
+[module "cangjie_test_framework"]
+	path = cangjie_test_framework
+  origin = https://gitcode.com/filaco/cangjie_test_framework.git
+  upstream = https://gitcode.com/Cangjie/cangjie_test_framework.git
+	branch = dev
+[module "cangjie_tools"]
+	path = cangjie_tools
+  origin = https://gitcode.com/filaco/cangjie_tools.git
+  upstream = https://gitcode.com/Cangjie/cangjie_tools.git
+	branch = dev
