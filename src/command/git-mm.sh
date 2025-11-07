@@ -144,8 +144,8 @@ git-mm::sync() {
 
   for path in $(git-mm::config::iter path); do
     cd "$path"
-    git fetch upstream
-    git rebase upstream/"$(git-mm::config::get module."$path".branch)"
+    git fetch --quiet upstream
+    git rebase --quiet upstream/"$(git-mm::config::get module."$path".branch)"
     cd - >/dev/null
   done
 }
