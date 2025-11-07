@@ -92,13 +92,8 @@ git-mm::init::getopt() {
 }
 
 git-mm::init::impl() {
-  git submodule init
-  git submodule update
   for project in "${!CJDEV_ORIGINS[@]}"; do
-    git submodule add --branch "$1" --force --depth 1 "${CJDEV_ORIGINS[$project]}"
-    cd "$project"
-    git remote add upstream "${CJDEV_UPSTREAMS[$project]}" || true
-    cd - >/dev/null
+    git submodule set-branch --branch "$1" "$project"
   done
 }
 
@@ -116,21 +111,59 @@ git-mm::sync() {
     git-mm::sync::help
   fi
 
-  git submodule foreach "$(
-    git pull upstream dev || git pull origin dev
-    git rebase upstream/dev
-  )"
+  for project in "${!CJDEV_UPSTREAMS[@]}"; do
+    git submodule set-url "$project" "${CJDEV_UPSTREAMS["$project"]}"
+  done
+  git submodule update --init --remote --depth 1 --rebase
+
+  for project in "${!CJDEV_ORIGINS[@]}"; do
+    git submodule set-url "$project" "${CJDEV_ORIGINS["$project"]}"
+  done
+}
+
+git-mm::start::getopt() {
+  local p
+  if ! p=$(getopt -o '' -n "$0" -- "$@"); then
+    git-mm::start::help
+  fi
+
+  eval set -- "$p"
+  unset p
+  while [[ "$#" -gt 0 ]]; do
+    local opt="$1"
+    shift
+    case "$opt" in
+    --)
+      break
+      ;;
+    esac
+  done
+
+  if [[ "$#" -eq 0 ]]; then
+    #TODO:: to error report utils
+    echo -e "$(ansi::red)error$(ansi::resetFg): <branch> argument was not found" >&2
+    git-mm::start::help
+  fi
+
+  branch="$1"
+  shift
 }
 
 git-mm::start() {
-  echo "todo"
+  if [[ "$help_requested" == true ]]; then
+    git-mm::start::help
+  fi
+
+  local branch=
+  git-mm::start::getopt "$@"
+  git submodule foreach "git switch $branch 2>/dev/null || git switch -c $branch"
 }
 
 git-mm::upload() {
   echo "todo"
 }
 
-# pos0 pos1 ... posN -- opt0 opt1 ... optN
+# pos0 pos1 ... posN opt0 opt1 ... optN
 git-mm() {
   # No args or no subcommand
   if [[ "$#" -eq 0 ]] || [[ "$1" == -- ]]; then
@@ -142,7 +175,6 @@ git-mm() {
   fi
 
   local cmd="$1"
-  shift
   shift
   local cmd_opts=("$@")
 

@@ -111,7 +111,7 @@ cjdev() {
 
   local cmd="${cmd_positionals[0]}"
   local positionals_len="${#cmd_positionals[@]}"
-  local cmd_args=("${cmd_positionals[@]:1:$positionals_len}" -- "${cmd_opts[@]}")
+  local cmd_args=("${cmd_positionals[@]:1:$positionals_len}" "${cmd_opts[@]}")
   case "${cmd}" in
   i | init)
     init "${cmd_args[@]}"
