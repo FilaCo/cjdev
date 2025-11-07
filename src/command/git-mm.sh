@@ -94,6 +94,11 @@ git-mm::init::getopt() {
 git-mm::init::impl() {
   for project in "${!CJDEV_ORIGINS[@]}"; do
     git submodule set-branch --branch "$1" "$project"
+    if git remote | grep -q "^upstream$"; then
+      git remote set-branches upstream "$1"
+    else
+      git remote add --track "$1" upstream "${CJDEV_UPSTREAMS[$project]}"
+    fi
   done
 }
 
@@ -111,14 +116,7 @@ git-mm::sync() {
     git-mm::sync::help
   fi
 
-  for project in "${!CJDEV_UPSTREAMS[@]}"; do
-    git submodule set-url "$project" "${CJDEV_UPSTREAMS["$project"]}"
-  done
   git submodule update --init --remote --depth 1 --rebase
-
-  for project in "${!CJDEV_ORIGINS[@]}"; do
-    git submodule set-url "$project" "${CJDEV_ORIGINS["$project"]}"
-  done
 }
 
 git-mm::start::getopt() {
@@ -156,7 +154,7 @@ git-mm::start() {
 
   local branch=
   git-mm::start::getopt "$@"
-  git submodule foreach "git switch $branch 2>/dev/null || git switch -c $branch"
+  git submodule foreach "git switch -c $branch 2>/dev/null || git switch $branch"
 }
 
 git-mm::upload() {
