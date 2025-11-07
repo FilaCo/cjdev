@@ -92,7 +92,7 @@ git-mm::init::getopt() {
 }
 
 git-mm::init::impl() {
-  git submodule update --init --remote --depth 1
+  git submodule update --init --depth 1
   for project in "${!CJDEV_ORIGINS[@]}"; do
     git submodule set-branch --branch "$1" "$project"
 
