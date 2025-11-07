@@ -207,21 +207,29 @@ git-mm::upload::getopt() {
     --)
       break
       ;;
+    -T | --title)
+      title="$1"
+      shift
+      ;;
     esac
   done
 
-  if [[ "$#" -eq 0 ]]; then
+  if [[ -z "$title" ]]; then
     #TODO:: to error report utils
-    echo -e "$(ansi::red)error$(ansi::resetFg): <branch> argument was not found" >&2
-    git-mm::start::help
-  fi
+    echo -e "$(ansi::red)error$(ansi::resetFg): required \`--title\` option was not found" >&2
+    git-mm::upload::help
 
-  branch="$1"
-  shift
+  fi
 }
 
 git-mm::upload() {
-  echo "todo"
+  if [[ "$help_requested" == true ]]; then
+    git-mm::upload::help
+  fi
+
+  local title=
+  git-mm::upload::getopt "$@"
+  echo todo
 }
 
 # pos0 pos1 ... posN opt0 opt1 ... optN

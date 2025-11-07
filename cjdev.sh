@@ -11,7 +11,10 @@ CJDEV_VERSION="$(<"$CJDEV_HOST_WORKDIR"/VERSION)"
 
 CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_HOST_WORKDIR"/.git-mm
 
+source "$CJDEV_HOST_WORKDIR"/.env
+
 source "$CJDEV_HOST_WORKDIR"/src/util/ansi.sh
+source "$CJDEV_HOST_WORKDIR"/src/util/gitcode.sh
 
 source "$CJDEV_HOST_WORKDIR"/src/command/init.sh
 source "$CJDEV_HOST_WORKDIR"/src/command/build.sh
