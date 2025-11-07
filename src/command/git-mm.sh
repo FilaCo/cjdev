@@ -192,6 +192,34 @@ git-mm::start() {
   done
 }
 
+git-mm::upload::getopt() {
+  local p
+  if ! p=$(getopt -o T -l title -n "$0" -- "$@"); then
+    git-mm::upload::help
+  fi
+
+  eval set -- "$p"
+  unset p
+  while [[ "$#" -gt 0 ]]; do
+    local opt="$1"
+    shift
+    case "$opt" in
+    --)
+      break
+      ;;
+    esac
+  done
+
+  if [[ "$#" -eq 0 ]]; then
+    #TODO:: to error report utils
+    echo -e "$(ansi::red)error$(ansi::resetFg): <branch> argument was not found" >&2
+    git-mm::start::help
+  fi
+
+  branch="$1"
+  shift
+}
+
 git-mm::upload() {
   echo "todo"
 }
