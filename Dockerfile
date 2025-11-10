@@ -16,4 +16,6 @@ RUN echo 'export OPENSSL_PATH=/usr/lib/x86_64-linux-gnu' >> "$HOME"/.bashrc && \
   echo 'export SDK_NAME=linux-x64' >> "$HOME"/.bashrc && \
   echo 'export CANGJIE_VERSION=1.0.0' >> "$HOME"/.bashrc && \
   echo 'export STDX_VERSION=1' >> "$HOME"/.bashrc && \
-  echo 'source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh' >> "$HOME"/.bashrc
+  echo 'source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh' >> "$HOME"/.bashrc && \
+  echo 'source /home/cjdev/Projects/cangjie/envsetup.sh' >> "$HOME"/.bashrc && \
+  echo 'if [[ -f /home/cjdev/Projects/dist/envsetup.sh ]]; then source /home/cjdev/Projects/dist/envsetup.sh; fi'>> "$HOME"/.bashrc

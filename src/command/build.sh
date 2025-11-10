@@ -20,7 +20,7 @@ build::cjc() {
 
   cd - >/dev/null
 
-  rsync -a "$CJDEV_HOST_WORKDIR"/cangjie_compiler/output "$CJDEV_HOST_WORKDIR/dist"
+  rsync -a "$CJDEV_HOST_WORKDIR"/cangjie_compiler/output/* "$CJDEV_HOST_WORKDIR"/dist
 }
 
 build::rt() {
