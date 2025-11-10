@@ -8,5 +8,12 @@ USER cjdev
 
 WORKDIR /home/cjdev
 
-# Make gnustep available
-RUN echo "source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh" >> "$HOME/.bashrc"
+# Setup environment
+RUN echo 'export OPENSSL_PATH=/usr/lib/x86_64-linux-gnu' >> "$HOME"/.bashrc && \
+  echo 'export LD_LIBRARY_PATH="$OPENSSL_PATH":"$LD_LIBRARY_PATH"' >> "$HOME"/.bashrc && \
+  echo 'export PATH=/usr/lib/llvm-15/bin:"$PATH"' >> "$HOME"/.bashrc && \
+  echo 'export ARCH=x86_64' >> "$HOME"/.bashrc && \
+  echo 'export SDK_NAME=linux-x64' >> "$HOME"/.bashrc && \
+  echo 'export CANGJIE_VERSION=1.0.0' >> "$HOME"/.bashrc && \
+  echo 'export STDX_VERSION=1' >> "$HOME"/.bashrc && \
+  echo 'source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh' >> "$HOME"/.bashrc
