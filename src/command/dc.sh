@@ -9,7 +9,7 @@ $(ansi::green)Arguments:$(ansi::resetFg)
   $(ansi::cyan)[ARGS]...$(ansi::resetFg)    Arguments for the command to execute
 
 $(ansi::green)Options:$(ansi::resetFg)
-  $(ansi::cyan)-h, --help$(ansi::resetFg)   Print help."
+  $(ansi::cyan)-h$(ansi::resetFg), $(ansi::cyan)--help$(ansi::resetFg)   Print help."
   exit 1
 }
 

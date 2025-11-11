@@ -14,6 +14,7 @@ CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_HOST_WORKDIR"/.git-mm
 source "$CJDEV_HOST_WORKDIR"/.env
 
 source "$CJDEV_HOST_WORKDIR"/src/util/ansi.sh
+source "$CJDEV_HOST_WORKDIR"/src/util/log.sh
 source "$CJDEV_HOST_WORKDIR"/src/util/gitcode.sh
 
 source "$CJDEV_HOST_WORKDIR"/src/command/init.sh
@@ -27,11 +28,12 @@ cjdev::help() {
 $(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 [OPTIONS] [COMMAND]$(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
-  $(ansi::cyan)-V, --version$(ansi::resetFg)  Print version info and exit
-  $(ansi::cyan)-h, --help$(ansi::resetFg)     Print help
+  $(ansi::cyan)-V$(ansi::resetFg), $(ansi::cyan)--version$(ansi::resetFg)       Print version info and exit
+  $(ansi::cyan)-v$(ansi::resetFg), $(ansi::cyan)--verbose...$(ansi::resetFg)    Use verbose output
+  $(ansi::cyan)-h$(ansi::resetFg), $(ansi::cyan)--help$(ansi::resetFg)          Print help
 
 $(ansi::green)Commands:$(ansi::resetFg)
-  $(ansi::cyan)init, i$(ansi::resetFg)  Init cjdev environment
+  $(ansi::cyan)init$(ansi::resetFg), $(ansi::cyan)i$(ansi::resetFg)  Init cjdev environment
   $(ansi::cyan)build$(ansi::resetFg)    Build Cangjie's projects
   $(ansi::cyan)git-mm$(ansi::resetFg)   Git utils for Cangjie's repositories management
   $(ansi::cyan)dc$(ansi::resetFg)       Execute a command in a container."
@@ -58,6 +60,9 @@ cjdev::getopt() {
       ;;
     -V | --version)
       cjdev::version
+      ;;
+    -v | --verbose)
+      verbose_level+=1
       ;;
     --)
       break
@@ -86,10 +91,13 @@ cjdev::getopt() {
 
 cjdev() {
   local help_requested=
+  local verbose_level=0
+  typeset -i verbose_level
   local cmd_positionals=()
   local cmd_opts=()
 
   cjdev::getopt "$@"
+  echo "$verbose_level" && exit
   if [[ "${#cmd_positionals[@]}" -eq 0 ]] && [[ "$help_requested" == true ]]; then
     cjdev::help
   fi

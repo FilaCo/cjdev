@@ -4,13 +4,13 @@ git-mm::help() {
 $(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 git-mm [OPTIONS] [COMMAND]$(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
-  $(ansi::cyan)-h, --help$(ansi::resetFg)     Print help
+  $(ansi::cyan)-h$(ansi::resetFg), $(ansi::cyan)--help$(ansi::resetFg)     Print help
 
 $(ansi::green)Commands:$(ansi::resetFg)
-  $(ansi::cyan)init, i$(ansi::resetFg)    Init git-mm environment
+  $(ansi::cyan)init$(ansi::resetFg), $(ansi::cyan)i$(ansi::resetFg)    Init git-mm environment
   $(ansi::cyan)sync$(ansi::resetFg)       Sync all repos with upstreams
   $(ansi::cyan)start$(ansi::resetFg)      Start a new branch
-  $(ansi::cyan)upload, u$(ansi::resetFg)  Creates pull requests to upstreams with commited changes."
+  $(ansi::cyan)upload$(ansi::resetFg), $(ansi::cyan)u$(ansi::resetFg)  Creates pull requests to upstreams with commited changes."
 
   exit 1
 }
@@ -21,8 +21,8 @@ git-mm::init::help() {
 $(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 git-mm init [OPTIONS]$(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
-  $(ansi::cyan)-b, --branch$(ansi::resetFg)   A remote branch for tracking updates, defaults to dev
-  $(ansi::cyan)-h, --help$(ansi::resetFg)     Print help."
+  $(ansi::cyan)-b$(ansi::resetFg), $(ansi::cyan)--branch$(ansi::resetFg)   A remote branch for tracking updates, defaults to dev
+  $(ansi::cyan)-h$(ansi::resetFg), $(ansi::cyan)--help$(ansi::resetFg)     Print help."
 
   exit 1
 }
@@ -33,7 +33,8 @@ git-mm::sync::help() {
 $(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 git-mm sync [OPTIONS]$(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
-  $(ansi::cyan)-h, --help$(ansi::resetFg)   Print help."
+  $(ansi::cyan)--sync-fork$(ansi::resetFg)    Sync gitcode fork
+  $(ansi::cyan)-h$(ansi::resetFg), $(ansi::cyan)--help$(ansi::resetFg)     Print help."
 
   exit 1
 }

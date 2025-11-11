@@ -1,21 +1,28 @@
-# TODO: already set in containers .bashrc, remove this envs from that file if possible
-OPENSSL_PATH=/usr/lib/x86_64-linux-gnu
-ARCH=x86_64
-SDK_NAME=linux-x64
-CANGJIE_VERSION=1.0.0
-STDX_VERSION=1
-
-BUILD_MODE=debug
-
 build::help() {
-  echo "implement cjdev::build::help"
+  echo -e "Cangjie's projects build commands
+
+$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 build [OPTIONS] [COMMAND]$(ansi::resetFg)
+
+$(ansi::green)Options:$(ansi::resetFg)
+  $(ansi::cyan)-t$(ansi::resetFg), $(ansi::cyan)--build-type$(ansi::resetFg)    Target build type, defaults to release
+  $(ansi::cyan)-h$(ansi::resetFg), $(ansi::cyan)--help$(ansi::resetFg)          Print help
+
+$(ansi::green)Commands:$(ansi::resetFg)
+  $(ansi::cyan)sdk$(ansi::resetFg)             Build all Cangjie's projects (default)
+  $(ansi::cyan)compiler$(ansi::resetFg), $(ansi::cyan)cjc$(ansi::resetFg)   Build compiler
+  $(ansi::cyan)runtime$(ansi::resetFg), $(ansi::cyan)rt$(ansi::resetFg)     Build runtime
+  $(ansi::cyan)std$(ansi::resetFg)             Build standard library
+  $(ansi::cyan)stdx$(ansi::resetFg)            Build standard library extensions
+  $(ansi::cyan)interop$(ansi::resetFg)         Build CJMP interop library."
+
+  exit 1
 }
 
 build::cjc() {
   cd "$CJDEV_HOST_WORKDIR"/cangjie_compiler
 
   #dc python3 build.py clean
-  dc python3 build.py build -t "$BUILD_MODE" --no-tests
+  dc python3 build.py build -t "$build_type" --no-tests
   dc python3 build.py install
 
   cd - >/dev/null
@@ -27,19 +34,19 @@ build::rt() {
   cd "$CJDEV_HOST_WORKDIR"/cangjie_runtime/runtime
 
   #dc python3 build.py clean
-  dc python3 build.py build -t "$BUILD_MODE" -v "$CANGJIE_VERSION"
+  dc python3 build.py build -t "$build_type" -v "$CANGJIE_VERSION"
   dc python3 build.py install
 
   cd - >/dev/null
 
-  rsync -a "$CJDEV_HOST_WORKDIR"/cangjie_runtime/runtime/output/common/linux_"$BUILD_MODE"_"$ARCH"/{lib,runtime} "$CJDEV_HOST_WORKDIR"/dist
+  rsync -a "$CJDEV_HOST_WORKDIR"/cangjie_runtime/runtime/output/common/linux_"$build_type"_"$ARCH"/{lib,runtime} "$CJDEV_HOST_WORKDIR"/dist
 }
 
 build::std() {
   cd "$CJDEV_HOST_WORKDIR"/cangjie_runtime/stdlib
 
   #dc python3 build.py clean
-  dc python3 build.py build -t "$BUILD_MODE" \
+  dc python3 build.py build -t "$build_type" \
     --target-lib="$CJDEV_CONTAINER_WORKDIR"/cangjie_runtime/runtime/output \
     --target-lib="$OPENSSL_PATH"
   dc python3 build.py install
@@ -57,36 +64,70 @@ build::interop() {
   cd "$CJDEV_HOST_WORKDIR"/cangjie_multiplatform_interop/objc/build
 
   #dc python3 build.py clean
-  dc python3 build.py build -t "$BUILD_MODE" --target linux_"$ARCH"_cjnative
-  dc python3 build.py install --prefix "$CJDEV_HOST_WORKDIR"/dist
+  dc python3 build.py build -t "$build_type" --target linux_"$ARCH"
+  dc python3 build.py install --prefix "$CJDEV_HOST_WORKDIR"/dist --target linux_"$ARCH"
 
   cd - >/dev/null
 }
 
-build() {
-  if [[ "$#" -eq 0 ]]; then
-    set -- all
+build::getopt() {
+  local p
+  if ! p=$(getopt -o t: -l build-type: -n "$0" -- "$@"); then
+    build::help
   fi
 
+  eval set -- "$p"
+  unset p
+  while [[ "$#" -gt 0 ]]; do
+    local opt="$1"
+    shift
+    case "$opt" in
+    --)
+      break
+      ;;
+    -t | --build-type)
+      build_type="$1"
+      shift
+      ;;
+    esac
+  done
+
+  if [[ -z "$build_type" ]]; then
+    build_type=release
+  fi
+
+}
+
+build() {
+  if [[ "$help_requested" == true ]]; then
+    build::help
+  fi
+
+  if [[ "$#" -eq 0 ]]; then
+    set -- sdk
+  fi
+
+  local build_type=
+  build::getopt "$@"
+
   local cmd="$1"
-  shift
   case "$cmd" in
   cjc | compiler)
-    build::cjc "$@"
+    build::cjc
     ;;
   rt | runtime)
-    build::rt "$@"
+    build::rt
     ;;
   std)
-    build::std "$@"
+    build::std
     ;;
   stdx)
-    build::stdx "$@"
+    build::stdx
     ;;
   interop)
-    build::interop "$@"
+    build::interop
     ;;
-  all)
+  sdk)
     build::cjc
     build::rt
     build::std

@@ -5,6 +5,7 @@
   "devDependencies": {
     "@commitlint/cli": "^19",
     "@commitlint/config-conventional": "^19",
+    "@xbghc/gitcode-cli": "^0.0.1",
     "cz-conventional-changelog": "^3",
     "husky": "^9"
   },
