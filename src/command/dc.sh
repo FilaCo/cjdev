@@ -45,5 +45,8 @@ dc() {
     -v "$CJDEV_HOST_WORKDIR":"$CJDEV_CONTAINER_WORKDIR":rw \
     -w "$(dc::pwd)" \
     cjdev \
-    "$@"
+    bash -lc "$(
+      IFS=' '
+      echo "$*"
+    )"
 }

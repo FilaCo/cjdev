@@ -144,8 +144,17 @@ git-mm::sync() {
 
   for path in $(git-mm::config::iter path); do
     cd "$path"
+
+    local base_branch=
+    base_branch="$(git-mm::config::get module."$path".branch)"
     git fetch --quiet upstream
-    git rebase --quiet upstream/"$(git-mm::config::get module."$path".branch)"
+    git switch "$base_branch"
+    git rebase --quiet upstream/"$base_branch"
+    git push -f origin "$base_branch"
+
+    git switch - >/dev/null
+    git rebase "$base_branch"
+
     cd - >/dev/null
   done
 }
