@@ -3,15 +3,13 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# absolute path of a workspace directory on host machine
-CJDEV_HOST_WORKDIR=/home/filaco/Projects/cjdev
+source .env
+
 # absolute path of a workspace directory in a container
 CJDEV_CONTAINER_WORKDIR=/home/cjdev/Projects
 CJDEV_VERSION="$(<"$CJDEV_HOST_WORKDIR"/VERSION)"
 
 CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_HOST_WORKDIR"/.git-mm
-
-source "$CJDEV_HOST_WORKDIR"/.env
 
 source "$CJDEV_HOST_WORKDIR"/src/util/ansi.sh
 source "$CJDEV_HOST_WORKDIR"/src/util/log.sh
@@ -35,6 +33,7 @@ $(ansi::green)Options:$(ansi::resetFg)
 $(ansi::green)Commands:$(ansi::resetFg)
   $(ansi::cyan)init$(ansi::resetFg), $(ansi::cyan)i$(ansi::resetFg)  Init cjdev environment
   $(ansi::cyan)build$(ansi::resetFg)    Build Cangjie's projects
+  $(ansi::cyan)test$(ansi::resetFg)     Test Cangjie's projects
   $(ansi::cyan)git-mm$(ansi::resetFg)   Git utils for Cangjie's repositories management
   $(ansi::cyan)dc$(ansi::resetFg)       Execute a command in a container."
 
@@ -90,6 +89,8 @@ cjdev::getopt() {
 }
 
 cjdev() {
+  log::init
+
   local help_requested=
   local verbose_level=0
   typeset -i verbose_level
@@ -97,7 +98,6 @@ cjdev() {
   local cmd_opts=()
 
   cjdev::getopt "$@"
-  echo "$verbose_level" && exit
   if [[ "${#cmd_positionals[@]}" -eq 0 ]] && [[ "$help_requested" == true ]]; then
     cjdev::help
   fi
@@ -120,7 +120,7 @@ cjdev() {
     ;;
   *)
     #TODO:: to error report utils
-    echo -e "$(ansi::red)error$(ansi::resetFg): no such command: \`$cmd\`" >&2
+
     cjdev::help
     ;;
   esac

@@ -1,6 +1,6 @@
-cangjie
-cangjie_*
+cangjie*
 dist
+logs
 node_modules
 .env
 .env.*
