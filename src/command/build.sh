@@ -1,3 +1,5 @@
+ARCH="$(uname -m)"
+
 build::help() {
   echo -e "Cangjie's projects build commands
 
@@ -34,7 +36,7 @@ build::rt() {
   cd "$CJDEV_HOST_WORKDIR"/cangjie_runtime/runtime
 
   #dc python3 build.py clean
-  dc python3 build.py build -t "$build_type" -v "$CANGJIE_VERSION"
+  dc python3 build.py build -t "$build_type" -v '$CANGJIE_VERSION'
   dc python3 build.py install
 
   cd - >/dev/null
@@ -48,7 +50,7 @@ build::std() {
   #dc python3 build.py clean
   dc python3 build.py build -t "$build_type" \
     --target-lib="$CJDEV_CONTAINER_WORKDIR"/cangjie_runtime/runtime/output \
-    --target-lib="$OPENSSL_PATH"
+    --target-lib='$OPENSSL_PATH'
   dc python3 build.py install
 
   cd - >/dev/null
