@@ -1,7 +1,5 @@
-cangjie*
-dist
-logs
 node_modules
+/target
 .env
 .env.*
 !.env.dist
