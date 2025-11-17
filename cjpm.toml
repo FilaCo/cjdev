@@ -1,15 +1,16 @@
 [package]
-  cjc-version = "1.0.0"
-  name = "cjdev"
-  organization = ""
-  description = "nothing here"
-  version = "1.0.0"
-  target-dir = ""
-  script-dir = ""
-  output-type = "executable"
-  compile-option = ""
-  override-compile-option = ""
-  link-option = ""
-  package-configuration = {}
+cjc-version = "1.0.0"
+name = "cjdev"
+organization = ""
+description = "nothing here"
+version = "1.0.0"
+target-dir = ""
+script-dir = ""
+output-type = "executable"
+compile-option = ""
+override-compile-option = ""
+link-option = ""
+package-configuration = {}
 
 [dependencies]
+cli = { git = "https://gitcode.com/Cangjie-SIG/cli-cj", branch = "main" }

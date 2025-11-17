@@ -1,0 +1,4 @@
+version = 0
+
+[requires]
+  cli = {git = "https://gitcode.com/Cangjie-SIG/cli-cj", commitId = "938c87fae0cfd57b358cf294941fac113fc592c1", branch = "main"}

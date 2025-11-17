@@ -1,6 +1,7 @@
 package cjdev
 
+import cjdev.app.CjDev
+
 main(): Int64 {
-    println("hello world")
-    return 0
+    CjDev().asCli()
 }
