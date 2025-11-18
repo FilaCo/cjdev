@@ -3,22 +3,24 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-source .env
+CJDEV_SCRIPTS_HOME=$(dirname "$(readlink -f "$0")")
+
+source "$CJDEV_SCRIPTS_HOME"/.env
 
 # absolute path of a workspace directory in a container
 CJDEV_CONTAINER_WORKDIR=/home/cjdev/Projects
-CJDEV_VERSION="$(<"$CJDEV_HOST_WORKDIR"/VERSION)"
+CJDEV_VERSION="$(<"$CJDEV_SCRIPTS_HOME"/VERSION)"
 
-CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_HOST_WORKDIR"/.git-mm
+CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_SCRIPTS_HOME"/.git-mm
 
-source "$CJDEV_HOST_WORKDIR"/src/util/ansi.sh
-source "$CJDEV_HOST_WORKDIR"/src/util/log.sh
-source "$CJDEV_HOST_WORKDIR"/src/util/gitcode.sh
+source "$CJDEV_SCRIPTS_HOME"/src/util/ansi.sh
+source "$CJDEV_SCRIPTS_HOME"/src/util/log.sh
+source "$CJDEV_SCRIPTS_HOME"/src/util/gitcode.sh
 
-source "$CJDEV_HOST_WORKDIR"/src/command/init.sh
-source "$CJDEV_HOST_WORKDIR"/src/command/build.sh
-source "$CJDEV_HOST_WORKDIR"/src/command/git-mm.sh
-source "$CJDEV_HOST_WORKDIR"/src/command/dc.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/init.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/build.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/git-mm.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/dc.sh
 
 cjdev::help() {
   echo -e "Cangjie's developer util script

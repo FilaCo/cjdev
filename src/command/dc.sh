@@ -27,7 +27,7 @@ dc::pwd() {
 }
 
 dc::init() {
-  docker buildx build -t cjdev "$CJDEV_HOST_WORKDIR"
+  docker buildx build -t cjdev "$CJDEV_SCRIPTS_HOME"
 }
 
 dc() {
