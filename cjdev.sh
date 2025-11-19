@@ -14,13 +14,16 @@ CJDEV_VERSION="$(<"$CJDEV_SCRIPTS_HOME"/VERSION)"
 CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_SCRIPTS_HOME"/.git-mm
 
 source "$CJDEV_SCRIPTS_HOME"/src/util/ansi.sh
-source "$CJDEV_SCRIPTS_HOME"/src/util/log.sh
+source "$CJDEV_SCRIPTS_HOME"/src/util/general.sh
 source "$CJDEV_SCRIPTS_HOME"/src/util/gitcode.sh
+source "$CJDEV_SCRIPTS_HOME"/src/util/log.sh
 
-source "$CJDEV_SCRIPTS_HOME"/src/command/init.sh
 source "$CJDEV_SCRIPTS_HOME"/src/command/build.sh
-source "$CJDEV_SCRIPTS_HOME"/src/command/git-mm.sh
 source "$CJDEV_SCRIPTS_HOME"/src/command/dc.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/git-mm.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/init.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/test.sh
+
 
 cjdev::help() {
   echo -e "Cangjie's developer util script
@@ -120,6 +123,9 @@ cjdev() {
     ;;
   dc)
     dc "${cmd_args[@]}"
+    ;;
+  test)
+    test "${cmd_args[@]}"
     ;;
   *)
     #TODO:: to error report utils
