@@ -15,6 +15,8 @@ $(ansi::green)Commands:$(ansi::resetFg)
   $(ansi::cyan)runtime$(ansi::resetFg), $(ansi::cyan)rt$(ansi::resetFg)     Build runtime
   $(ansi::cyan)std$(ansi::resetFg)             Build standard library
   $(ansi::cyan)stdx$(ansi::resetFg)            Build standard library extensions
+  $(ansi::cyan)tools$(ansi::resetFg)           Build all Cangjie's tools
+  $(ansi::cyan)<tool_name>$(ansi::resetFg)     Build one of the tools (values: cjfmt, cjpm, lspserver)
   $(ansi::cyan)interop$(ansi::resetFg)         Build CJMP interop library."
 
   exit 1
@@ -59,7 +61,46 @@ build::std() {
 }
 
 build::stdx() {
-  echo todo stdx
+  cd "$CJDEV_HOST_WORKDIR"/cangjie_stdx
+
+  #dc python3 build.py clean
+  dc python3 build.py build -t "$build_type" \
+    --include="$CJDEV_CONTAINER_WORKDIR"/cangjie_compiler/include \
+    --target-lib='$OPENSSL_PATH'
+  dc python3 build.py install
+
+  cd - >/dev/null
+  
+  rsync -a "$CJDEV_HOST_WORKDIR"/cangjie_stdx/target/* "$CJDEV_HOST_WORKDIR"/dist/third_party/stdx
+}
+
+build::tools() {
+    build::tools::cjfmt
+    build::tools::cjpm
+    build::tools::lspserver
+}
+
+build::tools::cjfmt() {
+    echo todo cjfmt
+}
+
+build::tools::cjpm() {
+
+  cd "$CJDEV_HOST_WORKDIR"/cangjie_tools/cjpm/build
+
+  local cangjie_stdx_path="$CJDEV_CONTAINER_WORKDIR"/cangjie_stdx/target/linux_${ARCH}_cjnative/static/stdx
+  dc env CANGJIE_STDX_PATH="$cangjie_stdx_path"\
+    python3 build.py build -t "$build_type" \
+    --set-rpath \$ORIGIN/../../runtime/lib/linux_${ARCH}_cjnative
+  dc python3 build.py install
+
+  cd - >/dev/null
+  
+  rsync -a "$CJDEV_HOST_WORKDIR"/cangjie_tools/cjpm/dist/cjpm "$CJDEV_HOST_WORKDIR"/dist/tools/bin/cjpm
+}
+
+build::tools::lspserver() {
+    echo todo lspserver
 }
 
 build::interop() {
@@ -134,7 +175,20 @@ build() {
     build::rt
     build::std
     build::stdx
+    build::tools
     build::interop
+    ;;
+  tools)
+    build::tools
+    ;;
+  cjfmt)
+    build::tools::cjfmt
+    ;;
+  cjpm)
+    build::tools::cjpm
+    ;;
+  lspserver)
+    build::tools::lspserver
     ;;
   *)
     #TODO:: to error report utils
