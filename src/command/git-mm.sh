@@ -120,6 +120,7 @@ git-mm::init::impl() {
     git-mm::config::set module."$path".branch "$1"
 
     cd "$path"
+    git remote set-url origin "$(git-mm::config::get module."path".origin)"
     if ! git remote | grep -q "^upstream$"; then
       git remote add upstream "$(git-mm::config::get module."$path".upstream)"
     fi
@@ -144,7 +145,7 @@ git-mm::sync() {
   fi
 
   for path in $(git-mm::config::iter path); do
-    cd "$path"
+    cd "$CJDEV_HOST_WORKDIR"/"$path"
 
     local base_branch=
     base_branch="$(git-mm::config::get module."$path".branch)"
@@ -196,7 +197,7 @@ git-mm::start() {
   local branch=
   git-mm::start::getopt "$@"
   for path in $(git-mm::config::iter path); do
-    cd "$path"
+    cd "$CJDEV_HOST_WORKDIR"/"$path"
     git switch -c "$branch" 2>/dev/null || git switch "$branch"
     cd - >/dev/null
   done
