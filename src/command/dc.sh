@@ -20,7 +20,7 @@ dc::pwd() {
 
   local res="$CJDEV_CONTAINER_WORKDIR"
   if [ -n "$relpath" ]; then
-    res="$res$relpath"
+    res="$res/$relpath"
   fi
 
   echo "$res"
