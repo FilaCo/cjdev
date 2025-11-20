@@ -95,7 +95,7 @@ test::util::run_group() {
       exec 3>&1
       local test_output=$( (python3 "$CJDEV_HOST_WORKDIR"/cangjie_test_framework/main.py \
           --test_cfg="$config_file" "$test_dir"\
-          --test_list=$testlist_tmp --fail-verbose -pFAIL -j10 --debug \
+          --test_list=$testlist_tmp --fail-verbose -pFAIL -j10 --timeout=3 --debug \
           --temp_dir=$CJDEV_SCRIPTS_HOME/test_temp/
           ) 2>&1 1>&3 | tee /dev/stderr)
       exec 3>&-
@@ -116,16 +116,15 @@ test() {
 
   local test_list=$CJDEV_HOST_WORKDIR/test_cases
   local dump_fail=false
-  local -A groups_to_run=()
+  local groups_to_run=()
   test::getopt "$@"
-
 
   if [ ${#groups_to_run[@]} -eq 0 ]; then
     echo -e "$(ansi::red)error$(ansi::resetFg): need to specify at least one test group to run" >&2;
     test::help
   fi
 
-  echo -e "$(ansi::blue)info$(ansi::resetFg): selected groups: ${!groups_to_run[@]}" >&2;
+  echo -e "$(ansi::blue)info$(ansi::resetFg): selected groups: ${groups_to_run[@]}" >&2;
 
   if [ ! -f $test_list ]; then
       echo -e "$(ansi::red)error$(ansi::resetFg): file '$test_list' not found!" >&2
@@ -156,7 +155,7 @@ test() {
   fi 
 
   # Check if key exists
-  for group in "${!groups_to_run[@]}"; do
+  for group in "${groups_to_run[@]}"; do
     if [[ -n "${group_configs[$group]+x}" ]] && [[ -n "${group_dirs[$group]+x}" ]]; then
       local group_dir="${group_dirs[$group]}"
       local group_config="${group_configs[$group]}"
@@ -174,6 +173,7 @@ test() {
 
 test::getopt() {
   local collecting_groups=false
+  local -A requested_groups=()
   while [[ "$#" -gt 0 ]]; do
     local opt="$1"
     shift
@@ -200,9 +200,17 @@ test::getopt() {
           echo -e "$(ansi::red)error$(ansi::resetFg): no such option: \`$opt\`" >&2
           test::help
         else
-            groups_to_run+=("$(str::ascii_lower "$opt")")
+            local group="$(str::ascii_lower "$opt")"
+            if [ -z "${requested_groups[$group]+x}"]; then
+                groups_to_run+=("$group")
+                requested_groups+=("$group")
+            fi
           while [[ $# -gt 0 && "$1" != -* && "$1" != "--" ]]; do
-            groups_to_run+=("$(str::ascii_lower "$1")")
+            local group="$(str::ascii_lower "$1")"
+            if [ -z "${requested_groups[$group]+x}"]; then
+                groups_to_run+=("$group")
+                requested_groups+=("$group")
+            fi
             shift
           done
         fi
