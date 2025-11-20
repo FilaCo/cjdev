@@ -120,7 +120,7 @@ git-mm::init::impl() {
     git-mm::config::set module."$path".branch "$1"
 
     cd "$CJDEV_HOST_WORKDIR"/"$path"
-    git remote set-url origin "$(git-mm::config::get module."path".origin)"
+    git remote set-url origin "$(git-mm::config::get module."$path".origin)"
     if ! git remote | grep -q "^upstream$"; then
       git remote add upstream "$(git-mm::config::get module."$path".upstream)"
     fi
