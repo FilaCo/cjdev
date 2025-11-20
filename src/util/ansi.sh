@@ -11,6 +11,10 @@ ansi::green() {
   printf '%s32m' "$ANSI_CSI"
 }
 
+ansi::yellow() {
+  printf '%s33m' "$ANSI_CSI"
+}
+
 ansi::blue() {
   printf '%s34m' "$ANSI_CSI"
 }

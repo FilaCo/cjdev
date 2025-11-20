@@ -14,18 +14,21 @@ CJDEV_VERSION="$(<"$CJDEV_SCRIPTS_HOME"/VERSION)"
 CJDEV_GIT_MM_CONFIG_FILE="$CJDEV_SCRIPTS_HOME"/.git-mm
 
 source "$CJDEV_SCRIPTS_HOME"/src/util/ansi.sh
-source "$CJDEV_SCRIPTS_HOME"/src/util/log.sh
+source "$CJDEV_SCRIPTS_HOME"/src/util/general.sh
 source "$CJDEV_SCRIPTS_HOME"/src/util/gitcode.sh
+source "$CJDEV_SCRIPTS_HOME"/src/util/log.sh
 
-source "$CJDEV_SCRIPTS_HOME"/src/command/init.sh
 source "$CJDEV_SCRIPTS_HOME"/src/command/build.sh
-source "$CJDEV_SCRIPTS_HOME"/src/command/git-mm.sh
 source "$CJDEV_SCRIPTS_HOME"/src/command/dc.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/git-mm.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/init.sh
+source "$CJDEV_SCRIPTS_HOME"/src/command/test.sh
+
 
 cjdev::help() {
   echo -e "Cangjie's developer util script
 
-$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 [OPTIONS] [COMMAND]$(ansi::resetFg)
+$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 COMMAND [OPTIONS] $(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
   $(ansi::cyan)-V$(ansi::resetFg), $(ansi::cyan)--version$(ansi::resetFg)       Print version info and exit
@@ -51,11 +54,14 @@ cjdev::getopt() {
   if [[ "$#" -eq 0 ]]; then
     set -- --help
   fi
-  local prev_opt=
+
   while [[ "$#" -gt 0 ]]; do
-    local arg="$1"
+    local opt="$1"
     shift
-    case "$arg" in
+    case "$opt" in
+    --)
+      break
+      ;;
     -h | --help)
       help_requested=true
       ;;
@@ -65,27 +71,27 @@ cjdev::getopt() {
     -v | --verbose)
       verbose_level+=1
       ;;
-    --)
-      break
-      ;;
     -*)
-      cmd_opts+=("$arg")
-      prev_opt=true
+      if [[ -z ${subcommand} ]]; then
+        echo -e "$(ansi::red)error$(ansi::resetFg): no such option: \`$opt\`" >&2
+        cjdev::help
+      else
+        cmd_args+=("$opt")
+      fi
       ;;
     *)
-      if [[ "$prev_opt" == true ]]; then
-        cmd_opts+=("$arg")
-        prev_opt=false
+      if [[ -z ${subcommand} ]]; then
+        subcommand="$opt"
       else
-        cmd_positionals+=("$arg")
+        cmd_args+=("$opt")
       fi
       ;;
     esac
   done
 
-  # if `--` is met - push the remainder as cmd_opts
+  # if `--` is met - push the remainder as cmd_args
   while [[ "$#" -gt 0 ]]; do
-    cmd_opts+=("$1")
+    cmd_args+=("$1")
     shift
   done
 }
@@ -95,19 +101,17 @@ cjdev() {
 
   local help_requested=
   local verbose_level=0
+  local subcommand=
   typeset -i verbose_level
-  local cmd_positionals=()
-  local cmd_opts=()
+  local cmd_args=()
 
   cjdev::getopt "$@"
-  if [[ "${#cmd_positionals[@]}" -eq 0 ]] && [[ "$help_requested" == true ]]; then
+
+  if [[ -z ${subcommand} ]] && [[ "$help_requested" == true ]]; then
     cjdev::help
   fi
 
-  local cmd="${cmd_positionals[0]}"
-  local positionals_len="${#cmd_positionals[@]}"
-  local cmd_args=("${cmd_positionals[@]:1:$positionals_len}" "${cmd_opts[@]}")
-  case "${cmd}" in
+  case "${subcommand}" in
   i | init)
     init "${cmd_args[@]}"
     ;;
@@ -119,6 +123,9 @@ cjdev() {
     ;;
   dc)
     dc "${cmd_args[@]}"
+    ;;
+  test)
+    test "${cmd_args[@]}"
     ;;
   *)
     #TODO:: to error report utils
