@@ -24,7 +24,7 @@ test::util::initialize_maps() {
 test::help() {
   echo -e "Test Cangjie's projects
 
-$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 test [OPTIONS]$(ansi::resetFg)
+$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 test [OPTIONS] -- [ARGS] $(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
   $(ansi::cyan)-f$(ansi::resetFg), $(ansi::cyan)--file$(ansi::resetFg)         Specify testlist file to read from
@@ -94,9 +94,10 @@ test::util::run_group() {
       # FD shenanigans to keep test progress visible
       exec 3>&1
       local test_output=$( (python3 "$CJDEV_HOST_WORKDIR"/cangjie_test_framework/main.py \
-          --test_cfg="$config_file" "$test_dir"\
-          --test_list=$testlist_tmp --fail-verbose -pFAIL -j10 --timeout=3 --debug \
-          --temp_dir=$CJDEV_SCRIPTS_HOME/test_temp/
+          --test_cfg="$config_file" "$test_dir" \
+          --test_list=$testlist_tmp --fail-verbose -pFAIL -j10 --debug \
+          --temp_dir=$CJDEV_SCRIPTS_HOME/test_temp/ \
+          "${main_py_opts[@]}"
           ) 2>&1 1>&3 | tee /dev/stderr)
       exec 3>&-
 
@@ -117,6 +118,7 @@ test() {
   local test_list=$CJDEV_HOST_WORKDIR/test_cases
   local dump_fail=false
   local groups_to_run=()
+  local -n main_py_opts=cmd_args
   test::getopt "$@"
 
   if [ ${#groups_to_run[@]} -eq 0 ]; then
@@ -125,6 +127,10 @@ test() {
   fi
 
   echo -e "$(ansi::blue)info$(ansi::resetFg): selected groups: ${groups_to_run[@]}" >&2;
+
+  if [ ! ${#main_py_opts[@]} -eq 0 ]; then
+    echo -e "$(ansi::blue)info$(ansi::resetFg): additional options for \`cangjie_test_framework/main.py\`: ${main_py_opts[@]}" >&2;
+  fi
 
   if [ ! -f $test_list ]; then
       echo -e "$(ansi::red)error$(ansi::resetFg): file '$test_list' not found!" >&2
@@ -178,10 +184,6 @@ test::getopt() {
     local opt="$1"
     shift
     case "$opt" in
-      --)
-        collecting_groups=false
-        break
-        ;;
       -g | --groups)
         collecting_groups=true
         ;;
@@ -217,5 +219,6 @@ test::getopt() {
         ;;
     esac
   done
+
 }
 

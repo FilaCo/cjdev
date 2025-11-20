@@ -76,14 +76,14 @@ cjdev::getopt() {
         echo -e "$(ansi::red)error$(ansi::resetFg): no such option: \`$opt\`" >&2
         cjdev::help
       else
-        cmd_args+=("$opt")
+        cmd_opts+=("$opt")
       fi
       ;;
     *)
       if [[ -z ${subcommand} ]]; then
         subcommand="$opt"
       else
-        cmd_args+=("$opt")
+        cmd_opts+=("$opt")
       fi
       ;;
     esac
@@ -104,6 +104,7 @@ cjdev() {
   local subcommand=
   typeset -i verbose_level
   local cmd_args=()
+  local cmd_opts=()
 
   cjdev::getopt "$@"
 
@@ -113,19 +114,19 @@ cjdev() {
 
   case "${subcommand}" in
   i | init)
-    init "${cmd_args[@]}"
+    init "${cmd_opts[@]}"
     ;;
   build)
-    build "${cmd_args[@]}"
+    build "${cmd_opts[@]}"
     ;;
   git-mm)
-    git-mm "${cmd_args[@]}"
+    git-mm "${cmd_opts[@]}"
     ;;
   dc)
     dc "${cmd_args[@]}"
     ;;
   test)
-    test "${cmd_args[@]}"
+    test "${cmd_opts[@]}"
     ;;
   *)
     #TODO:: to error report utils
