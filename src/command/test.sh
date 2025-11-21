@@ -24,7 +24,7 @@ test::util::initialize_maps() {
 test::help() {
   echo -e "Test Cangjie's projects
 
-$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 test [OPTIONS]$(ansi::resetFg)
+$(ansi::green)Usage:$(ansi::resetFg) $(ansi::cyan)$0 test [OPTIONS] -- [ARGS] $(ansi::resetFg)
 
 $(ansi::green)Options:$(ansi::resetFg)
   $(ansi::cyan)-f$(ansi::resetFg), $(ansi::cyan)--file$(ansi::resetFg)         Specify testlist file to read from
@@ -51,58 +51,59 @@ $(ansi::green)Options:$(ansi::resetFg)
 
 
 # Usage: 
-# $ test::util::read_section <source> <dest> <section>
-test::util::read_section() {
+# $ test::util::read_group <source> <dest> <group>
+test::util::read_group() {
     local source="$1"
     local dest="$2"
-    local section="$(str::ascii_upper "$3")"
+    local group="$(str::ascii_upper "$3")"
     echo "$source" | awk \
-        -v section="$section" \
+        -v group="$group" \
         'BEGIN { printing=0; }
          (/\[ .* \]/ && printing) { printing=0; }
-         (toupper($0) ~ "\\[ " section " \\]" && !/^!/ && !printing) { printing=1; next }
+         (toupper($0) ~ "\\[ " group " \\]" && !/^!/ && !printing) { printing=1; next }
          (!(/\[ .* \]/) && printing) { print $0 }
         ' >> "$dest"
 }
 
 # Usage: 
-# $ test::util::dump_section <source> <dest> <section>
-test::util::dump_section() {
+# $ test::util::dump_group <source> <dest> <group>
+test::util::dump_group() {
     local source="$1"
     local dest="$2"
-    local section="$(str::ascii_upper "$3")"
+    local group="$(str::ascii_upper "$3")"
 
     local sedness=$(echo "$source" | sed -n 's/.*Case: \(.*\), Result: FAIL,.*/\1/p')
-    echo "[ $section ]
+    echo "[ $group ]
 $sedness
 " >> "$dest"
 }
 
 # Usage: 
-# $ test::util::run_section <source> <section> <test_dir> <config_file>
-test::util::run_section() {
+# $ test::util::run_group <source> <group> <test_dir> <config_file>
+test::util::run_group() {
   local source="$1"
-  local section_name="$(str::ascii_upper "$2")"
+  local group_name="$(str::ascii_upper "$2")"
   local test_dir="$3"
   local config_file="$4"
 
   local testlist_tmp=$(mktemp "$tmpdir/runtest.XXXXXX")
-  test::util::read_section "$source" "$testlist_tmp" "$section_name"
+  test::util::read_group "$source" "$testlist_tmp" "$group_name"
   if [ ! -s $testlist_tmp ]; then
-      echo -e "$(ansi::yellow)warning$(ansi::resetFg): no \`[ $section_name ]\` test files were specified. Skipping..." >&2
+      echo -e "$(ansi::yellow)warning$(ansi::resetFg): no \`[ $group_name ]\` test files were specified. Skipping..." >&2
   else 
       # FD shenanigans to keep test progress visible
       exec 3>&1
       local test_output=$( (python3 "$CJDEV_HOST_WORKDIR"/cangjie_test_framework/main.py \
-          --test_cfg="$config_file" "$test_dir"\
+          --test_cfg="$config_file" "$test_dir" \
           --test_list=$testlist_tmp --fail-verbose -pFAIL -j10 --debug \
-          --temp_dir=$CJDEV_SCRIPTS_HOME/test_temp/
+          --temp_dir=$CJDEV_SCRIPTS_HOME/test_temp/ \
+          "${main_py_opts[@]}"
           ) 2>&1 1>&3 | tee /dev/stderr)
       exec 3>&-
 
       # TODO: Would be good if failed testcases were dumped even after SIGINT
       if $dump_fail; then
-          test::util::dump_section "$test_output" "$dumpfile" "$section_name"
+          test::util::dump_group "$test_output" "$dumpfile" "$group_name"
       fi
   fi
 }
@@ -116,16 +117,20 @@ test() {
 
   local test_list=$CJDEV_HOST_WORKDIR/test_cases
   local dump_fail=false
-  local -A groups_to_run=()
+  local groups_to_run=()
+  local -n main_py_opts=cmd_args
   test::getopt "$@"
-
 
   if [ ${#groups_to_run[@]} -eq 0 ]; then
     echo -e "$(ansi::red)error$(ansi::resetFg): need to specify at least one test group to run" >&2;
     test::help
   fi
 
-  echo -e "$(ansi::blue)info$(ansi::resetFg): selected groups: ${!groups_to_run[@]}" >&2;
+  echo -e "$(ansi::blue)info$(ansi::resetFg): selected groups: ${groups_to_run[@]}" >&2;
+
+  if [ ! ${#main_py_opts[@]} -eq 0 ]; then
+    echo -e "$(ansi::blue)info$(ansi::resetFg): additional options for \`cangjie_test_framework/main.py\`: ${main_py_opts[@]}" >&2;
+  fi
 
   if [ ! -f $test_list ]; then
       echo -e "$(ansi::red)error$(ansi::resetFg): file '$test_list' not found!" >&2
@@ -156,12 +161,12 @@ test() {
   fi 
 
   # Check if key exists
-  for group in "${!groups_to_run[@]}"; do
+  for group in "${groups_to_run[@]}"; do
     if [[ -n "${group_configs[$group]+x}" ]] && [[ -n "${group_dirs[$group]+x}" ]]; then
       local group_dir="${group_dirs[$group]}"
       local group_config="${group_configs[$group]}"
       echo -e "$(ansi::blue)info$(ansi::resetFg): running test group: \`$group\`" >&2
-      test::util::run_section "$input" "$group" "$group_dir" "$group_config"
+      test::util::run_group "$input" "$group" "$group_dir" "$group_config"
     else
       echo -e "$(ansi::yellow)warning$(ansi::resetFg): unknown test group: \`$group\`" >&2
     fi
@@ -174,14 +179,11 @@ test() {
 
 test::getopt() {
   local collecting_groups=false
+  local -A requested_groups=()
   while [[ "$#" -gt 0 ]]; do
     local opt="$1"
     shift
     case "$opt" in
-      --)
-        collecting_groups=false
-        break
-        ;;
       -g | --groups)
         collecting_groups=true
         ;;
@@ -200,14 +202,23 @@ test::getopt() {
           echo -e "$(ansi::red)error$(ansi::resetFg): no such option: \`$opt\`" >&2
           test::help
         else
-            groups_to_run+=("$(str::ascii_lower "$opt")")
+            local group="$(str::ascii_lower "$opt")"
+            if [ -z "${requested_groups[$group]+x}"]; then
+                groups_to_run+=("$group")
+                requested_groups+=("$group")
+            fi
           while [[ $# -gt 0 && "$1" != -* && "$1" != "--" ]]; do
-            groups_to_run+=("$(str::ascii_lower "$1")")
+            local group="$(str::ascii_lower "$1")"
+            if [ -z "${requested_groups[$group]+x}"]; then
+                groups_to_run+=("$group")
+                requested_groups+=("$group")
+            fi
             shift
           done
         fi
         ;;
     esac
   done
+
 }
 
