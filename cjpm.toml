@@ -13,4 +13,3 @@ link-option = ""
 package-configuration = {}
 
 [dependencies]
-cli = { git = "https://gitcode.com/Cangjie-SIG/cli-cj", branch = "main" }
