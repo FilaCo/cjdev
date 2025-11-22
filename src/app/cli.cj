@@ -12,7 +12,7 @@ protected class CjDevCli {
             .withSubcommand(buildCmd)
             .withSubcommand(dcCmd)
             .withSubcommand(testCmd)
-            .withSubcommand(gitMmCmd)
+            .withSubcommand(gitCmd)
     }
 
     static func initCmd(): Command {
@@ -69,11 +69,11 @@ protected class CjDevCli {
             }
     }
 
-    static func gitMmCmd(): Command {
-        Command("git-mm")
+    static func gitCmd(): Command {
+        Command("git")
             .withDescription("Utils for Cangjie's repositories management")
             .withSubcommand {
-                => Command("init").withAlias("i").withDescription("Initialize git-mm").withArgument {
+                => Command("init").withAlias("i").withDescription("Initialize git repos").withArgument {
                     => Argument("branch")
                         .withDescription("A remote branch for tracking updates")
                         .withShort(r'b')

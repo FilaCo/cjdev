@@ -35,6 +35,10 @@ public class Argument <: Equatable<Argument> & Hashable {
         this
     }
 
+    public func withDefaultValue<T>(defaultValue: T): This {
+        this
+    }
+
     public operator func ==(other: Argument) {
         _name == other._name
     }

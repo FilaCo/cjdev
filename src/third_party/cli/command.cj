@@ -1,14 +1,14 @@
 package cjdev.third_party.cli
 
-import std.collection.HashSet
+import std.collection.{HashMap, HashSet}
 
 public class Command <: Equatable<Command> & Hashable {
     private var _version: ?String = None
     private var _description: ?String = None
     private var _usage: ?String = None
     private var _aliases = HashSet<String>()
-    private var _arguments = HashSet<Argument>()
-    private var _subcommands = HashSet<Command>()
+    private var _arguments = HashMap<Argument>()
+    private var _subcommands = HashMap<Command>()
 
     public Command(private var _name: String) {
     }
@@ -63,8 +63,8 @@ public class Command <: Equatable<Command> & Hashable {
         withSubcommand(factory())
     }
 
-    public func getMatches(): Int64 {
-        0
+    public func getMatches(): ArgumentMatches {
+        ArgumentMatches()
     }
 
     public operator func ==(other: Command) {
