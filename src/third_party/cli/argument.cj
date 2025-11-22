@@ -1,4 +1,4 @@
-package cjdev.util.cli
+package cjdev.third_party.cli
 
 public class Argument <: Equatable<Argument> & Hashable {
     private var _description: ?String = None

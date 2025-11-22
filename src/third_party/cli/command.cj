@@ -1,4 +1,4 @@
-package cjdev.util.cli
+package cjdev.third_party.cli
 
 import std.collection.HashSet
 

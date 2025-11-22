@@ -1,6 +1,6 @@
 package cjdev.app
 
-import cjdev.util.cli.{Argument, Command}
+import cjdev.third_party.cli.{Argument, Command}
 
 protected class CjDevCli {
     static func rootCmd(): Command {
@@ -98,9 +98,9 @@ protected class CjDevCli {
                     .withDescription("Create PRs to upstreams with commited changes")
                     .withArgument {
                         => Argument("title")
-                        .withDescription("A title for the pull request")
-                        .withShort(r'T')
-                        .withLong("title")
+                            .withDescription("A title for the pull request")
+                            .withShort(r'T')
+                            .withLong("title")
                     }
             }
     }
