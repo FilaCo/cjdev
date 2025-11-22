@@ -1,40 +1,77 @@
 package cjdev.util.cli
 
-public class Command {
-    private var name: ?String = None
-    private var version: ?String = None
+import std.collection.HashSet
 
-    public Command(name: String) {
-        this.withName(name)
+public class Command <: Equatable<Command> & Hashable {
+    private var _version: ?String = None
+    private var _description: ?String = None
+    private var _usage: ?String = None
+    private var _aliases = HashSet<String>()
+    private var _arguments = HashSet<Argument>()
+    private var _subcommands = HashSet<Command>()
+
+    public Command(private var _name: String) {
     }
 
-    private init() {}
-
     public func withName(name: String): This {
-        this.name = name
+        _name = name
 
         this
     }
 
     public func withVersion(version: String): This {
-        this.version = Some(version)
+        _version = version
+
+        this
+    }
+
+    public func withDescription(description: String): This {
+        _description = description
+
+        this
+    }
+
+    public func withUsage(usage: String): This {
+        _usage = usage
+
+        this
+    }
+
+    public func withAlias(alias: String): This {
+        _aliases.add(alias)
 
         this
     }
 
     public func withArgument(argument: Argument): This {
+        _arguments.add(argument)
+
         this
     }
 
-    public func withArgument(director: (Argument) -> Argument): This {
-        withArgument(director(Argument()))
+    public func withArgument(factory: () -> Argument): This {
+        withArgument(factory())
     }
 
-    public func withSubCommand(command: Command): This {
+    public func withSubcommand(command: Command): This {
+        _subcommands.add(command)
+
         this
     }
 
-    public func withSubCommand(director: (Command) -> Command): This {
-        withSubCommand(director(Command()))
+    public func withSubcommand(factory: () -> Command): This {
+        withSubcommand(factory())
+    }
+
+    public func getMatches(): Int64 {
+        0
+    }
+
+    public operator func ==(other: Command) {
+        _name == other._name
+    }
+
+    public func hashCode(): Int64 {
+        _name.hashCode()
     }
 }

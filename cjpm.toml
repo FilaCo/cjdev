@@ -2,8 +2,8 @@
 cjc-version = "1.0.0"
 name = "cjdev"
 organization = ""
-description = "nothing here"
-version = "1.0.0"
+description = "Cangjie's developer utility tool"
+version = "0.1.0"
 target-dir = ""
 script-dir = ""
 output-type = "executable"
@@ -11,5 +11,9 @@ compile-option = ""
 override-compile-option = ""
 link-option = ""
 package-configuration = {}
+
+[target.x86_64-unknown-linux-gnu]
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+path-option = ["${CANGJIE_STDX_PATH}"]
 
 [dependencies]
