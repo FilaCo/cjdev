@@ -17,3 +17,4 @@ package-configuration = {}
 path-option = ["${CANGJIE_STDX_PATH}"]
 
 [dependencies]
+cli = { git = "https://gitcode.com/mcbbsandnz/cli-cj", branch = "main" }
