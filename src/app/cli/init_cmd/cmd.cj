@@ -1,13 +1,13 @@
 package cjdev.app.cli.init_cmd
 
 import cli.{Arg, ArgMatch, Command}
-import cjdev.app.config.CjDevConfig
+import cjdev.third_party.di.Registry
 
 private let INIT_CMD_ABOUT = "Initialize cjdev environment"
 private let INIT_CMD_HELP = "Initialize cjdev environment"
 private let INIT_CMD_USAGE = "Usage: cjdev init [OPTIONS]"
 
-public func initCmd(cfg: CjDevConfig): Command {
+public func initCmd(cfg: Registry): Command {
     Command("init")
         .about(INIT_CMD_ABOUT)
         .help(INIT_CMD_HELP)
@@ -18,4 +18,4 @@ public func initCmd(cfg: CjDevConfig): Command {
         .action {matches => initAction(cfg, matches)}
 }
 
-private func initAction(cfg: CjDevConfig, matches: ArgMatch) {}
+private func initAction(cfg: Registry, matches: ArgMatch) {}

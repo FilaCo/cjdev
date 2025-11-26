@@ -2,18 +2,14 @@ package cjdev.app.cli.git
 
 import std.env.exit
 import cli.{Arg, ArgMatch, Command}
-import cjdev.app.config.CjDevConfig
+import cjdev.third_party.di.Registry
 
 private let GIT_CMD_ABOUT = "Utils for Cangjie's repositories management"
 private let GIT_CMD_HELP = "Utils for Cangjie's repositories management"
 private let GIT_CMD_USAGE = "Usage: cjdev git [COMMAND] [OPTIONS]"
 
-public func gitCmd(cfg: CjDevConfig) {
-    Command("git")
-        .about(GIT_CMD_ABOUT)
-        .help(GIT_CMD_HELP)
-        .usage(GIT_CMD_USAGE)
-        .action {matches => gitAction(cfg, matches)}
+public func gitCmd(cfg: Registry) {
+    Command("git").about(GIT_CMD_ABOUT).help(GIT_CMD_HELP).usage(GIT_CMD_USAGE).action {_ => gitAction()}
 }
 
 // .subcommand(
@@ -33,7 +29,7 @@ public func gitCmd(cfg: CjDevConfig) {
 //         .help("Create PRs to upstreams with commited changes")
 // .arg(Arg("title").help("A title for the pull request").short(r'T')))
 
-private func gitAction(cfg: CjDevConfig, matches: ArgMatch) {
+private func gitAction() {
     println(GIT_CMD_USAGE)
     exit(1)
 }
