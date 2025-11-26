@@ -1,6 +1,6 @@
 .cache
 node_modules
-/target
+target
 .env
 .env.*
 !.env.dist

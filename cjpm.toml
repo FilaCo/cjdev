@@ -1,20 +1,10 @@
-[package]
-cjc-version = "1.0.0"
-name = "cjdev"
-organization = ""
-description = "Cangjie's developer utility tool"
-version = "0.1.0"
-target-dir = ""
-script-dir = ""
-output-type = "executable"
+[workspace]
+members = ["packages/yadi"]
+build-members = []
+test-members = []
 compile-option = ""
 override-compile-option = ""
 link-option = ""
-package-configuration = {}
-
-[target.x86_64-unknown-linux-gnu]
-[target.x86_64-unknown-linux-gnu.bin-dependencies]
-path-option = ["${CANGJIE_STDX_PATH}"]
+target-dir = ""
 
 [dependencies]
-cli = { git = "https://gitcode.com/mcbbsandnz/cli-cj", branch = "main" }
