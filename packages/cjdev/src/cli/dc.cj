@@ -20,10 +20,9 @@ func addDcCommand(builder: RegistryBuilder): RegistryBuilder {
                 .about(DC_CMD_ABOUT)
                 .help(DC_CMD_HELP)
                 .usage(DC_CMD_USAGE)
-                .arg(Arg("args").positionalArgsSet(true, 1).help(ARGS_HELP).defaultValue<Array<String>>([]))
-                .action {matches => dcAction(matches, reg.get<Dc>())}
+                .action {_ => dcAction(reg.get<Dc>())}
         }
-        .addTransient {reg: Registry => Dc(reg.get<CommandLauncher>(), reg.get<Logger>("cjdev.logger.global"))}
+        .addLazy {reg: Registry => Dc(reg.get<CommandLauncher>(), reg.get<Logger>("cjdev.logger.global"))}
 }
 
 class Dc {
@@ -35,7 +34,6 @@ class Dc {
     }
 }
 
-private func dcAction(matches: ArgMatch, dc: Dc) {
+private func dcAction(dc: Dc) {
     // dc.runCmd(matches.getStringArray("args"))
-    exit(1)
 }
