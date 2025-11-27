@@ -78,10 +78,17 @@ public class RegistryEntryNotFoundException <: Exception {
     RegistryEntryNotFoundException(tag: Tag) {
         super("entry for tag `${tag}` not found")
     }
+
+    protected func getClassName() {
+        "RegistryEntryNotFoundException"
+    }
 }
 
 public class RegistryEntryHasWrongTypeException <: Exception {
     RegistryEntryHasWrongTypeException(tag: Tag, expected: TypeInfo, actual: TypeInfo) {
         super("entry for tag `${tag}` has wrong type. Expected type: ${expected}, actual: ${actual}")
+    }
+    protected func getClassName() {
+        "RegistryEntryHasWrongTypeException"
     }
 }
