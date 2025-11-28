@@ -1,9 +1,9 @@
 [workspace]
-members = ["packages/cjdev", "packages/yadi"]
+members = ["packages/cjdev", "packages/yacli", "packages/yadi"]
 build-members = []
 test-members = []
 compile-option = ""
-override-compile-option = ""
+override-compile-option = "-Woff unused"
 link-option = ""
 target-dir = ""
 

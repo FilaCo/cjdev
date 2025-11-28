@@ -1,6 +1,6 @@
 [package]
   cjc-version = "1.0.5"
-  name = "yadi"
+  name = "yacli"
   description = "nothing here"
   version = "1.0.0"
   target-dir = ""

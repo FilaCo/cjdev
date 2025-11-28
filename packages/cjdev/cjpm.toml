@@ -15,6 +15,5 @@ package-configuration = {}
 path-option = ["${CANGJIE_STDX_PATH}"]
 
 [dependencies]
-cli = { git = "https://gitcode.com/filaco/cli-cj", branch = "main" }
 cangjie_toml = { git = "https://gitcode.com/filaco/cangjie_toml", branch = "main" }
 yadi = { path = "../yadi" }
