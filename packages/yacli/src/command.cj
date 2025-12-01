@@ -3,7 +3,7 @@ package yacli
 import std.collection.HashMap
 import std.env.getCommandLine
 
-public class Command <: Equatable<Command> & Hashable {
+public class Command {
     private var _version = None<String>
     private var _about = None<String>
     private var _usage = None<String>
@@ -64,11 +64,11 @@ public class Command <: Equatable<Command> & Hashable {
         _name
     }
 
-    public operator func ==(other: Command) {
-        _name == other._name
+    public func getVersion(): ?String {
+        _version
     }
 
-    public func hashCode(): Int64 {
-        _name.hashCode()
+    public func getAbout(): ?String {
+        _about
     }
 }

@@ -1,14 +1,14 @@
 package yacli
 
-public class Arg <: Equatable<Arg> & Hashable {
+public class Arg {
     private var _help = None<String>
-    private var _kind = Pos
     private var _action = Set
     private var _short = None<Rune>
     private var _long = None<String>
-    private var _valueName = None<String>
+    private var _valueName: String
 
     public Arg(private var _name: String) {
+        _valueName = _name.toAsciiUpper()
     }
 
     public func name(name: String): This {
@@ -31,19 +31,23 @@ public class Arg <: Equatable<Arg> & Hashable {
 
     public func short(short: Rune): This {
         _short = short
-        _kind = Opt
 
         this
     }
 
     public func long(long: String): This {
         _long = long
-        _kind = Opt
 
         this
     }
 
-    public func defaultValue<T>(value: T): This {
+    public func defaultValue<T>(defaultValue: T): This {
+        this
+    }
+
+    public func valueName(valueName: String): This {
+        _valueName = valueName
+
         this
     }
 
@@ -51,17 +55,25 @@ public class Arg <: Equatable<Arg> & Hashable {
         _name
     }
 
-    public operator func ==(other: Arg) {
-        _name == other._name
+    public func getHelp(): ?String {
+        _help
     }
 
-    public func hashCode(): Int64 {
-        _name.hashCode()
+    public func getAction(): ArgAction {
+        _action
     }
-}
 
-enum ArgKind {
-    Pos | Opt
+    public func getShort(): ?Rune {
+        _short
+    }
+
+    public func getLong(): ?String {
+        _long
+    }
+
+    public func getValueName(): String {
+        _valueName
+    }
 }
 
 public enum ArgAction {
