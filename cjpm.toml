@@ -1,5 +1,5 @@
 [workspace]
-members = ["packages/cjdev", "packages/yacli", "packages/yadi"]
+members = ["cjdev", "libs/yacli", "libs/yadi"]
 build-members = []
 test-members = []
 compile-option = ""
