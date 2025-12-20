@@ -150,11 +150,11 @@ git-mm::sync() {
     local base_branch=
     base_branch="$(git-mm::config::get module."$path".branch)"
     git fetch --quiet upstream
-    git switch "$base_branch"
+    git checkout "$base_branch"
     git rebase --quiet upstream/"$base_branch"
     git push -f origin "$base_branch"
 
-    git switch - >/dev/null
+    git checkout - >/dev/null
     git rebase "$base_branch"
 
     cd - >/dev/null
@@ -198,7 +198,7 @@ git-mm::start() {
   git-mm::start::getopt "$@"
   for path in $(git-mm::config::iter path); do
     cd "$CJDEV_HOST_WORKDIR"/"$path"
-    git switch -c "$branch" 2>/dev/null || git switch "$branch"
+    git checkout -b "$branch" 2>/dev/null || git checkout "$branch"
     cd - >/dev/null
   done
 }
