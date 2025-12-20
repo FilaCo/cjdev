@@ -11,7 +11,9 @@ extend GeneralConfig <: Serializable<GeneralConfig> {
         DataModelStruct().add(field("useDocker", useDocker))
     }
 
-    // throws GeneralConfigUnsupportedDataModelException
+    /**
+     * throws GeneralConfigUnsupportedDataModelException
+     */
     public static func deserialize(dm: DataModel): GeneralConfig {
         let dms = match (dm) {
             case d: DataModelStruct => d

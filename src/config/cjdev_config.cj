@@ -2,7 +2,6 @@ package cjdev.config
 
 import std.fs.{exists, Path}
 import stdx.serialization.serialization.{Serializable, DataModel, DataModelStruct, field}
-import yadi.{RegistryBuilder, Registry}
 import cangjie_toml.cangjie_toml.FromToml
 
 public struct CjDevConfig {
@@ -28,20 +27,4 @@ public class CjDevConfigUnsupportedDataModelException <: Exception {
     public CjDevConfigUnsupportedDataModelException() {
         super("Unsupported DataModel class used, expected DataModelStruct")
     }
-}
-
-public func addConfig(builder: RegistryBuilder): RegistryBuilder {
-    const CJDEV_CONFIG_PATH = "cjdev.toml"
-    if (!exists(CJDEV_CONFIG_PATH)) {
-        return builder
-    }
-
-    builder
-        .addLazy<CjDevConfig> {
-            _ => DataModel.fromTomlFile(CJDEV_CONFIG_PATH) |> CjDevConfig.deserialize
-        }
-        .addTransient<GeneralConfig> {
-            reg => reg.get<CjDevConfig>().general
-        }
-        .addTransient<ProjectsConfig> {reg => reg.get<CjDevConfig>().projects}
 }

@@ -18,7 +18,9 @@ extend ProjectsConfig <: Serializable<ProjectsConfig> {
         dms
     }
 
-    // throws ProjectsConfigUnsupportedDataModelException
+    /**
+     * throws ProjectsConfigUnsupportedDataModelException
+     */
     public static func deserialize(dm: DataModel): ProjectsConfig {
         let dms = match (dm) {
             case d: DataModelStruct => d
@@ -54,7 +56,9 @@ extend ProjectConfig <: Serializable<ProjectConfig> {
         DataModelStruct()
     }
 
-    // throws ProjectConfigUnsupportedDataModelException
+    /**
+     * throws ProjectConfigUnsupportedDataModelException
+     */
     public static func deserialize(dm: DataModel): ProjectConfig {
         let dms = match (dm) {
             case d: DataModelStruct => d

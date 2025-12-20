@@ -1,5 +1,5 @@
 version = 0
 
 [requires]
-  cli = {git = "https://gitcode.com/filaco/cli-cj", commitId = "938c87fae0cfd57b358cf294941fac113fc592c1", branch = "main"}
   cangjie_toml = {git = "https://gitcode.com/filaco/cangjie_toml", commitId = "fd6dc17727105c9bd0a6a844b4865316fe86c51a", branch = "main"}
+  registry = {git = "https://github.com/FilaCo/registry-cj", commitId = "bbadf6590321fccd3cff776a015ece500a59b973", branch = "master"}

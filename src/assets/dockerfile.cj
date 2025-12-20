@@ -1,6 +1,6 @@
 package cjdev.assets
 
-public let DOCKERFILE: String = #"
+public const DOCKERFILE: String = #"
 FROM swr.cn-north-4.myhuaweicloud.com/cj-docker/cangjie_ubuntu22_x86_kernel:v1.2 AS dev
 
 # GNUStep setup

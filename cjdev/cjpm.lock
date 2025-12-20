@@ -1,5 +1,0 @@
-version = 0
-
-[requires]
-  cli = {git = "https://gitcode.com/filaco/cli-cj", commitId = "938c87fae0cfd57b358cf294941fac113fc592c1", branch = "main"}
-  cangjie_toml = {git = "https://gitcode.com/filaco/cangjie_toml", commitId = "fd6dc17727105c9bd0a6a844b4865316fe86c51a", branch = "main"}
