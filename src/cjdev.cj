@@ -1,6 +1,6 @@
 package cjdev
 
-import std.argopt.{ArgumentParseException, parseArguments, ArgumentSpec, ArgumentMode}
+import std.argopt.{ArgumentParseException, parseArguments, ArgumentSpec, ArgumentMode, ParsedArguments}
 import std.env.{atExit, exit}
 import stdx.log.{setGlobalLogger, Logger}
 import registry.{Registry, Builder, extra.entry.AddLazy, extra.entry.AddTransient}
@@ -24,7 +24,7 @@ private let REGISTRY: Registry = Registry
 
 /**
  * CjDev entrypoint.
- * Sets environment, logging, `atExit` callback and executes `CjDevCommand`
+ * Sets environment, logging and `atExit` callback
  */
 public func cjDev(args: Array<String>): Unit {
     let logger = REGISTRY.get<Logger>(GLOBAL_LOGGER_TAG)
@@ -37,19 +37,25 @@ private class CjDev {
     public CjDev(private let dc_: Dc, private let logger_: Logger) {}
 
     public func execute(args: Array<String>): Unit {
-        logger_.trace("executing cjdev command...")
         try {
             let parsed = parseArguments(args, CJDEV_ARGS_SPEC)
-        } catch (e: ArgumentParseException) {
-            logger_.error("argument parsing failed")
-            println(CJDEV_USAGE)
+            let cmd = parsed.nonOptions.get(0)
+            match (cmd) {
+                case Some("dc") => dc_.execute(parsed)
+                case Some(cmd) => throw Exception("no such command: `${cmd}`")
+                case None => execute(parsed)
+            }
+        } catch (e: Exception) {
+            logger_.error(e.message)
+            printUsage()
             exit(1)
         }
     }
 
     private static let CJDEV_ARGS_SPEC = [Full("version", r'V', NoValue), Full("verbose", r'v', NoValue),
         Full("help", r'h', NoValue)];
-    private static const CJDEV_USAGE = "Usage: cjdev [OPTIONS] [COMMAND]"
+    private static const CJDEV_VERSION = "0.1.0"
+    private static const CJDEV_USAGE = "Usage: cjdev [OPTIONS] <COMMAND>"
     private static let CJDEV_HELP = """
 Cangjie's developer utility tool
 
@@ -61,10 +67,31 @@ Options:
   -h, --help      Print help
 
 Commands:
+  status    Show the cjdev environment status
   init, i   Init cjdev environment
   build     Build Cangjie's projects
   test      Test Cangjie's projects
   git       Git utils for Cangjie's repositories management
-  dc        Execute a command in the container.
-"""
+  dc        Execute a command in the container."""
+
+    private func execute(args: ParsedArguments): Unit {
+        if (args.options.contains("version") || args.options.contains("V")) {
+            printVersion()
+            return
+        }
+
+        printHelp()
+    }
+
+    private func printHelp(): Unit {
+        println(CJDEV_HELP)
+    }
+
+    private func printUsage(): Unit {
+        println(CJDEV_USAGE)
+    }
+
+    private func printVersion(): Unit {
+        println("cjdev ${CJDEV_VERSION}")
+    }
 }
