@@ -9,7 +9,7 @@ public struct ProjectsConfig {
 }
 
 extend ProjectsConfig <: Default<ProjectsConfig> {
-    public func default(): ProjectsConfig {
+    public static func default(): ProjectsConfig {
         ProjectsConfig(HashMap<String, ProjectConfig>())
     }
 }

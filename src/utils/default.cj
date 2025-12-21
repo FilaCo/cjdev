@@ -1,5 +1,5 @@
 package cjdev.utils
 
 public interface Default<T> {
-    public func default(): T
+    static func default(): T
 }

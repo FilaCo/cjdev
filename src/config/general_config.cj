@@ -8,7 +8,7 @@ public struct GeneralConfig {
 }
 
 extend GeneralConfig <: Default<GeneralConfig> {
-    public func default(): GeneralConfig {
+    public static func default(): GeneralConfig {
         GeneralConfig(false)
     }
 }

@@ -5,10 +5,8 @@ import std.fs.{Directory, File, OpenMode, Path, exists}
 import std.io.{BufferedOutputStream, OutputStream}
 import stdx.log.{Logger, LogLevel}
 import stdx.logger.TextLogger
-import cjdev.env.{CJDEV_LOG_LEVEL, CJDEV_LOG_DIR}
 
-public func createGlobalLogger(): Logger {
-    let logLevel = LogLevel.fromEnv()
+public func createGlobalLogger(logLevel: LogLevel, logDir: Path): Logger {
     SeqLogger.builder {
         =>
             let logger = PrettyLogger(getStdOut())
@@ -16,7 +14,6 @@ public func createGlobalLogger(): Logger {
             logger
     }.next {
         =>
-            let logDir = Path(CJDEV_LOG_DIR)
             if (!exists(logDir)) {
                 Directory.create(logDir)
             }
@@ -31,33 +28,4 @@ public func createGlobalLogger(): Logger {
             logger.level = logLevel
             logger
     }.build()
-}
-
-extend LogLevel {
-    static func fromEnv(): LogLevel {
-        fromString(CJDEV_LOG_LEVEL)
-    }
-
-    /**
-     * @throws UnsupportedLogLevelException
-     */
-    static func fromString(str: String): LogLevel {
-        match (str.toAsciiUpper()) {
-            case "OFF" => LogLevel.OFF
-            case "FATAL" => LogLevel.FATAL
-            case "ERROR" => LogLevel.ERROR
-            case "WARN" => LogLevel.WARN
-            case "INFO" => LogLevel.INFO
-            case "DEBUG" => LogLevel.DEBUG
-            case "TRACE" => LogLevel.TRACE
-            case "ALL" => LogLevel.ALL
-            case _ => throw UnsupportedLogLevelException(str)
-        }
-    }
-}
-
-protected class UnsupportedLogLevelException <: Exception {
-    UnsupportedLogLevelException(name: String) {
-        super("LogLevel: ${name} is not supported")
-    }
 }
