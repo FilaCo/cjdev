@@ -1,9 +1,16 @@
 package cjdev.config
 
 import stdx.serialization.serialization.{Serializable, DataModel, DataModelStruct, field}
+import cjdev.utils.Default
 
 public struct GeneralConfig {
     public GeneralConfig(public let useDocker: Bool) {}
+}
+
+extend GeneralConfig <: Default<GeneralConfig> {
+    public func default(): GeneralConfig {
+        GeneralConfig(false)
+    }
 }
 
 extend GeneralConfig <: Serializable<GeneralConfig> {

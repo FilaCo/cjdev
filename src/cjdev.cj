@@ -17,6 +17,7 @@ private let REGISTRY: Registry = Registry
     .builder()
     .addLazy<CjDev> {reg => CjDev(reg.get<Dc>(), reg.get<Logger>(GLOBAL_LOGGER_TAG))}
     .addLazy<Dc> {reg => Dc(reg.get<Logger>(GLOBAL_LOGGER_TAG))}
+    .addLazy<CjDevConfig> {_ => }
     .addLazy<Logger>(GLOBAL_LOGGER_TAG) {
         _ => createGlobalLogger()
     }

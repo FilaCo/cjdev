@@ -20,7 +20,8 @@ public class PrettyLogger<O> <: Logger where O <: OutputStream {
     }
 
     public func log(record: LogRecord): Unit {
-        writer_.writeln("${record.level}: ${record.message}")
+        let levelStr = record.level.toString().toAsciiTitle()
+        writer_.writeln("${levelStr}: ${record.message}")
         writer_.flush()
     }
 

@@ -1,11 +1,16 @@
 package cjdev.config
 
-import std.fs.{exists, Path}
 import stdx.serialization.serialization.{Serializable, DataModel, DataModelStruct, field}
-import cangjie_toml.cangjie_toml.FromToml
+import cjdev.utils.Default
 
 public struct CjDevConfig {
     public CjDevConfig(public let general: GeneralConfig, public let projects: ProjectsConfig) {}
+}
+
+extend CjDevConfig <: Default<CjDevConfig> {
+    public func default(): CjDevConfig {
+        CjDevConfig(GeneralConfig.default(), ProjectsConfig.default())
+    }
 }
 
 extend CjDevConfig <: Serializable<CjDevConfig> {
@@ -13,7 +18,9 @@ extend CjDevConfig <: Serializable<CjDevConfig> {
         DataModelStruct().add(field("general", general)).add(field("projects", projects))
     }
 
-    // throws CjDevConfigUnsupportedDataModelException
+   /** 
+    * throws CjDevConfigUnsupportedDataModelException
+    */ 
     public static func deserialize(dm: DataModel): CjDevConfig {
         let dms = match (dm) {
             case d: DataModelStruct => d

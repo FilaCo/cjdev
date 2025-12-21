@@ -2,9 +2,16 @@ package cjdev.config
 
 import std.collection.HashMap
 import stdx.serialization.serialization.{Serializable, DataModel, DataModelStruct, field}
+import cjdev.utils.Default
 
 public struct ProjectsConfig {
     public ProjectsConfig(public let projects: HashMap<String, ProjectConfig>) {}
+}
+
+extend ProjectsConfig <: Default<ProjectsConfig> {
+    public func default(): ProjectsConfig {
+        ProjectsConfig(HashMap<String, ProjectConfig>())
+    }
 }
 
 extend ProjectsConfig <: Serializable<ProjectsConfig> {
