@@ -25,7 +25,7 @@ private let REGISTRY: Registry = Registry
     .builder()
     // features
     .addLazy<CjDev> {reg => CjDev(reg.get<Dc>(), reg.get<Logger>(CJDEV_LOGGER_GLOBAL_TAG))}
-    .addLazy<Dc> {reg => Dc(reg.get<Logger>(CJDEV_LOGGER_GLOBAL_TAG))}
+    .addLazy<Dc> {reg => Dc(reg.get<GeneralConfig>(), reg.get<Logger>(CJDEV_LOGGER_GLOBAL_TAG))}
     // config
     .addLazy<Path>(CJDEV_CONFIG_PATH_TAG) {
         _ => Path("cjdev.toml")
@@ -82,12 +82,17 @@ private class CjDev {
     public func execute(args: Array<String>): Unit {
         try {
             let parsed = parseArguments(args, CJDEV_ARGS_SPEC)
+            if (parsed.options.contains("version") || parsed.options.contains("V")) {
+                printVersion()
+                return
+            }
+
             let cmd = parsed.nonOptions.get(0)
             match (cmd) {
                 case Some("dc") => dc_.execute(parsed)
                 // TODO: Exception
                 case Some(cmd) => throw Exception("no such command: `${cmd}`")
-                case None => execute(parsed)
+                case None => printHelp()
             }
         } catch (e: Exception) {
             logger_.error(e.message)
@@ -117,15 +122,6 @@ Commands:
   test      Test Cangjie's projects
   git       Git utils for Cangjie's repositories management
   dc        Execute a command in the container."""
-
-    private func execute(args: ParsedArguments): Unit {
-        if (args.options.contains("version") || args.options.contains("V")) {
-            printVersion()
-            return
-        }
-
-        printHelp()
-    }
 
     private func printHelp(): Unit {
         println(CJDEV_HELP)
