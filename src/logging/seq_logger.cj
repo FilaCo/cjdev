@@ -2,6 +2,7 @@ package cjdev.logging
 
 import std.collection.ArrayList
 import stdx.log.{Attr, Logger, LogLevel, LogRecord}
+import cjdev.utils.{ifFalse, ifTrue}
 
 public class SeqLogger <: Logger {
     private let loggers_: ArrayList<Logger>
@@ -20,7 +21,7 @@ public class SeqLogger <: Logger {
     }
 
     public func log(record: LogRecord): Unit {
-        loggers_.iterator().forEach {logger => logger.log(record)}
+        loggers_.iterator().forEach {logger => ifTrue(record.level >= logger.level) {=> logger.log(record)}}
     }
 
     public func isClosed(): Bool {
@@ -32,7 +33,11 @@ public class SeqLogger <: Logger {
     }
 
     public func close(): Unit {
-        loggers_.iterator().forEach {logger => logger.close()}
+        loggers_.iterator().forEach {
+            logger => ifFalse(logger.isClosed()) {
+                => logger.close()
+            }
+        }
     }
 
     public func withAttrs(_: Array<Attr>): Logger {

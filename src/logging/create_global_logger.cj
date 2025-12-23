@@ -1,16 +1,16 @@
 package cjdev.logging
 
-import std.env.getStdOut
+import std.env.getStdErr
 import std.fs.{Directory, File, OpenMode, Path, exists}
 import std.io.{BufferedOutputStream, OutputStream}
 import stdx.log.{Logger, LogLevel}
 import stdx.logger.TextLogger
 
-public func createGlobalLogger(logLevel: LogLevel, logDir: Path): Logger {
+public func createGlobalLogger(logDir: Path): Logger {
     SeqLogger.builder {
         =>
-            let logger = PrettyLogger(getStdOut())
-            logger.level = logLevel
+            let logger = PrettyLogger(getStdErr())
+            logger.level = LogLevel.ERROR
             logger
     }.next {
         =>
@@ -25,7 +25,6 @@ public func createGlobalLogger(logLevel: LogLevel, logDir: Path): Logger {
             }
             let bufOutput = BufferedOutputStream<OutputStream>(logFile)
             let logger = TextLogger(bufOutput)
-            logger.level = logLevel
             logger
     }.build()
 }

@@ -1,18 +1,20 @@
 package cjdev.features
 
-import std.argopt.ParsedArguments
+import std.collection.ReadOnlyMap
 import stdx.log.Logger
-import cjdev.config.GeneralConfig
+import cjdev.utils.CommandLauncher
 
 public class Dc {
-    public Dc(private let generalCfg: GeneralConfig, private let logger_: Logger) {}
+    public Dc(private let launcher: CommandLauncher, private let logger_: Logger) {}
 
-    public func execute(args: ParsedArguments): Unit {
-        if (args.options.contains("help") || args.options.contains("h")) {
+    public func execute<OptionsMapT>(options: OptionsMapT, nonOptions: Array<String>): Unit where OptionsMapT <: ReadOnlyMap<String,
+    String> {
+        if (options.contains("help") || options.contains("h")) {
             printHelp()
             return
         }
-        println(args.nonOptions)
+
+        println(nonOptions)
     }
 
     private static const DC_USAGE = "Usage: cjdev dc [OPTIONS] -- <COMMAND> [ARGS]..."
