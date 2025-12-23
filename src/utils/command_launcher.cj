@@ -1,26 +1,21 @@
 package cjdev.utils
 
+import std.collection.Map
 import std.fs.Path
 import std.process.{launch, ProcessRedirect, SubProcess}
 
 public interface CommandLauncher {
-    func launchCommand(cmd: String, args: Array<String>, workDir!: ?Path = None, envVars!: ?Map<String, String> = None,
-        stdIn!: ProcessRedirect = Inherit, stdOut!: ProcessRedirect = Inherit, stdErr!: ProcessRedirect = Inherit,
-        timeout!: ?Duration = None): SubProcess
+    func launchCommand(cmd: String, args: Array<String>): SubProcess
 }
 
-public class BashCommandLauncher <: CommandLauncher {
-    public func launchCommand(cmd: String, args: Array<String>, workDir!: ?Path = None,
-        envVars!: ?Map<String, String> = None, stdIn!: ProcessRedirect = Inherit, stdOut!: ProcessRedirect = Inherit,
-        stdErr!: ProcessRedirect = Inherit, timeout!: ?Duration = None): SubProcess {
-        launch("bash -c", [cmd, ..args], workDir: workDir, envVars: envVars, stdIn: stdIn, stdOut: stdOut, stdErr: stdErr, timeout: timeout)
+public class BaseCommandLauncher <: CommandLauncher {
+    public func launchCommand(cmd: String, args: Array<String>): SubProcess {
+        launch(cmd, args)
     }
 }
 
 public class DockerCommandLauncher <: CommandLauncher {
-    public func launchCommand(cmd: String, args: Array<String>, workDir!: ?Path = None,
-        envVars!: ?Map<String, String> = None, stdIn!: ProcessRedirect = Inherit, stdOut!: ProcessRedirect = Inherit,
-        stdErr!: ProcessRedirect = Inherit, timeout!: ?Duration = None): SubProcess {
+    public func launchCommand(cmd: String, args: Array<String>): SubProcess {
         throw Exception()
     }
 }

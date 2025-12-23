@@ -1,6 +1,7 @@
 package cjdev.features
 
 import std.collection.ReadOnlyMap
+import std.process.{execute, launch}
 import stdx.log.Logger
 import cjdev.utils.CommandLauncher
 
@@ -13,8 +14,6 @@ public class Dc {
             printHelp()
             return
         }
-
-        println(nonOptions)
     }
 
     private static const DC_USAGE = "Usage: cjdev dc [OPTIONS] -- <COMMAND> [ARGS]..."
