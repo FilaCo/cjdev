@@ -8,14 +8,14 @@ public interface CommandLauncher {
     func launchCommand(cmd: String, args: Array<String>): SubProcess
 }
 
-public class BaseCommandLauncher <: CommandLauncher {
+public open class BaseCommandLauncher <: CommandLauncher {
     public func launchCommand(cmd: String, args: Array<String>): SubProcess {
         launch(cmd, args)
     }
 }
 
-public class DockerCommandLauncher <: CommandLauncher {
+public class CjDevContainerCommandLauncher <: BaseCommandLauncher {
     public func launchCommand(cmd: String, args: Array<String>): SubProcess {
-        throw Exception()
+        super.launch("docker", ["container", "run", "-it", "--rm", "-v", cmd].concat(args))
     }
 }
