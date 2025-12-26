@@ -7,7 +7,7 @@ import std.process.{launch, ProcessRedirect, SubProcess}
 import stdx.log.Logger
 
 public class Dc {
-    public Dc(private let logger_: Logger, private let launcher: CommandLauncher) {}
+    public Dc(private let logger_: Logger, private let launcher_: CommandLauncher) {}
 
     public func execute<OptionsMapT>(options: OptionsMapT, nonOptions: Array<String>): Unit where OptionsMapT <: ReadOnlyMap<String,
     String> {
@@ -22,7 +22,7 @@ public class Dc {
             Array<String>()
         }
 
-        exit(launcher.launchCommand(cmd, args).wait())
+        exit(launcher_.launchCommand(cmd, args).wait())
     }
 
     private static const DC_USAGE = "Usage: cjdev dc [OPTIONS] -- <COMMAND> [ARGS]..."
@@ -88,8 +88,6 @@ public class ContainerCommandLauncher <: CommandLauncher {
         if (relativePath.isEmpty()) {
             return settings_.containerWorkdir
         }
-
-        println(relativePath)
 
         settings_.containerWorkdir.join(relativePath)
     }
