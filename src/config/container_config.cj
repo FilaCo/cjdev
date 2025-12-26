@@ -3,38 +3,33 @@ package cjdev.config
 import stdx.serialization.serialization.{Serializable, DataModel, DataModelStruct, field}
 import cjdev.utils.Default
 
-public enum ContainerConfig {
-    NoContainer
-    | UseContainer(ContainerConfigData)
+public struct ContainerConfig {
+  public ContainerConfig(public let useContainer!: Bool, public let containerWorkdir!: ?Path) {}
 }
 
 extend ContainerConfig <: Default<ContainerConfig> {
     public static func default(): ContainerConfig {
-        NoContainer
+        ContainerConfig(useContainer: false, containerWorkdir: None)
     }
 }
 
 extend ContainerConfig <: Serializable<ContainerConfig> {
     public func serialize(): DataModel {
-        match (this) {
-            case NoContainer => 
-          }
+      DataModelStruct().add(field("use-container", useContainer)).add(field("container-workdir", containerWorkdir))
     }
 
     /**
      * throws ContainerConfigUnsupportedDataModelException
      */
-    public static func deserialize(dm: DataModel): GeneralConfig {
+    public static func deserialize(dm: DataModel): ContainerConfig {
         let dms = match (dm) {
-            case d: DataModelStruct => ContainerConfigData()
-            case _ => NoContainer
-        }    
+            case d: DataModelStruct => d
+            case _ => throw ContainerConfigUnsupportedDataModelException()
+        }
+
+        ContainerConfig(useContainer:  Bool.deserialize(dms.get("use-container"))) 
     }
 }
-
-public struct ContainerConfigData {
-    public ContainerConfigData() {}
-  }
 
 public class ContainerConfigUnsupportedDataModelException <: Exception {
     public GeneralConfigUnsupportedDataModelException() {

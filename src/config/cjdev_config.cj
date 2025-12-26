@@ -40,4 +40,8 @@ public class CjDevConfigUnsupportedDataModelException <: Exception {
     public CjDevConfigUnsupportedDataModelException() {
         super("Unsupported DataModel class used, expected DataModelStruct")
     }
+
+    protected func getClassName() {
+        "CjDevConfigUnsupportedDataModelException"
+    }
 }
