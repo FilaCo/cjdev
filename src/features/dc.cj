@@ -1,7 +1,7 @@
 package cjdev.features
 
 import std.collection.{Map, ReadOnlyMap}
-import std.env.getWorkingDirectory
+import std.env.{exit, getWorkingDirectory}
 import std.fs.Path
 import std.process.{launch, ProcessRedirect, SubProcess}
 import stdx.log.Logger
@@ -15,8 +15,14 @@ public class Dc {
             printHelp()
             return
         }
+        let cmd = nonOptions.get(0).getOrDefault {=> "bash"}
+        let args = if (nonOptions.size > 1) {
+            nonOptions[1..]
+        } else {
+            Array<String>()
+        }
 
-        launcher.launchCommand(nonOptions[0], nonOptions[1..]).wait()
+        exit(launcher.launchCommand(cmd, args).wait())
     }
 
     private static const DC_USAGE = "Usage: cjdev dc [OPTIONS] -- <COMMAND> [ARGS]..."

@@ -40,8 +40,8 @@ private let REGISTRY: Registry = Registry
     .addLazy<ContainerSettings> {
         reg =>
             let containerCfg = reg.get<ContainerConfig>()
-            ContainerSettings(hostWorkdir: containerCfg.hostWorkdir.getOrThrow(),
-                containerWorkdir: containerCfg.containerWorkdir.getOrThrow(),
+            ContainerSettings(hostWorkdir: containerCfg.hostWorkdir.map {p => p.normalize()}.getOrThrow(),
+                containerWorkdir: containerCfg.containerWorkdir.map {p => p.normalize()}.getOrThrow(),
                 containerName: containerCfg.containerName.getOrThrow())
     }
     // config
