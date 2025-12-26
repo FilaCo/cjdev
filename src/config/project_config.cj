@@ -2,7 +2,6 @@ package cjdev.config
 
 import std.collection.HashMap
 import stdx.serialization.serialization.{Serializable, DataModel, DataModelStruct, field}
-import cjdev.utils.Default
 
 public struct ProjectConfig {
     public ProjectConfig(public let name!: String, public let path!: String, public let origin!: String,
