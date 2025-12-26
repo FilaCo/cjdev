@@ -9,7 +9,7 @@ import stdx.serialization.serialization.DataModel
 import cangjie_toml.cangjie_toml.FromToml
 import registry.{Registry, Builder, extra.entry.AddLazy, extra.entry.AddTransient}
 import cjdev.config.{CjDevConfig, ContainerConfig, ProjectConfig}
-import cjdev.features.{Dc, CommandLauncher, ContainerCommandLauncher, ContainerSettings}
+import cjdev.features.{Dc, CommandLauncher, ContainerCommandLauncher, ContainerSettings, Build}
 import cjdev.logging.createGlobalLogger
 
 private const CJDEV_CONFIG_PATH_TAG = "cjdev.config.path"
@@ -25,7 +25,7 @@ private const CJDEV_COMMAND_LAUNCHER_CONTAINER = "cjdev.commandLauncher.containe
 private let REGISTRY: Registry = Registry
     .builder()
     // features
-    .addLazy<CjDev> {reg => CjDev(reg.get<Logger>(CJDEV_LOGGER_GLOBAL_TAG), reg.get<Dc>())}
+    .addLazy<CjDev> {reg => CjDev(reg.get<Logger>(CJDEV_LOGGER_GLOBAL_TAG), reg.get<Build>(), reg.get<Dc>())}
     .addLazy<Dc> {reg => Dc(reg.get<Logger>(CJDEV_LOGGER_GLOBAL_TAG), reg.get<CommandLauncher>())}
     .addLazy<CommandLauncher> {
         reg =>
@@ -44,6 +44,7 @@ private let REGISTRY: Registry = Registry
                 containerWorkdir: containerCfg.containerWorkdir.map {p => p.normalize()}.getOrThrow(),
                 containerName: containerCfg.containerName.getOrThrow())
     }
+    .addLazy<Build> {reg => Build(reg.get<Logger>(CJDEV_LOGGER_GLOBAL_TAG), reg.get<CommandLauncher>())}
     // config
     .addLazy<Path>(CJDEV_CONFIG_PATH_TAG) {
         reg =>
@@ -112,7 +113,7 @@ public func cjDev(args: Array<String>): Unit {
 }
 
 private class CjDev {
-    public CjDev(private let logger_: Logger, private let dc_: Dc) {}
+    public CjDev(private let logger_: Logger, private let build_: Build, private let dc_: Dc) {}
 
     public func execute(args: Array<String>): Unit {
         try {
@@ -130,8 +131,13 @@ private class CjDev {
             }
 
             let cmd = nonOptions[0]
-            nonOptions = nonOptions[1..]
+            nonOptions = if (nonOptions.size > 1) {
+                nonOptions[1..]
+            } else {
+                Array<String>()
+            }
             match (cmd) {
+                case "b" | "build" => build_.execute(options, nonOptions)
                 case "dc" => dc_.execute(options, nonOptions)
                 // TODO: Exception
                 case cmd => throw Exception("no such command: `${cmd}`")
@@ -144,7 +150,7 @@ private class CjDev {
     }
 
     private static let CJDEV_ARGS_SPEC = [Full("version", r'V', NoValue), Full("verbose", r'v', NoValue),
-        Full("help", r'h', NoValue)];
+        Full("help", r'h', NoValue), Full("build-type", r't', RequiredValue)];
     private static const CJDEV_VERSION = "0.1.0"
     private static const CJDEV_USAGE = "Usage: cjdev [OPTIONS] <COMMAND>"
     private static let CJDEV_HELP = """
@@ -158,12 +164,12 @@ Options:
   -h, --help      Print help
 
 Commands:
-  status    Show the cjdev environment status
-  init, i   Init cjdev environment
-  build     Build Cangjie's projects
-  test      Test Cangjie's projects
-  git       Git utils for Cangjie's repositories management
-  dc        Execute a command in the container."""
+  status      Show the cjdev environment status
+  init,   i   Init cjdev environment
+  build,  b   Build Cangjie's projects
+  test        Test Cangjie's projects
+  git         Git utils for Cangjie's repositories management
+  dc          Execute a command in the container."""
 
     private func printHelp(): Unit {
         println(CJDEV_HELP)
