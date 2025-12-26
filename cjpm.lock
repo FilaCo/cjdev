@@ -2,4 +2,4 @@ version = 0
 
 [requires]
   cangjie_toml = {git = "https://gitcode.com/filaco/cangjie_toml", commitId = "fd6dc17727105c9bd0a6a844b4865316fe86c51a", branch = "main"}
-  registry = {git = "https://github.com/FilaCo/registry-cj", commitId = "bbadf6590321fccd3cff776a015ece500a59b973", branch = "master"}
+  registry = {git = "https://github.com/FilaCo/registry-cj", commitId = "7506182eb4fe493979365a239749c6723f7903d5", branch = "master"}
