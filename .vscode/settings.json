@@ -1,0 +1,20 @@
+{
+    "editor.gotoLocation.alternativeDeclarationCommand": "editor.action.revealDefinition",
+    "editor.gotoLocation.alternativeDefinitionCommand": "editor.action.revealDefinition",
+    "editor.gotoLocation.alternativeTypeDefinitionCommand": "editor.action.revealDefinition",
+    "editor.selectionHighlight": false,
+    "files.autoSave": "onFocusChange",
+    "editor.suggest.snippetsPreventQuickSuggestions": false,
+    "editor.quickSuggestions": {
+        "other": "on",
+        "comments": "off",
+        "strings": "on"
+    },
+    "terminal.integrated.env.linux": {
+        "CANGJIE_HOME": "/home/filaco/.cangjie",
+        "CANGJIE_PATH": "/home/filaco/.cangjie/bin:/home/filaco/.cangjie/tools/bin:/home/filaco/.cangjie/debugger/bin:/home/filaco/.cjpm/bin",
+        "CANGJIE_LD_LIBRARY_PATH": "/home/filaco/.cangjie/runtime/lib/linux_x86_64_cjnative:/home/filaco/.cangjie/tools/lib:",
+        "LD_LIBRARY_PATH": "${config:terminal.integrated.env.linux.CANGJIE_LD_LIBRARY_PATH}:${env:LD_LIBRARY_PATH}",
+        "PATH": "${config:terminal.integrated.env.linux.CANGJIE_PATH}:${env:PATH}"
+    }
+}
