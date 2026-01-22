@@ -1,5 +1,5 @@
-.zed/
-cangjie*
+.zed
+__pycache__
 dist
 logs
 node_modules

@@ -1,0 +1,22 @@
+[project]
+name = "cjdev"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Dmitrii Chizha", email = "me@filaco.dev" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "gitpython>=3.1.46",
+    "rich>=14.2.0",
+    "tomlkit>=0.14.0",
+    "typer>=0.21.1",
+]
+
+[project.scripts]
+cjdev = "cjdev:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
