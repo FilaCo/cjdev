@@ -4,6 +4,6 @@ app = Typer()
 
 
 @app.command()
-def build():
-    """Build Cangjie's projects"""
+def status():
+    """Show cjdev environment status"""
     pass
