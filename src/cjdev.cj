@@ -125,12 +125,7 @@ private class CjDev {
                 return
             }
 
-            if (nonOptions.isEmpty()) {
-                printHelp()
-                return
-            }
-
-            let cmd = nonOptions[0]
+            let cmd = nonOptions.get(0).getOrDefault {=> "help"}
             nonOptions = if (nonOptions.size > 1) {
                 nonOptions[1..]
             } else {
@@ -139,6 +134,7 @@ private class CjDev {
             match (cmd) {
                 case "b" | "build" => build_.execute(options, nonOptions)
                 case "dc" => dc_.execute(options, nonOptions)
+                case "help" => printHelp()
                 // TODO: Exception
                 case cmd => throw Exception("no such command: `${cmd}`")
             }
