@@ -1,9 +1,9 @@
 from typer import Typer
 
-app = Typer()
+cli = Typer()
 
 
-@app.command()
+@cli.command()
 def build():
     """Build Cangjie's projects"""
     pass

@@ -1,9 +1,9 @@
 from typer import Typer
 
-app = Typer()
+cli = Typer()
 
 
-@app.command()
+@cli.command()
 def dc():
     """Execute a command in the container"""
     pass

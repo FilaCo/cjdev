@@ -1,9 +1,13 @@
-from typer import Typer
+from typing import Annotated
 
-app = Typer()
+import questionary
+from rich import print
+from typer import Option, Typer
+
+cli = Typer()
 
 
-@app.command()
+@cli.command()
 def init():
     """Init cjdev environment"""
     pass

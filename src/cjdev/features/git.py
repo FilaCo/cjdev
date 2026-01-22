@@ -1,9 +1,9 @@
 from typer import Typer
 
-app = Typer()
+cli = Typer()
 
 
-@app.command()
+@cli.command()
 def git():
     """Git utils for Cangjie's repositories management"""
     pass
