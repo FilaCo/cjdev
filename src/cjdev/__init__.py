@@ -1,4 +1,4 @@
-from cjdev.cli import cli
+from cjdev.commands import cli
 
 
 def main() -> None:

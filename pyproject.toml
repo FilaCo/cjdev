@@ -25,3 +25,8 @@ build-backend = "uv_build"
 
 [tool.ty]
 venvPath = "."
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
