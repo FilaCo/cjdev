@@ -5,7 +5,7 @@ from rich import print
 from typer import Context, Exit, Option, Typer
 
 from cjdev.commands.build import cli as build_cli
-from cjdev.commands.config import Config
+from cjdev.commands.context import CjDevContext, Config
 from cjdev.commands.dc import cli as dc_cli
 from cjdev.commands.git import cli as git_cli
 from cjdev.commands.init import cli as init_cli
@@ -37,5 +37,5 @@ def cli_cb(
         raise Exit()
 
     if ctx.invoked_subcommand:
-        ctx.obj = Config.load_or_default()
-        ctx.ensure_object(Config)
+        (config_path, config) = Config.load_or_default()
+        ctx.obj = CjDevContext(config_path=config_path, config=config)
