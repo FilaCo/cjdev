@@ -5,5 +5,5 @@ cli = Typer()
 
 @cli.command()
 def git():
-    """Git utils for Cangjie's repositories management"""
+    """Git utils for Cangjie's repositories management."""
     pass

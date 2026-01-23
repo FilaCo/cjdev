@@ -5,5 +5,5 @@ cli = Typer()
 
 @cli.command()
 def build():
-    """Build Cangjie's projects"""
+    """Build Cangjie's projects."""
     pass

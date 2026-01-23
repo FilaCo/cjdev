@@ -5,5 +5,5 @@ cli = Typer()
 
 @cli.command()
 def status():
-    """Show cjdev environment status"""
+    """Show cjdev environment status."""
     pass

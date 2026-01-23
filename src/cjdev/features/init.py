@@ -9,5 +9,5 @@ cli = Typer()
 
 @cli.command()
 def init():
-    """Init cjdev environment"""
+    """Init cjdev environment."""
     pass

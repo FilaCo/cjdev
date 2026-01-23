@@ -5,5 +5,5 @@ cli = Typer()
 
 @cli.command()
 def dc():
-    """Execute a command in the container"""
+    """Execute a command in the container."""
     pass
