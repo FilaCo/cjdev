@@ -41,11 +41,11 @@ class ProjectConfig(BaseModel):
     path: Path
     origin_url: Url
     upstream_url: Url
-    branch: str
 
 
 @final
 class ProjectsConfig(BaseModel):
+    branch: str = "dev"
     cangjie_compiler: Optional[ProjectConfig] = None
     cangjie_runtime: Optional[ProjectConfig] = None
     cangjie_test: Optional[ProjectConfig] = None

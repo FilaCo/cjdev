@@ -1,8 +1,4 @@
-.zed
 __pycache__
 logs
 node_modules
-.env
-.env.*
-!.env.dist
 cjdev.toml
