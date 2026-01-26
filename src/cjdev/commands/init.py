@@ -10,20 +10,33 @@ from cjdev.commands.context import CjDevContext, ProjectsConfig
 cli = Typer()
 
 
-def quesionnaire(ctx: CjDevContext):
+@cli.command()
+def init(ctx: Context):
+    """Init cjdev environment."""
+    cjdev_ctx = ctx.ensure_object(CjDevContext)
+    _projects_questionnaire(cjdev_ctx)
+    # config_path = cjdev_ctx.config_path
+    # config_exists = config_path.exists()
+    # config = cjdev_ctx.config
+
+
+def _projects_questionnaire(ctx: CjDevContext):
+    prechecked = ["cangjie_compiler", "cangjie_runtime"]
+    all_projects = list(filter(lambda p: p != "branch", ProjectsConfig.model_fields))
+    chosen = questionary.checkbox(
+        "Select projects to setup:",
+        choices=list(map(lambda p: Choice(p, checked=p in prechecked), all_projects)),
+    ).ask()
+
+
+def _container_questionnaire(ctx: CjDevContext):
     config_path = ctx.config_path
-    checked_projects = ["cangjie_compiler", "cangjie_runtime"]
     return [
         {
             "type": "checkbox",
             "name": "projects",
             "message": "Select projects to setup:",
-            "choices": list(
-                map(
-                    lambda p: Choice(p, checked=p in checked_projects),
-                    ProjectsConfig.model_fields,
-                )
-            ),
+            "choices": list(),
         },
         {
             "type": "confirm",
@@ -34,14 +47,5 @@ def quesionnaire(ctx: CjDevContext):
     ]
 
 
-@cli.command()
-def init(ctx: Context):
-    """Init cjdev environment."""
-    cjdev_ctx = ctx.ensure_object(CjDevContext)
-    config_path = cjdev_ctx.config_path
-    config_exists = config_path.exists()
-    config = cjdev_ctx.config
-
-    should_override = questionary.confirm("Override existing configuration?").skip_if(
-        config_exists, default=False
-    )
+def _questionnaire(ctx: CjDevContext):
+    pass
