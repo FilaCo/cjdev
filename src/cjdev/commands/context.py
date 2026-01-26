@@ -15,9 +15,9 @@ class CjDevContext(BaseModel):
 @final
 class ContainerConfig(BaseModel):
     use_container: bool = False
+    container_name: str = "cjdev"
     host_workdir: Optional[Path] = None
     container_workdir: Optional[Path] = None
-    container_name: str = "cjdev"
 
     @model_validator(mode="after")
     def validate_fields_when_container_used(self) -> "ContainerConfig":
@@ -41,11 +41,11 @@ class ProjectConfig(BaseModel):
     path: Path
     origin_url: Url
     upstream_url: Url
+    default_branch: str = "dev"
 
 
 @final
 class ProjectsConfig(BaseModel):
-    branch: str = "dev"
     cangjie_compiler: Optional[ProjectConfig] = None
     cangjie_runtime: Optional[ProjectConfig] = None
     cangjie_test: Optional[ProjectConfig] = None
