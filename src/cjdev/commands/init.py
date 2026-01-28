@@ -1,8 +1,7 @@
 from pathlib import Path
-from typing import Annotated, Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 import questionary
-from pydantic_core import Url
 from questionary import Choice
 from rich import print
 from tomlkit import dumps
@@ -27,9 +26,9 @@ def init(ctx: Context):
 
 def _default_project_config(name: str) -> Dict[str, Any]:
     return {
-        "path": Path(name),
-        "origin_url": Url(f"https://gitcode.com/Cangjie/{name}.git"),
-        "upstream_url": Url(f"https://gitcode.com/Cangjie/{name}.git"),
+        "path": name,
+        "origin_url": f"https://gitcode.com/Cangjie/{name}.git",
+        "upstream_url": f"https://gitcode.com/Cangjie/{name}.git",
         "default_branch": "dev",
     }
 
@@ -63,7 +62,7 @@ def _projects_questionnaire(
                     "type": "text",
                     "name": "path",
                     "message": "Project path:",
-                    "default": placeholders[p]["path"].as_posix(),
+                    "default": placeholders[p]["path"],
                 },
                 {
                     "type": "text",
@@ -106,15 +105,9 @@ def _container_questionnaire(prev_cfg: Optional[ContainerConfig] = None):
         },
         {
             "type": "text",
-            "name": "host_workdir",
-            "message": "Host working directory:",
-            "default": Path.cwd().as_posix(),
-            "when": lambda answers: answers["use_container"],
-        },
-        {
-            "type": "text",
             "name": "container_workdir",
             "message": "Container working directory:",
+            "default": Path.cwd().as_posix(),
             "when": lambda answers: answers["use_container"],
         },
     ]
@@ -126,7 +119,7 @@ def _container_questionnaire(prev_cfg: Optional[ContainerConfig] = None):
 
 def _questionnaire(ctx: CjDevContext):
     config = ctx.config
-    config_path = ctx.config_path
+    config_path = Path(ctx.config_path)
     config_exists = config_path.exists()
     override_config = questionary.confirm(
         f"I see an existing config at {config_path.as_posix()}. Are you sure you want to override it?",
@@ -141,4 +134,4 @@ def _questionnaire(ctx: CjDevContext):
     config.projects = _projects_questionnaire(
         config.projects if config_exists else None
     )
-    config_path.write_text(dumps(config.model_dump()))
+    config_path.write_text(dumps(config.model_dump(exclude_none=True)))

@@ -2,13 +2,12 @@ from pathlib import Path
 from typing import Optional, Tuple, final
 
 from pydantic import BaseModel, model_validator
-from pydantic_core import Url
 from tomlkit import parse
 
 
 @final
 class CjDevContext(BaseModel):
-    config_path: Path
+    config_path: str
     config: "Config"
 
 
@@ -16,8 +15,7 @@ class CjDevContext(BaseModel):
 class ContainerConfig(BaseModel):
     use_container: bool = False
     container_name: str = "cjdev"
-    host_workdir: Optional[Path] = None
-    container_workdir: Optional[Path] = None
+    container_workdir: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_fields_when_container_used(self) -> "ContainerConfig":
@@ -25,8 +23,6 @@ class ContainerConfig(BaseModel):
             return self
 
         missing_fields = []
-        if not self.host_workdir:
-            missing_fields.append("host_workdir")
         if not self.container_workdir:
             missing_fields.append("container_workdir")
 
@@ -38,9 +34,9 @@ class ContainerConfig(BaseModel):
 
 @final
 class ProjectConfig(BaseModel):
-    path: Path
-    origin_url: Url
-    upstream_url: Url
+    path: str
+    origin_url: str
+    upstream_url: str
     default_branch: str = "dev"
 
 
@@ -59,7 +55,7 @@ class Config(BaseModel):
     container: ContainerConfig = ContainerConfig()
     projects: ProjectsConfig = ProjectsConfig()
 
-    def load_or_default() -> Tuple[Path, "Config"]:
+    def load_or_default() -> Tuple[str, "Config"]:
         config = Config()
         config_path = _find_config()
 
@@ -68,7 +64,7 @@ class Config(BaseModel):
             parsed = parse(text)
             config = Config.model_validate(parsed)
 
-        return (config_path, config)
+        return (config_path.as_posix(), config)
 
 
 def _find_config() -> Path:
