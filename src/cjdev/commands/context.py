@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional, Tuple, final
 
+from loguru import logger
 from pydantic import BaseModel, model_validator
 from pydantic_core import Url
 from rich import print
@@ -61,9 +62,11 @@ class Config(BaseModel):
                 parsed = parse(text)
                 config = Config.model_validate(parsed)
             except ParseError as e:
-                pass  # TODO: log error
+                logger.error("Unable to parse configuration file")
+                logger.warning("Using default configuration")
             except ValueError as e:
-                pass  # TODO: log error
+                logger.error("Invalid configuration file content")
+                logger.warning("Using default configuration")
 
         return (config_path, config)
 
