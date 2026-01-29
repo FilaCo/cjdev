@@ -62,11 +62,11 @@ class Config(BaseModel):
                 parsed = parse(text)
                 config = Config.model_validate(parsed)
             except ParseError as e:
-                logger.error("Unable to parse configuration file")
-                logger.warning("Using default configuration")
+                logger.error(
+                    f"unable to parse configuration file at {config_path}\n{e}"
+                )
             except ValueError as e:
-                logger.error("Invalid configuration file content")
-                logger.warning("Using default configuration")
+                logger.error(f"configuration file at {config_path} is invalid\n{e}")
 
         return (config_path, config)
 
