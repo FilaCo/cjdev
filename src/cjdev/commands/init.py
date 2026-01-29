@@ -9,6 +9,7 @@ from pydantic_core import Url
 from questionary import Choice
 from typer import Context, Typer
 
+from cjdev.assets import DOCKERFILE
 from cjdev.commands.context import (
     CjDevContext,
     Config,
@@ -30,6 +31,14 @@ def _init(cjdev_ctx: CjDevContext):
     cfg_path = cjdev_ctx.config_path
     config = _init_config(cfg_path, cjdev_ctx.config)
     # TODO: init container
+    if config.container.use_container:
+        dockerfile = cfg_path.parent / "Dockerfile"
+        override_dockerfile = questionary.confirm(
+            f"Override an existing Dockerfile at {dockerfile.as_posix()}?",
+            default=False,
+        ).ask()
+        if override_dockerfile:
+            dockerfile.write_text(DOCKERFILE)
     # TODO: init git
     cjdev_ctx.config = config
 
@@ -51,12 +60,8 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         raw_cfg["container"]["use_container"] = use_container
         if use_container:
             raw_cfg["container"]["container_name"] = answers["container_name"]
-            raw_cfg["container"]["container_workdir"] = answers["container_workdir"]
         elif cfg_path.exists() and prev_cfg.container:
             raw_cfg["container"]["container_name"] = prev_cfg.container.container_name
-            raw_cfg["container"]["container_workdir"] = (
-                prev_cfg.container.container_workdir
-            )
 
         # collect project configuration
         chosen_projects = (
@@ -94,7 +99,6 @@ def _questions(cfg_path: Path, prev_cfg: Optional[Config]):
     container_cfg_defaults = {
         "use_container": False,
         "container_name": "cjdev",
-        "container_workdir": Path.cwd(),
     }
     if prev_cfg:
         if prev_cfg.projects:
@@ -129,14 +133,6 @@ def _questions(cfg_path: Path, prev_cfg: Optional[Config]):
             "name": "container_name",
             "message": "Container name:",
             "default": container_cfg_defaults["container_name"],
-            "when": lambda answers: _override_config(answers)
-            and answers["use_container"],
-        },
-        {
-            "type": "text",
-            "name": "container_workdir",
-            "message": "Container working directory:",
-            "default": container_cfg_defaults["container_workdir"].as_posix(),
             "when": lambda answers: _override_config(answers)
             and answers["use_container"],
         },

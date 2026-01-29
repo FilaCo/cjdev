@@ -22,7 +22,6 @@ class CjDevContext:
 class ContainerConfig(BaseModel):
     use_container: bool = False
     container_name: Optional[str] = None
-    container_workdir: Optional[Path] = None
 
     @model_validator(mode="after")
     def validate_fields_when_container_used(self) -> "ContainerConfig":
@@ -32,8 +31,6 @@ class ContainerConfig(BaseModel):
         missing_fields = []
         if not self.container_name:
             missing_fields.append("container_name")
-        if not self.container_workdir:
-            missing_fields.append("container_workdir")
         if missing_fields:
             raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
 
