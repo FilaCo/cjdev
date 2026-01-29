@@ -7,7 +7,7 @@ from typer import Option
 
 
 def version_cb(version: bool = False):
-    """Print version and exits."""
+    """Handles version option."""
     if version:
         print(f"cjdev {importlib.metadata.version('cjdev')}")
         sys.exit(0)

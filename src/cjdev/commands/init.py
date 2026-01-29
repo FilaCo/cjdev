@@ -1,4 +1,5 @@
-from logging import error, info
+import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -6,7 +7,6 @@ import questionary
 from pydantic import ValidationError
 from pydantic_core import Url
 from questionary import Choice
-from rich import print
 from typer import Context, Typer
 
 from cjdev.commands.context import (
@@ -42,7 +42,7 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         )
 
         if not _override_config(answers):
-            info("Cancelled by user")
+            logging.info("Cancelled by user")
             return prev_cfg
 
         raw_cfg = {"container": {}, "projects": {}}
@@ -75,14 +75,14 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         # validate and save
         cfg = Config.model_validate(raw_cfg)
         cfg.save(cfg_path)
-        info(f"Config saved successfully at {cfg_path.as_posix()}!")
+        logging.info(f"Config saved successfully at {cfg_path.as_posix()}!")
         return cfg
     except KeyboardInterrupt:
-        info("Cancelled by user")
+        logging.info("Cancelled by user")
         return prev_cfg
     except ValidationError as e:
-        error(f"Incorrect project configuration:\n{e}")
-        exit(1)
+        logging.error(f"Incorrect project configuration:\n{e}")
+        sys.exit(1)
 
 
 def _override_config(answers: Dict[str, Any]):

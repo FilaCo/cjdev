@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, final
@@ -13,6 +14,8 @@ from tomlkit.exceptions import ConvertError
 class CjDevContext:
     config_path: Path
     config: "Config"
+    logger: logging.Logger
+    verbose: bool
 
 
 @final
