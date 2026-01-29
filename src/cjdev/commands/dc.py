@@ -1,11 +1,14 @@
+import logging
 import shutil
-import subprocess
+from pathlib import Path
 from typing import Annotated, List, Optional
 
-from rich import print
+import questionary
 from typer import Argument, Context, Typer
 
-from cjdev.commands.context import CjDevContext
+from cjdev.assets import DOCKERFILE
+from cjdev.commands.context import CjDevContext, ContainerConfig
+from cjdev.utils.execute import execute
 from cjdev.utils.version import VERSION_TYPE_DEF
 
 cli = Typer()
@@ -26,10 +29,44 @@ def _dc(cjdev_ctx: CjDevContext):
     pass
 
 
-def build_container():
-    pass
+def init_container(cfg_path: Path, cfg: ContainerConfig, logger: logging.Logger):
+    if not cfg.use_container:
+        return
+
+    try:
+        _check_prerequisites()
+    except Exception as e:
+        logger.error(f"Unable to initialize container.\n{e}")
+        return
+
+    dockerfile = cfg_path.parent / "Dockerfile"
+    override_dockerfile = questionary.confirm(
+        f"Override an existing Dockerfile at {dockerfile.as_posix()}?",
+        default=False,
+    ).ask()
+    if override_dockerfile:
+        dockerfile.write_text(DOCKERFILE)
+    _build_container(cfg, dockerfile, logger)
+
+
+def build_container(cfg: ContainerConfig, dockerfile: Path, logger: logging.Logger):
+    try:
+        _check_prerequisites()
+    except Exception as e:
+        logger.error(f"Unable to build container.\n{e}")
+        return
+
+    _build_container(cfg, dockerfile, logger)
+
+
+def _build_container(cfg: ContainerConfig, dockerfile: Path, logger: logging.Logger):
+    container_name = cfg.container_name if cfg.container_name else "cjdev"
+    execute(
+        f"docker buildx build -t {container_name} {dockerfile.parent.as_posix()}",
+        logger,
+    )
 
 
 def _check_prerequisites():
     if not shutil.which("docker"):
-        raise Exception("Docker is not installed")
+        raise Exception("`docker` is not installed")

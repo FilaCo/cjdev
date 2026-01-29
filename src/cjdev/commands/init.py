@@ -15,6 +15,7 @@ from cjdev.commands.context import (
     Config,
     ProjectsConfig,
 )
+from cjdev.commands.dc import init_container
 from cjdev.utils.version import VERSION_TYPE_DEF
 
 cli = Typer()
@@ -30,15 +31,7 @@ def init(ctx: Context, version: VERSION_TYPE_DEF = False):
 def _init(cjdev_ctx: CjDevContext):
     cfg_path = cjdev_ctx.config_path
     config = _init_config(cfg_path, cjdev_ctx.config)
-    # TODO: init container
-    if config.container.use_container:
-        dockerfile = cfg_path.parent / "Dockerfile"
-        override_dockerfile = questionary.confirm(
-            f"Override an existing Dockerfile at {dockerfile.as_posix()}?",
-            default=False,
-        ).ask()
-        if override_dockerfile:
-            dockerfile.write_text(DOCKERFILE)
+    init_container(cfg_path, config.container, cjdev_ctx.logger)
     # TODO: init git
     cjdev_ctx.config = config
 
@@ -51,7 +44,7 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         )
 
         if not _override_config(answers):
-            logging.info("Cancelled by user")
+            logging.info("Okay, got it! Skipping configuration...")
             return prev_cfg
 
         raw_cfg = {"container": {}, "projects": {}}
