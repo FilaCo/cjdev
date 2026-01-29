@@ -11,6 +11,7 @@ from typer import Context, Option, Typer
 from cjdev.commands.context import (
     CjDevContext,
     Config,
+    ContainerConfig,
     ProjectsConfig,
 )
 
@@ -26,7 +27,10 @@ def init(ctx: Context):
 
 def _init(cjdev_ctx: CjDevContext):
     cfg_path = cjdev_ctx.config_path
-    cjdev_ctx.config = _init_config(cfg_path, cjdev_ctx.config)
+    config = _init_config(cfg_path, cjdev_ctx.config)
+    # TODO: init container
+    # TODO: init git
+    cjdev_ctx.config = config
 
 
 def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:

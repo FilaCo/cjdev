@@ -15,38 +15,8 @@ class CjDevContext(BaseModel):
 
 
 @final
-class Config(BaseModel):
-    container: Optional["ContainerConfig"] = None
-    projects: Optional["ProjectsConfig"] = None
-
-    def load_or_default() -> Tuple[Path, "Config"]:
-        config = Config()
-        config_path = _find_config()
-
-        if config_path.is_file():
-            text = config_path.read_text()
-            try:
-                parsed = parse(text)
-                config = Config.model_validate(parsed)
-            except ParseError as e:
-                pass  # TODO: log error
-            except ValueError as e:
-                pass  # TODO: log error
-
-        return (config_path, config)
-
-    def save(self, path: Path) -> None:
-        if not path.is_file():
-            path.joinpath(_CONFIG_FILE_NAME)
-
-        dict = self.model_dump(exclude_none=True)
-        toml = dumps(dict)
-        path.write_text(toml)
-
-
-@final
 class ContainerConfig(BaseModel):
-    use_container: bool
+    use_container: bool = False
     container_name: Optional[str] = None
     container_workdir: Optional[Path] = None
 
@@ -74,6 +44,36 @@ class ProjectsConfig(BaseModel):
     cangjie_multiplatform_interop: Optional["ProjectConfig"] = None
     cangjie_stdx: Optional["ProjectConfig"] = None
     cangjie_tools: Optional["ProjectConfig"] = None
+
+
+@final
+class Config(BaseModel):
+    container: ContainerConfig = ContainerConfig()
+    projects: Optional["ProjectsConfig"] = None
+
+    def load_or_default() -> Tuple[Path, "Config"]:
+        config = Config()
+        config_path = _find_config()
+
+        if config_path.is_file():
+            text = config_path.read_text()
+            try:
+                parsed = parse(text)
+                config = Config.model_validate(parsed)
+            except ParseError as e:
+                pass  # TODO: log error
+            except ValueError as e:
+                pass  # TODO: log error
+
+        return (config_path, config)
+
+    def save(self, path: Path) -> None:
+        if not path.is_file():
+            path.joinpath(_CONFIG_FILE_NAME)
+
+        dict = self.model_dump(exclude_none=True)
+        toml = dumps(dict)
+        path.write_text(toml)
 
 
 @final
