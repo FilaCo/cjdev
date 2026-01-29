@@ -1,8 +1,6 @@
-import importlib.metadata
-from typing import Annotated
-
-from rich import print
-from typer import Context, Exit, Option, Typer
+from pydantic import ValidationError
+from tomlkit.exceptions import ParseError
+from typer import Context, Typer
 
 from cjdev.commands.build import cli as build_cli
 from cjdev.commands.context import CjDevContext, Config
@@ -11,6 +9,8 @@ from cjdev.commands.git import cli as git_cli
 from cjdev.commands.init import cli as init_cli
 from cjdev.commands.status import cli as status_cli
 from cjdev.commands.test import cli as test_cli
+from cjdev.utils.logging import get_logger
+from cjdev.utils.version import VERSION_TYPE_DEF
 
 cli = Typer(
     context_settings={"help_option_names": ["-h", "--help"]}, no_args_is_help=True
@@ -27,15 +27,18 @@ cli.add_typer(dc_cli)
 @cli.callback(invoke_without_command=True)
 def cli_cb(
     ctx: Context,
-    version: Annotated[
-        bool | None, Option("--version", "-V", help="Print version info and exit.")
-    ] = None,
+    version: VERSION_TYPE_DEF = False,
 ):
     """Cangjie's developer utilities."""
-    if version:
-        print(f"cjdev {importlib.metadata.version('cjdev')}")
-        raise Exit()
+    config_path = Config.find_config()
+    logger = get_logger(pwd=config_path.parent)
+    try:
+        config = Config.load(config_path)
+    except FileNotFoundError as e:
+        logger.warning(f"Config file not found\n{e}")
+        config = Config()
+    except (ParseError, ValidationError) as e:
+        logger.error(f"Config file is invalid\n{e}")
+        config = Config()
 
-    if ctx.invoked_subcommand:
-        (config_path, config) = Config.load_or_default()
-        ctx.obj = CjDevContext(config_path=config_path, config=config)
+    ctx.obj = CjDevContext(config_path=config_path, config=config)

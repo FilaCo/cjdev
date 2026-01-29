@@ -1,3 +1,4 @@
+from logging import error, info
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -13,12 +14,13 @@ from cjdev.commands.context import (
     Config,
     ProjectsConfig,
 )
+from cjdev.utils.version import VERSION_TYPE_DEF
 
 cli = Typer()
 
 
 @cli.command()
-def init(ctx: Context):
+def init(ctx: Context, version: VERSION_TYPE_DEF = False):
     """Init cjdev environment."""
     cjdev_ctx = ctx.ensure_object(CjDevContext)
     _init(cjdev_ctx)
@@ -40,7 +42,7 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         )
 
         if not _override_config(answers):
-            print("Cancelled by user")
+            info("Cancelled by user")
             return prev_cfg
 
         raw_cfg = {"container": {}, "projects": {}}
@@ -73,13 +75,13 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         # validate and save
         cfg = Config.model_validate(raw_cfg)
         cfg.save(cfg_path)
-        print(f"Config saved successfully at {cfg_path.as_posix()}!")
+        info(f"Config saved successfully at {cfg_path.as_posix()}!")
         return cfg
     except KeyboardInterrupt:
-        print("Cancelled by user")
+        info("Cancelled by user")
         return prev_cfg
     except ValidationError as e:
-        print(f"Incorrect project configuration:\n{e}")
+        error(f"Incorrect project configuration:\n{e}")
         exit(1)
 
 

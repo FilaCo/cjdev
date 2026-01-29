@@ -1,14 +1,16 @@
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, final
+from typing import Optional, final
 
 from pydantic import BaseModel, model_validator
 from pydantic_core import Url
 from tomlkit import dumps, item, parse, register_encoder
-from tomlkit.exceptions import ConvertError, ParseError
+from tomlkit.exceptions import ConvertError
 
 
 @final
-class CjDevContext(BaseModel):
+@dataclass
+class CjDevContext:
     config_path: Path
     config: "Config"
 
@@ -45,26 +47,20 @@ class ProjectsConfig(BaseModel):
     cangjie_tools: Optional["ProjectConfig"] = None
 
 
+_CONFIG_FILE_NAME = "cjdev.toml"
+
+
 @final
 class Config(BaseModel):
     container: ContainerConfig = ContainerConfig()
     projects: Optional["ProjectsConfig"] = None
 
-    def load_or_default() -> Tuple[Path, "Config"]:
-        config = Config()
-        config_path = _find_config()
+    def load(fpath: Path) -> "Config":
+        text = fpath.read_text()
+        parsed = parse(text)
+        config = Config.model_validate(parsed)
 
-        if config_path.is_file():
-            text = config_path.read_text()
-            try:
-                parsed = parse(text)
-                config = Config.model_validate(parsed)
-            except ParseError as e:
-                pass  # TODO: log error
-            except ValueError as e:
-                pass  # TODO: log error
-
-        return (config_path, config)
+        return config
 
     def save(self, path: Path) -> None:
         if not path.is_file():
@@ -74,6 +70,20 @@ class Config(BaseModel):
         toml = dumps(dict)
         path.write_text(toml)
 
+    def find_config() -> Path:
+        cwd = Path.cwd()
+        config = cwd / _CONFIG_FILE_NAME
+        firstAttempt = config
+
+        while not config.is_file():
+            parent = cwd.parent
+            if parent == cwd:
+                break
+            cwd = parent
+            config = cwd / _CONFIG_FILE_NAME
+
+        return config if config.is_file() else firstAttempt
+
 
 @final
 class ProjectConfig(BaseModel):
@@ -81,24 +91,6 @@ class ProjectConfig(BaseModel):
     origin_url: Url
     upstream_url: Url
     default_branch: str
-
-
-_CONFIG_FILE_NAME = "cjdev.toml"
-
-
-def _find_config() -> Path:
-    cwd = Path.cwd()
-    config = cwd.joinpath(_CONFIG_FILE_NAME)
-    firstAttempt = config
-
-    while not config.is_file():
-        parent = cwd.parent
-        if parent == cwd:
-            break
-        cwd = parent
-        config = cwd.joinpath(_CONFIG_FILE_NAME)
-
-    return config if config.is_file() else firstAttempt
 
 
 @register_encoder
