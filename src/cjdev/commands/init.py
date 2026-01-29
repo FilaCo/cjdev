@@ -6,12 +6,11 @@ from pydantic import ValidationError
 from pydantic_core import Url
 from questionary import Choice
 from rich import print
-from typer import Context, Option, Typer
+from typer import Context, Typer
 
 from cjdev.commands.context import (
     CjDevContext,
     Config,
-    ContainerConfig,
     ProjectsConfig,
 )
 
@@ -80,9 +79,8 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         print("Cancelled by user")
         return prev_cfg
     except ValidationError as e:
-        print("Incorrect project configuration:")
-        print(e)
-        raise SystemExit(1)
+        print(f"Incorrect project configuration:\n{e}")
+        exit(1)
 
 
 def _override_config(answers: Dict[str, Any]):

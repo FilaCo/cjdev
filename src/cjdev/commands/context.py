@@ -1,10 +1,8 @@
 from pathlib import Path
 from typing import Optional, Tuple, final
 
-from loguru import logger
 from pydantic import BaseModel, model_validator
 from pydantic_core import Url
-from rich import print
 from tomlkit import dumps, item, parse, register_encoder
 from tomlkit.exceptions import ConvertError, ParseError
 
@@ -62,11 +60,9 @@ class Config(BaseModel):
                 parsed = parse(text)
                 config = Config.model_validate(parsed)
             except ParseError as e:
-                logger.error(
-                    f"unable to parse configuration file at {config_path}\n{e}"
-                )
+                pass  # TODO: log error
             except ValueError as e:
-                logger.error(f"configuration file at {config_path} is invalid\n{e}")
+                pass  # TODO: log error
 
         return (config_path, config)
 
