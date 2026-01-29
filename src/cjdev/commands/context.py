@@ -3,8 +3,9 @@ from typing import Optional, Tuple, final
 
 from pydantic import BaseModel, model_validator
 from pydantic_core import Url
+from rich import print
 from tomlkit import dumps, item, parse, register_encoder
-from tomlkit.exceptions import ConvertError
+from tomlkit.exceptions import ConvertError, ParseError
 
 
 @final
@@ -24,8 +25,13 @@ class Config(BaseModel):
 
         if config_path.is_file():
             text = config_path.read_text()
-            parsed = parse(text)
-            config = Config.model_validate(parsed)
+            try:
+                parsed = parse(text)
+                config = Config.model_validate(parsed)
+            except ParseError as e:
+                pass  # TODO: log error
+            except ValueError as e:
+                pass  # TODO: log error
 
         return (config_path, config)
 

@@ -6,13 +6,11 @@ from pydantic import ValidationError
 from pydantic_core import Url
 from questionary import Choice
 from rich import print
-from tomlkit import dumps
 from typer import Context, Option, Typer
 
 from cjdev.commands.context import (
     CjDevContext,
     Config,
-    ContainerConfig,
     ProjectsConfig,
 )
 
@@ -28,157 +26,143 @@ def init(ctx: Context):
 
 def _init(cjdev_ctx: CjDevContext):
     cfg_path = cjdev_ctx.config_path
-    cfg = cjdev_ctx.config
+    cjdev_ctx.config = _init_config(cfg_path, cjdev_ctx.config)
+
+
+def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
     try:
-        new_cfg = _questionnaire(cfg_path, cfg)
-        new_cfg.save(cfg_path)
-        cjdev_ctx.config = new_cfg
+        answers = questionary.unsafe_prompt(
+            _questions(cfg_path, prev_cfg if cfg_path.exists() else None),
+            true_color=True,
+        )
+
+        if not _override_config(answers):
+            print("Cancelled by user")
+            return prev_cfg
+
+        raw_cfg = {"container": {}, "projects": {}}
+        # collect container configuration
+        use_container = answers["use_container"]
+        raw_cfg["container"]["use_container"] = use_container
+        if use_container:
+            raw_cfg["container"]["container_name"] = answers["container_name"]
+            raw_cfg["container"]["container_workdir"] = answers["container_workdir"]
+        elif cfg_path.exists() and prev_cfg.container:
+            raw_cfg["container"]["container_name"] = prev_cfg.container.container_name
+            raw_cfg["container"]["container_workdir"] = (
+                prev_cfg.container.container_workdir
+            )
+
+        # collect project configuration
+        chosen_projects = (
+            answers["chosen_projects"] if answers["chosen_projects"] else []
+        )
+        gc_user = answers["gitcode_user"]
+        default_branch = answers["default_branch"]
+        for project_name in chosen_projects:
+            raw_cfg["projects"][project_name] = {
+                "path": project_name,
+                "origin_url": Url(f"https://gitcode.com/{gc_user}/{project_name}.git"),
+                "upstream_url": Url(f"https://gitcode.com/Cangjie/{project_name}.git"),
+                "default_branch": default_branch,
+            }
+
+        # validate and save
+        cfg = Config.model_validate(raw_cfg)
+        cfg.save(cfg_path)
         print(f"Config saved successfully at {cfg_path.as_posix()}!")
-    except ValidationError as e:
-        print(f"Incorrect configuration provided: {e}")
-        print("Changes won't be saved. Please, try again. Bye!")
+        return cfg
     except KeyboardInterrupt:
         print("Cancelled by user")
+        return prev_cfg
+    except ValidationError as e:
+        print("Incorrect project configuration:")
+        print(e)
+        raise SystemExit(1)
 
 
-def _questionnaire(cfg_path: Path, prev_cfg: Config) -> Config:
-    cfg_exists = cfg_path.exists()
-    override_config = (
-        questionary.confirm(
-            f"Existing configuration found at {cfg_path.as_posix()}. Override it?",
-            default=False,
-        )
-        .skip_if(not cfg_exists, default=True)
-        .unsafe_ask()
-    )
-
-    if not override_config:
-        print("Got it, exiting...")
-        raise SystemExit(0)
-
-    answers = {}
-    answers["container"] = _container_questionnaire(
-        prev_cfg.container if cfg_exists else None
-    )
-    answers["projects"] = _projects_questionnaire(
-        prev_cfg.projects if cfg_exists else None
-    )
-
-    return Config.model_validate(answers)
+def _override_config(answers: Dict[str, Any]):
+    return "override_config" not in answers or answers["override_config"]
 
 
-def _projects_questionnaire(
-    prev_cfg: Optional[ProjectsConfig] = None,
-) -> ProjectsConfig:
-    placeholders = {p: _default_project_config(p) for p in ProjectsConfig.model_fields}
-    prechecked = ["cangjie_compiler", "cangjie_runtime"]
-    if prev_cfg:
-        projects_dump = prev_cfg.model_dump(exclude_none=True)
-        placeholders.update(projects_dump)
-        prechecked = projects_dump.keys() if len(projects_dump) > 0 else prechecked
-
-    chosen = questionary.checkbox(
-        "Select projects to setup:",
-        choices=list(
-            map(
-                lambda p: Choice(p, checked=p in prechecked),
-                ProjectsConfig.model_fields,
-            )
-        ),
-    ).unsafe_ask()
-
-    if not chosen:
-        no_projects = questionary.confirm(
-            "No projects selected. Continue?", default=False
-        ).unsafe_ask()
-        if no_projects:
-            return ProjectsConfig()
-
-        print("Got it, exiting...")
-        raise SystemExit(0)
-
-    projects_cfg = {}
-    for p in chosen:
-        print(f"[bold blue]{p}[/bold blue] settings:")
-        projects_cfg[p] = questionary.unsafe_prompt(
-            [
-                {
-                    "type": "text",
-                    "name": "path",
-                    "message": "Project path:",
-                    "default": placeholders[p]["path"].as_posix(),
-                },
-                {
-                    "type": "text",
-                    "name": "origin_url",
-                    "message": "Project origin URL:",
-                    "default": f"{placeholders[p]['origin_url']}",
-                },
-                {
-                    "type": "text",
-                    "name": "upstream_url",
-                    "message": "Project upstream URL:",
-                    "default": f"{placeholders[p]['upstream_url']}",
-                },
-                {
-                    "type": "text",
-                    "name": "default_branch",
-                    "message": "Project default branch:",
-                    "default": placeholders[p]["default_branch"],
-                },
-            ]
-        )
-
-    return ProjectsConfig.model_validate(projects_cfg)
-
-
-def _default_project_config(name: str) -> Dict[str, Any]:
-    return {
-        "path": Path(name),
-        "origin_url": Url(f"https://gitcode.com/Cangjie/{name}.git"),
-        "upstream_url": Url(f"https://gitcode.com/Cangjie/{name}.git"),
-        "default_branch": "dev",
-    }
-
-
-def _container_questionnaire(
-    prev_cfg: Optional[ContainerConfig] = None,
-) -> ContainerConfig:
-    placeholders = {
+def _questions(cfg_path: Path, prev_cfg: Optional[Config]):
+    prechecked_projects = ["cangjie_compiler", "cangjie_runtime"]
+    container_cfg_defaults = {
         "use_container": False,
         "container_name": "cjdev",
         "container_workdir": Path.cwd(),
     }
     if prev_cfg:
-        placeholders.update(prev_cfg.model_dump(exclude_none=True))
+        if prev_cfg.projects:
+            projects_dump = prev_cfg.projects.model_dump(exclude_none=True)
+            prechecked_projects = (
+                projects_dump.keys()
+                if len(projects_dump.keys()) > 0
+                else prechecked_projects
+            )
+        if prev_cfg.container:
+            container_cfg_defaults.update(
+                prev_cfg.container.model_dump(exclude_none=True)
+            )
 
-    questions = [
+    return [
+        {
+            "type": "confirm",
+            "name": "override_config",
+            "message": f"Override an existing configuration at {cfg_path.as_posix()}?",
+            "default": False,
+            "when": lambda _: cfg_path.exists(),
+        },
         {
             "type": "confirm",
             "name": "use_container",
             "message": "Do you want to use a docker container for building?",
-            "default": placeholders["use_container"],
+            "default": container_cfg_defaults["use_container"],
+            "when": _override_config,
         },
         {
             "type": "text",
             "name": "container_name",
             "message": "Container name:",
-            "default": placeholders["container_name"],
-            "when": lambda answers: answers["use_container"],
+            "default": container_cfg_defaults["container_name"],
+            "when": lambda answers: _override_config(answers)
+            and answers["use_container"],
         },
         {
             "type": "text",
             "name": "container_workdir",
             "message": "Container working directory:",
-            "default": placeholders["container_workdir"].as_posix(),
-            "when": lambda answers: answers["use_container"],
+            "default": container_cfg_defaults["container_workdir"].as_posix(),
+            "when": lambda answers: _override_config(answers)
+            and answers["use_container"],
+        },
+        {
+            "type": "checkbox",
+            "name": "chosen_projects",
+            "message": "Select projects to setup:",
+            "choices": list(
+                map(
+                    lambda p: Choice(p, checked=p in prechecked_projects),
+                    ProjectsConfig.model_fields,
+                )
+            ),
+            "when": _override_config,
+            "validate": lambda chosen_projects: len(chosen_projects) > 0,
+        },
+        {
+            "type": "text",
+            "name": "default_branch",
+            "message": "Default branch:",
+            "default": "dev",
+            "when": lambda answers: _override_config(answers)
+            and answers["chosen_projects"],
+        },
+        {
+            "type": "text",
+            "name": "gitcode_user",
+            "message": "Your gitcode username:",
+            "when": lambda answers: _override_config(answers)
+            and answers["chosen_projects"],
+            "validate": lambda username: len(username) > 0,
         },
     ]
-
-    container_cfg = questionary.unsafe_prompt(questions)
-
-    if not container_cfg["use_container"] and prev_cfg:
-        prev_cfg.use_container = False
-        return prev_cfg
-
-    return ContainerConfig.model_validate(container_cfg)
