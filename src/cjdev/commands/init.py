@@ -45,7 +45,6 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         )
 
         if not _override_config(answers):
-            logging.log(MESSAGE, "Okay, got it! Skipping configuration...")
             return prev_cfg
 
         raw_cfg = {"container": {}, "projects": {}}
