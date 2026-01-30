@@ -1,58 +1,47 @@
 import logging
-import shlex
 import subprocess
-import sys
-import time
-from typing import IO
+from typing import IO, List
 
 import typer
 from rich.console import RenderableType
 from rich.live import Live
 from rich.padding import Padding
-from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn, track
-from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 
-def execute(cmd: str, logger: logging.Logger):
-    args = shlex.split(cmd)
-
+def execute_with_log(args: List[str], logger: logging.Logger):
     with Progress(
         SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn()
     ) as overall_progress:
-        overall_progress.add_task(description=f"Executing command: `{cmd}`")
+        overall_progress.add_task(description=f"Executing command: `{args}`")
         process = subprocess.Popen(
-            args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
 
         if not process.stdout:
-            logger.error(f"Failed to execute command: `{cmd}`")
+            logger.error(f"Failed to execute command: `{args}`")
             raise typer.Exit(1)
 
         _log_process_output(process.stdout, logger)
 
         exitcode = process.wait()
         if exitcode:
-            logger.error(f"Command failed with exit code {exitcode}: `{cmd}`")
+            logger.error(f"Command failed with exit code {exitcode}: `{args}`")
             raise typer.Exit(exitcode)
 
 
-def _log_process_output(output: IO[bytes], logger: logging.Logger):
+def _log_process_output(output: IO[str], logger: logging.Logger):
     render = get_render_func()
     with Live() as live:
-        for line in iter(output.readline, b""):
+        for line in map(lambda x: x.rstrip(), output):
+            logger.debug(line)
             live.update(render(line))
 
 
 def get_render_func(rows: int = 5):
     lines = []
 
-    def render_lines(byte_str: bytes) -> RenderableType:
-        try:
-            line = byte_str.decode("ascii", "ignore").rstrip()
-        except UnicodeDecodeError:
-            line = byte_str.decode("utf-8", "ignore").rstrip()
-
-        line = f"[bright_black]{line}[/]"
+    def render_lines(line: str) -> RenderableType:
         lines.append(line)
 
         if len(lines) > rows:

@@ -14,6 +14,7 @@ RUN set -eux; \
     tzdata \
     wget
 
+# CMake install
 RUN set -eux; \
     wget -O- "https://cmake.org/files/v3.26/cmake-3.26.6-linux-x86_64.tar.gz" | \
     tar --strip-components=1 -xz -C /usr/local
