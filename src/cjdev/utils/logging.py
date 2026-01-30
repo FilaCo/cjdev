@@ -5,6 +5,9 @@ from typing import Optional, Union
 from rich.console import Console
 from rich.logging import RichHandler
 
+MESSAGE = 25
+MESSAGE_NAME = "MESSAGE"
+
 _LOG_DIR = "logs"
 _LOG_FILE_NAME = "cjdev.log"
 
@@ -19,10 +22,11 @@ def init_logging(
     warning_handler.setLevel(max(logging.WARNING, logger.level))
     logger.addHandler(warning_handler)
 
-    info_handler = RichHandler(markup=True, show_time=False, show_level=False)
-    info_handler.setLevel(min(logging.INFO, logger.level))
-    info_handler.filters.append(lambda record: record.levelno <= logging.INFO)
-    logger.addHandler(info_handler)
+    logging.addLevelName(MESSAGE, MESSAGE_NAME)
+    message_handler = RichHandler(markup=True, show_time=False, show_level=False)
+    message_handler.setLevel(MESSAGE)
+    message_handler.filters.append(lambda record: record.levelno == MESSAGE)
+    logger.addHandler(message_handler)
 
     if pwd:
         file_handler = _init_file_handler(pwd, level)

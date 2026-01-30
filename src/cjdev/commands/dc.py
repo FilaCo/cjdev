@@ -9,7 +9,6 @@ from typer import Argument, Context, Typer
 from cjdev.assets import DOCKERFILE
 from cjdev.commands.context import CjDevContext, ContainerConfig
 from cjdev.utils.execute import execute
-from cjdev.utils.version import VERSION_TYPE_DEF
 
 cli = Typer()
 
@@ -17,7 +16,6 @@ cli = Typer()
 @cli.command(context_settings={"ignore_unknown_options": True})
 def dc(
     ctx: Context,
-    version: VERSION_TYPE_DEF = False,
     args: Annotated[Optional[List[str]], Argument()] = None,
 ):
     """Execute a command in the container."""
@@ -62,7 +60,7 @@ def build_container(cfg: ContainerConfig, dockerfile: Path, logger: logging.Logg
 def _build_container(cfg: ContainerConfig, dockerfile: Path, logger: logging.Logger):
     container_name = cfg.container_name if cfg.container_name else "cjdev"
     execute(
-        f"docker buildx build -t {container_name} {dockerfile.parent.as_posix()}",
+        f"docker build -t {container_name} {dockerfile.parent.as_posix()}",
         logger,
     )
 

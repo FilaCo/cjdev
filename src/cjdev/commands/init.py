@@ -1,28 +1,29 @@
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import questionary
+import typer
 from pydantic import ValidationError
 from pydantic_core import Url
 from questionary import Choice
 from typer import Context, Typer
 
-from cjdev.assets import DOCKERFILE
 from cjdev.commands.context import (
     CjDevContext,
     Config,
     ProjectsConfig,
 )
 from cjdev.commands.dc import init_container
-from cjdev.utils.version import VERSION_TYPE_DEF
+from cjdev.utils.logging import MESSAGE
 
 cli = Typer()
 
 
 @cli.command()
-def init(ctx: Context, version: VERSION_TYPE_DEF = False):
+def init(
+    ctx: Context,
+):
     """Init cjdev environment."""
     cjdev_ctx = ctx.ensure_object(CjDevContext)
     _init(cjdev_ctx)
@@ -44,7 +45,7 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         )
 
         if not _override_config(answers):
-            logging.info("Okay, got it! Skipping configuration...")
+            logging.log(MESSAGE, "Okay, got it! Skipping configuration...")
             return prev_cfg
 
         raw_cfg = {"container": {}, "projects": {}}
@@ -73,14 +74,14 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         # validate and save
         cfg = Config.model_validate(raw_cfg)
         cfg.save(cfg_path)
-        logging.info(f"Config saved successfully at {cfg_path.as_posix()}!")
+        logging.log(MESSAGE, f"Config saved successfully at {cfg_path.as_posix()}!")
         return cfg
     except KeyboardInterrupt:
-        logging.info("Cancelled by user")
+        logging.log(MESSAGE, "Cancelled by user")
         return prev_cfg
     except ValidationError as e:
         logging.error(f"Incorrect project configuration:\n{e}")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 def _override_config(answers: Dict[str, Any]):
