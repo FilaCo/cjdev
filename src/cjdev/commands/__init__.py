@@ -23,7 +23,9 @@ cli.add_typer(status_cli)
 cli.add_typer(init_cli)
 cli.add_typer(build_cli, name="build")
 cli.add_typer(test_cli, name="test")
-cli.add_typer(git_cli, name="git")
+cli.add_typer(
+    git_cli, name="git", help="Git utils for Cangjie's repositories management."
+)
 cli.add_typer(dc_cli)
 
 

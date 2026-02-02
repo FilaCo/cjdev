@@ -33,9 +33,9 @@ def _dc(cjdev_ctx: CjDevContext, args: Annotated[Optional[List[str]], Argument()
     container_cfg = config.container
     logger = cjdev_ctx.logger
     if not container_cfg.use_container:
-        logger.error(
+        logger.log(
             MESSAGE,
-            "Seems like you're not using a container. Set `use_container` to `true` in your cjdev.toml file and repeat the command.",
+            "Seems like you're [bold red]not[/] using a container. Set 'use_container' to true in your config file and repeat the command.",
         )
 
         return
