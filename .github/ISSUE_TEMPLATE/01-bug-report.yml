@@ -1,0 +1,43 @@
+name: 🐜 Bug report
+description: If something isn't working 🔧
+title: "[Bug]: "
+labels: ["bug"]
+projects: ["FilaCo/5"]
+assignees:
+  - FilaCo
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    attributes:
+      label: What is the expected behavior?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What is the actual behavior?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: How to reproduce the issue?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Any possible solutions?
+    validations:
+      required: false
+  - type: dropdown
+    attributes:
+      label: If the bug is confirmed, would you be willing to submit a PR?
+      description: |
+        Help can be provided if you need assistance submitting a PR
+      options:
+        - "Yes"
+        - "No"
+      default: 1
+    validations:
+      required: true
