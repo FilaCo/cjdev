@@ -3,41 +3,30 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import questionary
-import typer
 from pydantic import ValidationError
-from pydantic_core import Url
 from questionary import Choice
-from typer import Context, Typer
+from typer import Context, Exit, Typer
 
-from cjdev.commands.context import (
-    CjDevContext,
-    Config,
-    ProjectsConfig,
-)
-from cjdev.commands.dc import init_container
-from cjdev.utils.logging import MESSAGE
+from cjdev.shared.config import CJDEV_CONFIG_FILE_NAME, CjDevConfig, ProjectsConfig
+from cjdev.shared.context import CjDevContext
 
+logger = logging.getLogger(__name__)
 cli = Typer()
 
 
 @cli.command()
-def init(
-    ctx: Context,
-):
+def init(ctx: Context):
     """Init cjdev environment."""
     cjdev_ctx = ctx.ensure_object(CjDevContext)
     _init(cjdev_ctx)
 
 
-def _init(cjdev_ctx: CjDevContext):
-    cfg_path = cjdev_ctx.config_path
-    config = _init_config(cfg_path, cjdev_ctx.config)
-    init_container(cfg_path, config.container, cjdev_ctx.logger)
-    # TODO: init git
-    cjdev_ctx.config = config
+def _init(ctx: CjDevContext):
+    cfg_path = ctx.home / CJDEV_CONFIG_FILE_NAME
+    _init_config(cfg_path, ctx.cfg)
 
 
-def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
+def _init_config(cfg_path: Path, prev_cfg: CjDevConfig):
     try:
         answers = questionary.unsafe_prompt(
             _questions(cfg_path, prev_cfg if cfg_path.exists() else None),
@@ -65,30 +54,30 @@ def _init_config(cfg_path: Path, prev_cfg: Config) -> Config:
         for project_name in chosen_projects:
             raw_cfg["projects"][project_name] = {
                 "path": project_name,
-                "origin_url": Url(f"https://gitcode.com/{gc_user}/{project_name}.git"),
-                "upstream_url": Url(f"https://gitcode.com/Cangjie/{project_name}.git"),
+                "origin_url": f"https://gitcode.com/{gc_user}/{project_name}.git",
+                "upstream_url": f"https://gitcode.com/Cangjie/{project_name}.git",
                 "default_branch": default_branch,
             }
 
         # validate and save
-        cfg = Config.model_validate(raw_cfg)
+        cfg = CjDevConfig.model_validate(raw_cfg)
         cfg.save(cfg_path)
-        logging.log(MESSAGE, f"Config saved successfully at {cfg_path.as_posix()}!")
+        print(f"Config saved successfully at {cfg_path.as_posix()}!")
         return cfg
     except KeyboardInterrupt:
-        logging.log(MESSAGE, "Cancelled by user")
+        print("Cancelled by user")
         return prev_cfg
     except ValidationError as e:
         logging.error(f"Incorrect project configuration:\n{e}")
-        raise typer.Exit(1)
+        raise Exit(1)
 
 
 def _override_config(answers: Dict[str, Any]):
     return "override_config" not in answers or answers["override_config"]
 
 
-def _questions(cfg_path: Path, prev_cfg: Optional[Config]):
-    prechecked_projects = ["cangjie_compiler", "cangjie_runtime"]
+def _questions(cfg_path: Path, prev_cfg: Optional[CjDevConfig]):
+    prechecked_projects = ["cangjie_compiler", "cangjie_runtime", "cangjie_test"]
     container_cfg_defaults = {
         "use_container": False,
         "container_name": "cjdev",
