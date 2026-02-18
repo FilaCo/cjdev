@@ -1,7 +1,12 @@
-DOCKERFILE = r"""FROM ubuntu:22.04
+FROM ubuntu:22.04
 
+ARG WORKDIR
 ARG DEBIAN_FRONTEND=noninteractive
+
 ENV TZ=Europe/Moscow
+
+# Validate WORKDIR
+RUN ["/bin/bash", "-c", ": ${WORKDIR:? WORKDIR not set}"]
 
 RUN set -eux; \
     apt-get update; \
@@ -42,12 +47,6 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
     openjdk-17-jdk;
 
-# Install custom packages
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-    zsh
-
 # Setup environment
 RUN echo 'export OPENSSL_PATH=/usr/lib/x86_64-linux-gnu' >> /etc/profile && \
     echo 'export LD_LIBRARY_PATH="$OPENSSL_PATH":"$LD_LIBRARY_PATH"' >> /etc/profile && \
@@ -58,11 +57,7 @@ RUN echo 'export OPENSSL_PATH=/usr/lib/x86_64-linux-gnu' >> /etc/profile && \
     echo 'export STDX_VERSION=1' >> /etc/profile && \
     echo 'source /usr/GNUstep/System/Library/Makefiles/GNUstep.sh' >> /etc/profile && \
     echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' >> /etc/profile && \
-    echo 'if [[ -f /home/cjdev/cangjie/envsetup.sh ]]; then source /home/cjdev/cangjie/envsetup.sh; fi' >> /etc/profile && \
-    echo 'if [[ -f /home/cjdev/dist/envsetup.sh ]]; then source /home/cjdev/dist/envsetup.sh; fi' >> /etc/profile
+    echo "if [[ -f ${WORKDIR}/cangjie/envsetup.sh ]]; then source ${WORKDIR}/cangjie/envsetup.sh; fi" >> /etc/profile && \
+    echo "if [[ -f ${WORKDIR}/dist/envsetup.sh ]]; then source ${WORKDIR}/dist/envsetup.sh; fi" >> /etc/profile
 
-RUN useradd -m -s /usr/bin/zsh cjdev
-USER cjdev
-
-WORKDIR /home/cjdev
-"""
+WORKDIR ${WORKDIR}
