@@ -1,5 +1,5 @@
-from cjdev.commands import cli
+from .app.cli import run_cjdev
 
 
 def main() -> None:
-    cli()
+    run_cjdev()
