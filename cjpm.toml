@@ -10,10 +10,4 @@ override-compile-option = "-Woff unused"
 link-option = ""
 package-configuration = {}
 
-[target.x86_64-unknown-linux-gnu]
-[target.x86_64-unknown-linux-gnu.bin-dependencies]
-path-option = ["${CANGJIE_STDX_PATH}"]
-
 [dependencies]
-cangjie_toml = { git = "https://gitcode.com/filaco/cangjie_toml", branch = "main" }
-registry = { git = "https://github.com/FilaCo/registry-cj", branch = "master" }
