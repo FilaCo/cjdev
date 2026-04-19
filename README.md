@@ -1,17 +1,32 @@
-# `cjdev`
+# Cjdev
 
-Cangjie's developer util
+Cangjie's developer utilities.
 
-## 🚨 WARNING 🚨
+## Highlights
 
-`cjdev` is in the early stages of development. Important features are missing. Documentation is sparse. DO NOT USE until this warning removed.
+- **Easy to use**: Provides a simple and intuitive CLI for building, syncing and contributing to Cangjie SDK's projects.
+- **Containerized**: Wraps environment and dependencies for building Cangjie SDK in the container.
+- **Optimized**: Uses [Ccache](https://ccache.dev/) and [git-worktree](https://git-scm.com/docs/git-worktree) to enhance developer experience.
+
+## Installation
 
 ## Features
 
-This script would help you with the following:
+### Build
 
-1. Build Cangjie SDK locally
-2. Push related changes to cangjie_* [gitcode](https://gitcode.com/Cangjie) projects
-3. Wraps environment and deps for Cangjie SDK build into a docker container
+### Test
 
-TBD
+### Git/GitCode stuff
+
+## Documentation
+
+The command line reference documentation can be viewed with `cjdev -h`
+
+## License
+
+cjdev is licensed under either of
+
+- MIT License ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+
+at your option.
