@@ -11,3 +11,4 @@ link-option = ""
 package-configuration = {}
 
 [dependencies]
+dslkit = { git = "https://gitcode.com/belyaev-mikhail/Cangjie-DSLKit" }

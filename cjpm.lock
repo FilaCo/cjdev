@@ -1,3 +1,4 @@
 version = 0
 
 [requires]
+  dslkit = {git = "https://gitcode.com/belyaev-mikhail/Cangjie-DSLKit", commitId = "f796dde5b4bb36d4c1d0c01b4996002b9773e313"}
