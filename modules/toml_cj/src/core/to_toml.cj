@@ -1,4 +1,4 @@
-package cjdev.utils.toml.core
+package toml_cj.core
 
 // public interface ToTOML {
 //     func toTOML(): TOMLValue

@@ -1,14 +1,18 @@
-[package]
-cjc-version = "1.0.5"
-name = "cjdev"
-description = "nothing here"
-version = "0.1.0"
-target-dir = ""
-output-type = "executable"
-compile-option = ""
-override-compile-option = "-Woff unused"
+[workspace]
+members = [
+  "modules/cjdev",
+  "modules/cli_cj",
+  "modules/ddd_cj",
+  "modules/my_derive",
+  "modules/result_cj",
+  "modules/toml_cj",
+]
+build-members = []
+test-members = []
+compile-option = "-Woff unused"
+override-compile-option = ""
 link-option = ""
-package-configuration = {}
+target-dir = ""
 
 [dependencies]
 dslkit = { git = "https://gitcode.com/belyaev-mikhail/Cangjie-DSLKit" }

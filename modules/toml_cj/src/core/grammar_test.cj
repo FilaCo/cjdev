@@ -1,4 +1,4 @@
-package cjdev.utils.toml.core
+package toml_cj.core
 
 import std.unittest.*
 import std.unittest.testmacro.*

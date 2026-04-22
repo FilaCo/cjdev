@@ -1,8 +1,4 @@
 .cache
-logs
 node_modules
 target
-.env
-.env.*
-!.env.dist
 *.macrocall
