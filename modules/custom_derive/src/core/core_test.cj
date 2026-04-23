@@ -1,4 +1,4 @@
-package my_derive.core
+package custom_derive.core
 
 import std.ast.*
 import std.unittest.*

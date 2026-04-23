@@ -9,9 +9,9 @@ public enum Result<T, E> <: Iterable<T> where E <: ToString {
         isOk {_ => true}
     }
 
-    public func isOk(p: (T) -> Bool): Bool {
+    public func isOk(predicate: (T) -> Bool): Bool {
         match (this) {
-            case Ok(v) => p(v)
+            case Ok(v) => predicate(v)
             case _ => false
         }
     }
@@ -20,9 +20,9 @@ public enum Result<T, E> <: Iterable<T> where E <: ToString {
         isErr {_ => true}
     }
 
-    public func isErr(p: (E) -> Bool): Bool {
+    public func isErr(predicate: (E) -> Bool): Bool {
         match (this) {
-            case Err(e) => p(e)
+            case Err(e) => predicate(e)
             case _ => false
         }
     }
@@ -49,32 +49,43 @@ public enum Result<T, E> <: Iterable<T> where E <: ToString {
         OptionIterator(err())
     }
 
-    public func map<R>(f: (T) -> R): Result<R, E> {
+    public func map<R>(transform: (T) -> R): Result<R, E> {
         match (this) {
-            case Ok(v) => Ok(f(v))
+            case Ok(v) => Ok(transform(v))
             case Err(e) => Err(e)
         }
     }
 
-    public func mapErr<U>(f: (E) -> U): Result<T, U> where U <: ToString {
+    public func mapErr<U>(transform: (E) -> U): Result<T, U> where U <: ToString {
         match (this) {
             case Ok(v) => Ok(v)
-            case Err(e) => Err(f(e))
+            case Err(e) => Err(transform(e))
         }
     }
 
     public func expect(msg: String): T {
         match (this) {
             case Ok(v) => v
-            case _ => throw Exception(msg)
+            case Err(e) => throw Exception("${msg}\nCause: ${e}") // TODO: custom exception
         }
     }
 
     public func unwrap(): T {
         match (this) {
             case Ok(v) => v
-            case Err(e) => throw Exception(e.toString())
+            case Err(e) => throw Exception(e.toString()) // TODO: custom exception
         }
+    }
+
+    public func unwrapOr(op: (E) -> T): T {
+        match (this) {
+            case Ok(v) => v
+            case Err(e) => op(e)
+        }
+    }
+
+    public func unwrapOr(default: T): T {
+        unwrapOr {_ => default}
     }
 }
 

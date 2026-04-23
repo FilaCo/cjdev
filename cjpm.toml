@@ -3,8 +3,9 @@ members = [
   "modules/cjdev",
   "modules/cli_cj",
   "modules/ddd_cj",
-  "modules/my_derive",
+  "modules/custom_derive",
   "modules/result_cj",
+  "modules/rich_cj",
   "modules/toml_cj",
 ]
 build-members = []
@@ -14,5 +15,17 @@ override-compile-option = ""
 link-option = ""
 target-dir = ""
 
+[target]
+[target.x86_64-w64-mingw32]
+[target.x86_64-w64-mingw32.bin-dependencies]
+path-option = ["third_party\\stdx"]
+
 [dependencies]
 dslkit = { git = "https://gitcode.com/belyaev-mikhail/Cangjie-DSLKit" }
+
+cli_cj = { path = "modules/cli_cj" }
+custom_derive = { path = "modules/custom_derive" }
+pp = { path = "modules/pp" }
+result_cj = { path = "modules/result_cj" }
+survey = { path = "modules/survey" }
+toml_cj = { path = "modules/toml_cj" }

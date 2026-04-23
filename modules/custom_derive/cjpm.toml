@@ -1,6 +1,6 @@
 [package]
 cjc-version = "1.0.5"
-name = "ddd_cj"
+name = "custom_derive"
 description = "nothing here"
 version = "0.1.0"
 target-dir = ""

@@ -1,10 +1,10 @@
 [package]
 cjc-version = "1.0.5"
-name = "cjdev"
+name = "survey"
 description = "nothing here"
 version = "0.1.0"
 target-dir = ""
-output-type = "executable"
+output-type = "dynamic"
 compile-option = ""
 override-compile-option = ""
 link-option = ""
