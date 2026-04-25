@@ -2,10 +2,9 @@
 members = [
   "modules/cjdev",
   "modules/cli_cj",
-  "modules/ddd_cj",
   "modules/custom_derive",
   "modules/result_cj",
-  "modules/rich_cj",
+  "modules/pp",
   "modules/toml_cj",
 ]
 build-members = []
