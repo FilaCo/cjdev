@@ -13,4 +13,5 @@ protected let CLI = commandLine()
     .add(PR_CLI)
 
 @Callback[CLI, help: "Cangjie SDK developer utils."]
-private func cjdev() {}
+private func cjdev() {
+}

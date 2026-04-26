@@ -1,33 +1,42 @@
 protected package cli_cj.core
 
 import std.collection.*
+import std.env.*
 import result_cj.*
 
 public class App {
-    public static func builder(): Builder {
-        Builder()
+    public static func builder(): AppBuilder {
+        AppBuilder()
     }
 
-    public operator func ()(): Unit {
+    public operator func ()(args: ?Array<String>): Unit {
     }
 }
 
-public class Builder {
-    public Builder() {
+public class AppBuilder {
+    public AppBuilder() {
     }
 
     public func build(): Result<App, BuildError> {
         Ok(App())
     }
 
-    public func add(builder: Builder, name!: ?String = None, help!: ?String = None): This {
+    public func add(builder: AppBuilder, name!: ?String = None, help!: ?String = None): AppBuilder {
         this
     }
 
-    public operator func ()(): Unit {
+    public func add<F>(command: F): AppBuilder {
+        this
+    }
+
+    public func callback<F>(callback: F): AppBuilder {
+        this
+    }
+
+    public operator func ()(args: ?Array<String>): Unit {
         // TODO: Handle AppBuildError
-        build().map {app: App => app()}.unwrap()
+        build().map {app: App => app(args)}.unwrap()
     }
 }
 
-public type BuildError = String
+public type AppBuildError = String
