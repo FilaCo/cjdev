@@ -77,6 +77,13 @@ public enum Result<T, E> <: Iterable<T> where E <: ToString {
         }
     }
 
+    public func unwrapErr(): E {
+        match (this) {
+            case Err(e) => e
+            case Ok(v) => throw Exception() // TODO: custom exception
+        }
+    }
+
     public func unwrapOr(op: (E) -> T): T {
         match (this) {
             case Ok(v) => v
@@ -86,15 +93,6 @@ public enum Result<T, E> <: Iterable<T> where E <: ToString {
 
     public func unwrapOr(default: T): T {
         unwrapOr {_ => default}
-    }
-}
-
-extend<T, E> Result<T, E> where T <: ToString, E <: ToString {
-    public func unwrapErr(): E {
-        match (this) {
-            case Err(e) => e
-            case Ok(v) => throw Exception(v.toString()) // TODO: custom exception
-        }
     }
 }
 

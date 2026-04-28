@@ -17,7 +17,7 @@ public class AppBuilder {
     public AppBuilder() {
     }
 
-    public func build(): Result<App, BuildError> {
+    public func build(): Result<App, AppBuildError> {
         Ok(App())
     }
 

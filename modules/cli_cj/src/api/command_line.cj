@@ -1,6 +1,6 @@
 package cli_cj.api
 
-import cli_cj.core.{App, Builder}
+import cli_cj.core.{App, AppBuilder}
 
 public func commandLine(): AppBuilder {
     App.builder()
