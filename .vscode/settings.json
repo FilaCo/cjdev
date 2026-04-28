@@ -12,14 +12,9 @@
     },
     "terminal.integrated.env.linux": {
         "CANGJIE_HOME": "/home/filaco/.cangjie",
-        "CANGJIE_PATH": "/home/filaco/.cangjie/bin:/home/filaco/.cangjie/tools/bin:/home/filaco/.cangjie/debugger/bin:/home/filaco/.cjpm/bin",
-        "CANGJIE_LD_LIBRARY_PATH": "/home/filaco/.cangjie/runtime/lib/linux_x86_64_cjnative:/home/filaco/.cangjie/tools/lib:",
+        "CANGJIE_PATH": "/home/filaco/.cangjie/bin:/home/filaco/.cangjie/tools/bin:/home/filaco/.cjpm/bin",
+        "CANGJIE_LD_LIBRARY_PATH": "/home/filaco/.cangjie/runtime/lib/linux_x86_64_cjnative:/home/filaco/.cangjie/tools/lib::",
         "LD_LIBRARY_PATH": "${config:terminal.integrated.env.linux.CANGJIE_LD_LIBRARY_PATH}:${env:LD_LIBRARY_PATH}",
         "PATH": "${config:terminal.integrated.env.linux.CANGJIE_PATH}:${env:PATH}"
-    },
-    "terminal.integrated.env.windows": {
-        "CANGJIE_HOME": "C:\\Program Files (x86)\\Cangjie",
-        "CANGJIE_PATH": "C:\\Program Files (x86)\\Cangjie\\runtime\\lib\\windows_x86_64_cjnative;C:\\Program Files (x86)\\Cangjie\\bin;C:\\Program Files (x86)\\Cangjie\\tools\\bin;C:\\Program Files (x86)\\Cangjie\\tools\\lib;C:\\Users\\c00926564\\.cjpm\\bin",
-        "PATH": "${config:terminal.integrated.env.windows.CANGJIE_PATH};${env:PATH}"
     }
 }
