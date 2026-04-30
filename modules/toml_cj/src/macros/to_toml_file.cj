@@ -7,11 +7,10 @@ public import toml_cj.support.*
 /**
  * [TOML v1.1.0 grammar](https://github.com/toml-lang/toml/blob/1.1.0/toml.abnf)
  */
-@GrammarMacro[
-    Main := TValue
+// @GrammarMacro[
+    // Main := TFile
     // Overall Structure
-    TValue -> TOMLValue := TBoolean
-    // File := (exprs: Expr[cangjie.NL...]+) cangjie.EOF { TOMLFile(exprs) }
+    // TFile := (exprs: Expr[cangjie.NL...]+) cangjie.EOF { TOMLFile(exprs) }
 
     // Expr := (kv: KeyVal) Comment? { TOMLKeyVal(kv) }
     //       | (t: Table) Comment? { t }
@@ -62,8 +61,8 @@ public import toml_cj.support.*
     //               | "nan" { TOMLFloat(Float64.NaN) }
 
     // Boolean
-    TBoolean := "true" { TOMLBoolean(true) }
-             | "false" { TOMLBoolean(false) }
+    // TBoolean := "true" { TOMLBoolean(true) }
+    //          | "false" { TOMLBoolean(false) }
 
     // // TODO: Date and Time (as defined in RFC 3339)
 
@@ -82,7 +81,7 @@ public import toml_cj.support.*
 
     // // Array Table
     // ArrayTable := "[[" k: Key "]]" { TOMLArrayTable(k) }
-]
-func ToTOML(input: TOMLValue): Tokens {
-    input.toTokens()
-}
+// ]
+// func ToTOMLFile(input: TOMLFile): Tokens {
+//     input.toTokens()
+// }
