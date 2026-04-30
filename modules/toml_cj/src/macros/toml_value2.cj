@@ -66,7 +66,7 @@ public import toml_cj.support.*
     Interpolated := id: cangjie.DollarIdentifier { TOMLInterpolated(dedollar(id)) }
                   | "$(" embed: cangjie.Expr ")" { TOMLInterpolated(embed.toTokens()) }
 ]
-func ToTOMLValue(input: TOMLValue): Tokens {
+func TOMLValue2(input: TOMLValue): Tokens {
     input.toTokens()
 }
 
