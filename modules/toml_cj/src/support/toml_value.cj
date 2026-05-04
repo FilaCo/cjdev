@@ -34,7 +34,7 @@ public enum TOMLValue <: ToString & ToTokens {
                 let arrTokens = joinTokens(arr, open: quote([), close: quote(]), sep: quote(,))
                 quote(TOMLArray($arr))
             case TOMLInlineTable(it) =>
-                let itTokens = joinTokens(it, open: quote({), close: quote(}), sep: quote(,))
+                let itTokens = joinTokens(it, open: quote([), close: quote(]), sep: quote(,))
                 quote(TOMLInlineTable($itTokens))
             // case TOMLDatetime(dt) => "\"${s}\""
             case TOMLFloat(f) => quote(TOMLFloat($f))
@@ -151,6 +151,6 @@ public struct TOMLKeyValueData <: ToString & ToTokens {
     }
 
     public func toTokens(): Tokens {
-        quote(TOMLKeyValue(key: $key, value: $value))
+        quote(TOMLKeyValueData(key: $key, value: $value))
     }
 }

@@ -12,7 +12,6 @@ class TOMLTest {
         // act
         println(@TOMLValue2(
 { cangjie = "rules", check = true }
-
 ))
         // assert
         @Assert(1, 2)
