@@ -1,34 +1,15 @@
 [project]
 name = "cjdev"
 version = "0.1.0"
-description = "Cangjie's developer utilities"
+description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Dmitrii Chizha", email = "me@filaco.dev" }
-]
+authors = [{ name = "Dmitrii Chizha", email = "chizha.dmitrii@huawei.com" }]
 requires-python = ">=3.10"
-dependencies = [
-    "asyncio>=4.0.0",
-    "gitpython>=3.1.46",
-    "pydantic>=2.12.5",
-    "questionary>=2.1.1",
-    "rich>=14.2.0",
-    "tomlkit>=0.14.0",
-    "typer>=0.21.1",
-]
+dependencies = []
 
 [project.scripts]
 cjdev = "cjdev:main"
 
 [build-system]
-requires = ["uv_build>=0.9.26,<0.10.0"]
+requires = ["uv_build>=0.8.22,<0.9.0"]
 build-backend = "uv_build"
-
-[tool.ty]
-venvPath = "."
-
-[dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-cov>=7.0.0",
-]
