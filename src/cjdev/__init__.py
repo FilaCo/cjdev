@@ -1,2 +1,5 @@
-def main():
-    print("Hello, world")
+from cjdev.commands import cli
+
+
+def main() -> None:
+    cli()
