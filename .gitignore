@@ -1,2 +1,12 @@
-__pycache__
-node_modules
+# Python
+__pycache__/
+.venv/
+
+# Build artifacts
+/dist/
+
+# Tool caches and reports
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
