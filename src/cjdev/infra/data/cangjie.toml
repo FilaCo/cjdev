@@ -1,0 +1,60 @@
+# The component set that ships with cjdev — see docs/requirements.md §4.3.
+#
+# This is data, not code (CFG-2): a workspace may override it wholesale. The schema
+# below is a first cut and will firm up when infra/config.py learns to read it.
+
+schema_version = 1
+
+[defaults]
+forge = "gitcode"
+default_branch = "main"
+
+# --- components: the unit of cloning, branching and PR creation ---------------
+
+[components.cangjie_compiler]
+url = "https://gitcode.com/Cangjie/cangjie_compiler.git"
+
+[components.cangjie_runtime]
+url = "https://gitcode.com/Cangjie/cangjie_runtime.git"
+
+[components.cangjie_tools]
+url = "https://gitcode.com/Cangjie/cangjie_tools.git"
+
+[components.cangjie_test_framework]
+url = "https://gitcode.com/Cangjie/cangjie_test_framework.git"
+
+[components.cangjie_test]
+url = "https://gitcode.com/Cangjie/cangjie_test.git"
+
+[components.cangjie_multiplatform_interop]
+url = "https://gitcode.com/Cangjie/cangjie_multiplatform_interop.git"
+
+# --- build units: the nodes of the dependency graph ---------------------------
+#
+# A component is not a build unit — cangjie_runtime and cangjie_tools each hold
+# several. Every unit builds through a build.py in its own directory, exposing
+# `build` and `install`.
+#
+# Incomplete on purpose: the units of cangjie_tools beyond cjpm, and those of
+# cangjie_multiplatform_interop, are open question §10.2-A. cangjie_test and
+# cangjie_test_framework build nothing and therefore have no units.
+
+[units.compiler]
+component = "cangjie_compiler"
+path = "."
+depends_on = []
+
+[units.runtime]
+component = "cangjie_runtime"
+path = "runtime"
+depends_on = []
+
+[units.stdlib]
+component = "cangjie_runtime"
+path = "stdlib"
+depends_on = ["compiler", "runtime"]
+
+[units.cjpm]
+component = "cangjie_tools"
+path = "cjpm"
+depends_on = ["compiler", "runtime", "stdlib"]
