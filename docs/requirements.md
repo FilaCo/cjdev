@@ -1,8 +1,8 @@
 # cjdev — requirements
 
-Status: **draft**. Written before implementation; every open question in
-[§10](#10-open-questions) must be answered before the corresponding requirement is
-considered frozen.
+Status: **draft**. Written before implementation. The component set, targets, forge
+client and environment baseline were settled on 2026-09-03 ([§10.1](#101-resolved)); the
+questions remaining in [§10.2](#102-still-open) still block the requirements they name.
 
 Requirement IDs are stable. Refer to them from issues, commits and PRs.
 
@@ -30,7 +30,8 @@ own build logic — that stays upstream.
 
 | Term | Meaning |
 | --- | --- |
-| **component** | One Cangjie SDK git repository (`cangjie_compiler`, `cangjie_runtime`, …). |
+| **component** | One Cangjie SDK git repository (`cangjie_compiler`, `cangjie_runtime`, …). The unit of cloning, branching and PR creation. |
+| **build unit** | One buildable subproject inside a component (`cangjie_runtime/runtime`, `cangjie_runtime/stdlib`, `cangjie_tools/cjpm`). The unit of the dependency graph and of build directories; a component may hold several. |
 | **upstream** | The canonical repository under the `Cangjie` organisation on gitcode. |
 | **origin / fork** | The user's personal fork of a component. |
 | **workspace** | A `cjdev`-managed directory tree holding object stores, worktrees, build outputs and caches for the whole component set. |
@@ -69,8 +70,8 @@ own build logic — that stays upstream.
     cangjie_compiler/             # git worktree
     cangjie_runtime/
     ...
-  build/<branch-set>/<profile>/   # out-of-tree build dirs, one per component
-  dist/<branch-set>/<profile>/    # assembled/installed SDK
+  build/<branch-set>/<profile>/   # out-of-tree build dirs, one per build unit
+  dist/<branch-set>/<profile>/    # assembled SDK — the install target of every build.py
   cache/
     ccache/                       # shared across ALL branch sets — the point of the design
     misc/
@@ -95,6 +96,52 @@ A logical change rarely touches every component. Therefore:
 - `cjdev.lock` always records the resolved commit for every component, so a branch set is
   reproducible and `cjdev` always knows which components actually diverged (input to build
   selection, PR creation and issue text).
+
+### 4.3 Component set and build graph
+
+Six repositories, all under `https://gitcode.com/Cangjie`, all with `main` as the default
+branch. This is v1.0 manifest data, not an assumption baked into the code.
+
+| Component | Holds | Role |
+| --- | --- | --- |
+| `cangjie_compiler` | `cjc` | The compiler. Also the default home of a change's tracking issue. |
+| `cangjie_runtime` | `runtime/`, `stdlib/` | Two build units, one repository. |
+| `cangjie_tools` | `cjpm/`, others | Package manager and the rest of the tooling. |
+| `cangjie_test_framework` | a lit-like Python runner | Runs the suites. Builds nothing. |
+| `cangjie_test` | test cases and configs | Data for the framework. Builds nothing. |
+| `cangjie_multiplatform_interop` | interop layer | Build edges not yet established. |
+
+A component is therefore **not** a build unit — `cangjie_runtime` and `cangjie_tools` each
+hold several — and the dependency graph is over units:
+
+- `cangjie_compiler` — no dependencies
+- `cangjie_runtime/runtime` — no dependencies
+- `cangjie_runtime/stdlib` — depends on `cangjie_compiler`, `cangjie_runtime/runtime`
+- `cangjie_tools/cjpm` — depends on `cangjie_compiler`, `cangjie_runtime/runtime`,
+  `cangjie_runtime/stdlib`
+
+Every unit builds through a `build.py` in its own directory, exposing `build` and
+`install` subcommands.
+
+### 4.4 Build environment baseline
+
+No upstream image is published, so `cjdev` ships its own `Containerfile`. The baseline is
+the environment `cangjie_build` documents, as captured in a Dockerfile already known to
+work:
+
+- Ubuntu 22.04, `x86_64`
+- CMake 3.26.6 (upstream tarball, not the distro package), Ninja, GCC/G++, Make, Autoconf
+- Clang/LLVM 15 (`libclang-15-dev`), on `PATH` via `/usr/lib/llvm-15/bin`
+- GNUstep runtime 2.1 built for clang 14 (Objective-C interop)
+- OpenJDK 17 (Java interop)
+- Python 3 exposed as `python`
+- OpenSSL, zlib, libcurl, libedit, libelf, libdwarf, ncurses5, rapidjson, gtest
+
+Two things from that Dockerfile deliberately do **not** carry over: the SDK environment
+variables (`ARCH`, `SDK_NAME`, `CANGJIE_VERSION`, `STDX_VERSION`) and the `envsetup.sh`
+sourcing, both baked into `/etc/profile` against one fixed layout. `cjdev` owns that
+wiring instead — the executor sets it per build unit and profile (ENV-5, ENV-11) — so the
+image stays a toolchain and nothing more.
 
 ---
 
@@ -147,7 +194,7 @@ git push --force-with-lease origin <branch>      # optional, --push
 | SYNC-5 | MUST | All force pushes use `--force-with-lease`. Plain `-f` is never issued. |
 | SYNC-6 | MUST | Before any history rewrite, save a backup ref (`refs/cjdev/backup/<branch>/<utc-timestamp>`) and print how to restore it. |
 | SYNC-7 | MUST | Refuse to rebase a dirty worktree; `--autostash` opts into stashing. |
-| SYNC-8 | MUST | The default branch name is detected per component (`refs/remotes/upstream/HEAD`), overridable in the manifest. Never hardcode `master`/`main`/`dev`. |
+| SYNC-8 | MUST | The default branch name is detected per component (`refs/remotes/upstream/HEAD`), overridable in the manifest. Never hardcode `master`/`main`/`dev` — every component happens to be `main` today, and that stays manifest data. |
 | SYNC-9 | MUST | On conflict, stop, report which components are done / conflicted / untouched, and support `cjdev sync --continue` and `cjdev sync --abort`. |
 | SYNC-10 | SHOULD | Enable `rerere` inside the workspace so the same conflict resolved in one branch set replays in the next. |
 | SYNC-11 | SHOULD | `--dry-run` prints the exact git commands for every component without running any. |
@@ -167,18 +214,18 @@ cjdev sync --only cangjie_compiler --dry-run
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
-| BUILD-1 | MUST | Build the whole SDK for the active branch set with one command, in dependency order derived from the manifest graph. |
-| BUILD-2 | MUST | Build a single component, with `--only`, `--from <c>` (component and dependents), `--upto <c>` (component and dependencies). |
-| BUILD-3 | MUST | Build recipes are declarative manifest entries that invoke each component's own build entry point. `cjdev` never reimplements or forks upstream build logic. |
+| BUILD-1 | MUST | Build the whole SDK for the active branch set with one command, in dependency order derived from the manifest's **build-unit** graph ([§4.3](#43-component-set-and-build-graph)), not from the component list. |
+| BUILD-2 | MUST | Build a single build unit, with `--only`, `--from <u>` (unit and dependents), `--upto <u>` (unit and dependencies). Naming a component selects all of its units. |
+| BUILD-3 | MUST | Build recipes are declarative manifest entries that invoke each build unit's own `build.py` (`build`, then `install` into `dist/`). `cjdev` never reimplements or forks upstream build logic. |
 | BUILD-4 | MUST | Extra arguments pass through verbatim to the underlying build script (`cjdev build cangjie_compiler -- --foo`). |
-| BUILD-5 | MUST | Build outputs live outside the source tree, keyed by branch set and profile; two branch sets never share a build directory. |
+| BUILD-5 | MUST | Build outputs live outside the source tree, keyed by branch set, profile and build unit; two branch sets never share a build directory. Where a `build.py` cannot build out-of-tree, the manifest marks that unit in-tree and `cjdev` reports the lost isolation rather than faking it. |
 | BUILD-6 | MUST | Named profiles (`debug`, `release`, …) defined in the manifest and overridable per workspace. |
 | BUILD-7 | SHOULD | Skip components whose inputs are unchanged, using a stamp keyed on commit + dirty-tree hash + resolved build flags + toolchain identity; `--force` rebuilds anyway. |
 | BUILD-8 | SHOULD | Fail fast by default, `--keep-going` to build everything buildable and report a summary. |
 | BUILD-9 | SHOULD | Emit a per-component timing and cache-hit summary at the end of a build. |
 | BUILD-10 | SHOULD | Assemble a usable SDK into `dist/<branch-set>/<profile>` and print how to put it on `PATH`. |
 | BUILD-11 | MAY | Parallel builds of independent graph nodes. |
-| BUILD-12 | MAY | Cross-target builds (see [§10](#10-open-questions)). |
+| BUILD-12 | MAY | Cross-target builds. **Out of scope for v1.0**: the only target is the host, `x86_64` Linux, and a profile is a build type — never a target × build-type pair. |
 
 ### 5.4 CACHE — incrementality across branches
 
@@ -202,7 +249,7 @@ cjdev sync --only cangjie_compiler --dry-run
 | ENV-4 | MUST | Files produced inside a container are owned by the invoking user on the host (docker: `--user`; podman rootless: `--userns=keep-id`). Root-owned build artifacts are a defect. |
 | ENV-5 | MUST | The workspace is mounted at a **fixed path** inside the container, identical across runs and images, so cache keys and debug paths stay stable. |
 | ENV-6 | MUST | SELinux-labelled mounts (`:z`) where required, without breaking non-SELinux hosts. |
-| ENV-7 | MUST | Ship a `Containerfile` buildable by both runtimes; `cjdev env build` builds it, `cjdev env pull` fetches a published one. |
+| ENV-7 | MUST | Ship a `Containerfile` buildable by both runtimes; `cjdev env build` builds it, `cjdev env pull` fetches a published one. No upstream image exists — the baseline `cjdev` must reproduce is [§4.4](#44-build-environment-baseline). |
 | ENV-8 | MUST | The image reference (by digest) used for a build is recorded alongside the build stamp, so a toolchain change invalidates the stamp. |
 | ENV-9 | SHOULD | `cjdev env shell` drops into the configured environment with the same mounts and env vars a build would use. |
 | ENV-10 | SHOULD | `cjdev env doctor` verifies prerequisites for the selected mode (runtime present, image available, cgroups/userns sane, disk space, host toolchain versions). |
@@ -213,7 +260,7 @@ cjdev sync --only cangjie_compiler --dry-run
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
-| TEST-1 | MUST | Run `cangjie_test_framework.py` against the SDK built for the active branch set, with the environment wired up automatically. |
+| TEST-1 | MUST | Run the `cangjie_test_framework` runner against the SDK in `dist/<branch-set>/<profile>`, with the environment wired up automatically. The framework is a lit-like Python tool that builds nothing; the cases it executes live in `cangjie_test`. |
 | TEST-2 | MUST | Raw arguments pass through verbatim (`cjdev test -- --any-upstream-flag`). Shortcuts never block the underlying tool. |
 | TEST-3 | MUST | Named **presets** (framework flags + suite selection + environment) resolved in layers: built-in → manifest → workspace config → user config → CLI flags. |
 | TEST-4 | MUST | Select suites/subsets by short name or path, with tab-completable names. |
@@ -227,16 +274,16 @@ cjdev sync --only cangjie_compiler --dry-run
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
-| FORGE-1 | MUST | A `forge` port with a gitcode adapter; no gitcode specifics leak into command or domain code. |
-| FORGE-2 | MUST | Token from environment or the OS keyring; never written to a versioned file; never printed, including in verbose logs and error output. |
+| FORGE-1 | MUST | A `forge` port with a gitcode adapter. The adapter drives the official `gitcode` CLI (`auth`, `repo`, `issue`, `pr`, and the raw `api` escape hatch) rather than reimplementing the REST API — the same reasoning as NFR-3. No gitcode specifics leak into command or domain code. |
+| FORGE-2 | MUST | Authentication is delegated to `gitcode auth login`. `cjdev` honours `GC_TOKEN` / `GITCODE_TOKEN` from the environment when set and otherwise relies on the CLI's own stored credentials; it never writes a token to a versioned file and never prints one, including in verbose logs and error output. |
 | FORGE-3 | MUST | Open PRs for **exactly the components that diverged** in the active branch set, in one command, using the branch-set name as the source branch. |
-| FORGE-4 | MUST | Cross-link the PRs of one branch set: each body lists its siblings and the tracking issue. |
+| FORGE-4 | MUST | Cross-link the PRs of one branch set through a single shared tracking issue — the project's existing convention. The issue lives in the component the change centres on (`cangjie_compiler` by default); every PR body references it, and the issue lists every PR. |
 | FORGE-5 | MUST | Preview the full PR title/body per component and require confirmation before anything is created; `--yes` for scripted use. |
 | FORGE-6 | MUST | Idempotent: re-running updates the existing PRs rather than creating duplicates. |
-| FORGE-7 | SHOULD | Create the tracking issue in `cangjie_compiler` from the repository's issue template, pre-filled from branch-set metadata and the commit range. |
+| FORGE-7 | SHOULD | Create the tracking issue from the target repository's own template under `.gitcode/ISSUE_TEMPLATES`, read at run time rather than vendored, pre-filled from branch-set metadata and the commit range. |
 | FORGE-8 | SHOULD | Optional AI-assisted drafting of the issue/PR body from the diff: opt-in flag, delegated to a user-configured external command, output always opened in `$EDITOR` before submission. Never auto-posted. |
 | FORGE-9 | SHOULD | `cjdev pr status` shows CI state, review state and merge state for every PR in the branch set. |
-| FORGE-10 | SHOULD | Respect a documented ordering when the component PRs depend on each other, and say so in the bodies. |
+| FORGE-10 | SHOULD | Order the PRs of a branch set by the build graph ([§4.3](#43-component-set-and-build-graph)) and state that order in the tracking issue, so reviewers merge dependencies first. |
 | FORGE-11 | MAY | Fork creation and remote wiring for a component the user has not forked yet. |
 | FORGE-12 | MAY | A second adapter (e.g. GitHub) to prove the port is real. |
 
@@ -299,9 +346,10 @@ into proper ADRs.
    it starts drifting from upstream.
 4. **The lock file is the source of truth for "what is this branch set".** It makes builds
    reproducible, tells PR creation which components diverged, and makes `status` cheap.
-5. **Forge behind a port.** Partly for testability, partly because the gitcode API surface
-   is the least certain part of this design (see [§10](#10-open-questions)) and must be
-   replaceable without touching command code.
+5. **Forge behind a port.** Partly for testability, partly because the gitcode surface is
+   the least certain part of this design (see [§10.2](#102-still-open)) and must be
+   replaceable without touching command code. The v1.0 adapter shells out to the official
+   `gitcode` CLI; the port exists so a REST adapter can replace it if the CLI falls short.
 6. **Layering (ports & adapters).**
    - `domain/` — `Workspace`, `Component`, `BranchSet`, `BuildGraph`, `Profile`. Pure, no I/O.
    - `application/` — one use case per command, orchestration and policy only.
@@ -331,32 +379,39 @@ into proper ADRs.
 | R3 | **Absolute paths defeat the shared cache.** Different worktree path ⇒ different hash ⇒ zero hits. | CACHE-2 (`CCACHE_BASEDIR` + `hash_dir = false`) and ENV-5 (fixed container path) are not optional details; they are the feature. |
 | R4 | **Disk growth.** Branch sets × profiles × build dirs is measured in tens of GB. | CACHE-7 (`gc`), size reporting in `status`, opt-in build-dir removal on branch-set deletion. |
 | R5 | **Force-push data loss.** SYNC rewrites published history by design. | `--force-with-lease` only (SYNC-5), backup refs (SYNC-6), confirmation (UX-2), `--dry-run` (SYNC-11). |
-| R6 | **gitcode API uncertainty.** Auth flow, PR endpoints and rate limits are not yet verified. | Spike before M5; forge port (decision 5) contains the blast radius. |
+| R6 | **gitcode CLI coverage.** The official CLI is the chosen client, but which of its `pr` / `issue` verbs this workflow needs — and whether cross-repo linking is expressible without dropping to `api` — is unverified. | Spike before M5; forge port (decision 5) contains the blast radius. |
 | R7 | **Upstream build scripts change.** Flags and entry points move. | Recipes are data, not code (BUILD-3); pass-through args (BUILD-4); pin the manifest schema (CFG-3). |
 | R8 | **Submodules / LFS in a worktree** behave differently from a plain clone. | Verify per component during M1; if present, handle explicitly rather than by accident. |
 | R9 | **Partial cross-repo operations.** A failure mid-way leaves components inconsistent. | Preflight everything (BRANCH-8), resumable `--continue`/`--abort` (SYNC-9), never a silent partial success. |
 | R10 | **Scope.** Seven feature areas is a lot for one tool. | Milestones are ordered so each is independently useful; M1 ships before M2 starts. |
+| R11 | **The build graph is only partly known.** The units and edges of `cangjie_tools` beyond `cjpm`, and of `cangjie_multiplatform_interop`, are not established. | The graph is manifest data, not code (CFG-2). Ship with the four confirmed units; add edges as they are verified. |
 
 ## 10. Open questions
 
-Each of these blocks a requirement. Answers should be folded back into this document.
+Answered on 2026-09-03 where listed as resolved. The rest still block the requirements
+they name.
 
-1. **Component set.** Exact repository list, their gitcode URLs, and each one's default
-   branch name. Blocks: the manifest, all of BRANCH and SYNC.
-2. **Dependency graph.** The real build order and which edges are hard vs. incidental.
-   Blocks: BUILD-1/2.
-3. **Build entry points.** Per component: script, required flags, where outputs land, and
-   whether out-of-tree builds are supported at all. Blocks: BUILD-3/5.
-4. **`cangjie_test_framework.py`.** Which repository owns it, how it locates an SDK, what
-   its suite/preset vocabulary is. Blocks: all of TEST.
-5. **gitcode API.** Base URL, auth (PAT? OAuth?), PR and issue endpoints, rate limits, and
-   whether an official CLI exists worth wrapping instead. Blocks: all of FORGE.
-6. **Targets.** Is cross-compilation in scope for v1.0 (aarch64, Windows, OpenHarmony), or
-   host-only? Blocks: BUILD-12, profile design.
-7. **Base image.** Which distro and toolchain versions does an SDK build actually require,
-   and is there a published image already? Blocks: ENV-7.
-8. **Issue template.** The template in `cangjie_compiler` — its fields and which of them
-   can be derived mechanically rather than by an LLM. Blocks: FORGE-7/8.
-9. **Multi-repo PR conventions.** Does the Cangjie project have an existing convention for
-   linking PRs across repositories that `cjdev` should follow rather than invent? Blocks:
-   FORGE-4/10.
+### 10.1 Resolved
+
+| # | Question | Answer |
+| --- | --- | --- |
+| 1 | Component set | Six repositories under `https://gitcode.com/Cangjie`, default branch `main` everywhere — enough for the first iteration. Listed in [§4.3](#43-component-set-and-build-graph). |
+| 2 | Dependency graph | Partly known, and the important finding is that graph nodes are **build units**, not components: `cangjie_runtime` and `cangjie_tools` each hold several. Confirmed edges in [§4.3](#43-component-set-and-build-graph); the rest in [§10.2](#102-still-open). |
+| 3 | Build entry points | A `build.py` in each build unit's directory, with `build` and `install` subcommands. Out-of-tree support is per unit and unverified ([§10.2](#102-still-open)). |
+| 4 | `cangjie_test_framework` | Its own repository in the same organisation: a lit-like Python runner that builds nothing. The cases and configs it runs live in `cangjie_test`. |
+| 5 | gitcode API | An official CLI exists — `gitcode` / `gc`, <https://gitcode.com/gitcode-cli/cli> — offering `auth`, `repo`, `issue`, `pr`, `actions` and a raw `api` escape hatch, with tokens read from `GC_TOKEN` / `GITCODE_TOKEN`. The forge adapter wraps it instead of the REST API (FORGE-1/2). |
+| 6 | Targets | Host only, `x86_64` Linux, for v1.0. A profile is a build type, not a target × build-type pair; BUILD-12 is out of scope. |
+| 7 | Base image | None published. `cjdev` ships its own `Containerfile`; the baseline it must reproduce is [§4.4](#44-build-environment-baseline). |
+| 8 | Issue template | Lives under `.gitcode/ISSUE_TEMPLATES` in the target repository. `cjdev` reads it at run time rather than vendoring a copy that will drift (FORGE-7). |
+| 9 | Multi-repo PR conventions | A convention exists: one shared tracking issue, usually in `cangjie_compiler`, that the change's PRs link to. `cjdev` follows it rather than inventing its own (FORGE-4). |
+
+### 10.2 Still open
+
+| # | Question | Blocks |
+| --- | --- | --- |
+| A | The build units and edges of `cangjie_tools` beyond `cjpm`, and of `cangjie_multiplatform_interop`. | BUILD-1/2 for those components (R11) |
+| B | Whether each `build.py` supports an out-of-tree build directory, and where its `install` places output. | BUILD-5, the `build/` and `dist/` layout |
+| C | How the `cangjie_test_framework` runner locates an SDK, and what its suite / preset vocabulary is. | TEST-1/3/4 |
+| D | The fields of the `.gitcode/ISSUE_TEMPLATES` entries, and which of them are derivable mechanically rather than by an LLM. | FORGE-7/8 |
+| E | Which `gitcode` CLI subcommands cover the PR and issue flow, and whether cross-repo linking needs the `api` escape hatch. | FORGE-3/6/9 (R6) |
+| F | What `envsetup.sh` is actually responsible for, so the executor can reproduce it instead of sourcing a file baked into an image. | ENV-5/11 |
