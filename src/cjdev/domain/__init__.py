@@ -1,1 +1,2 @@
-"""Pure domain types. No subprocess, no filesystem, no network (NFR-2)."""
+from .project import *
+from .workspace import *
