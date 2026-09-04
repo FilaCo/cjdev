@@ -1,9 +1,9 @@
 """`cjdev init`, end to end against a real git.
 
-NFR-3 commits to the real binary, so these clone from `file://` repositories
-built in a `tmp_path` rather than from a fake. It costs milliseconds and it
-catches the things a fake never would - which refs a bare `init` + `fetch`
-actually produces, and where `remote set-head` puts `HEAD`.
+NFR-3 commits to the real binary, so these clone from the `file://`
+repositories `conftest` builds rather than from a fake - it catches which refs
+a bare `init` + `fetch` actually produces, and where `remote set-head` puts
+`HEAD`.
 """
 
 import subprocess
@@ -21,29 +21,9 @@ from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.filesystem import HostFileSystem, build_file_system
 from cjdev.infra.git import Git, provision_object_store, remove_object_store
 from cjdev.infra.prompt import NonInteractivePrompt
+from conftest import make_upstream
 
 pytestmark = pytest.mark.usefixtures("git_available")
-
-
-@pytest.fixture(scope="session")
-def git_available() -> None:
-    if subprocess.run(["git", "--version"], capture_output=True).returncode:
-        pytest.skip("git is not installed")
-
-
-def make_upstream(path: Path, branch: str = "main") -> str:
-    """A real repository with one commit, served over `file://`."""
-    path.mkdir(parents=True)
-    run = lambda *args: subprocess.run(  # noqa: E731
-        ["git", *args], cwd=path, check=True, capture_output=True
-    )
-    run("init", "--quiet", "--initial-branch", branch)
-    run("config", "user.email", "test@example.invalid")
-    run("config", "user.name", "Test")
-    (path / "README").write_text("hello")
-    run("add", "README")
-    run("commit", "--quiet", "-m", "initial")
-    return f"file://{path}"
 
 
 def dry_run_workspace(manifest: Manifest, printed: list[str]) -> InitWorkspace:

@@ -1,7 +1,10 @@
+import json
 from collections.abc import Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
 from typer.main import get_command
 from typer.testing import CliRunner
 
@@ -9,7 +12,8 @@ from cjdev.bootstrap import Container
 from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
 from cjdev.cli.build import complete_unit
-from cjdev.errors import ManifestError, NotImplementedYetError
+from cjdev.domain.layout import WorkspaceLayout
+from cjdev.errors import ManifestError, NotImplementedYetError, PreconditionError
 
 runner = CliRunner()
 
@@ -60,6 +64,58 @@ class TestBuildTakesItsUnitsFromTheManifest:
         assert "stdlib" in complete_unit("")
 
 
+class TestStatus:
+    @pytest.fixture
+    def empty_workspace(self, tmp_path: Path) -> Path:
+        # A marker and nothing else: `init` creates `bare/` only once it has a
+        # project to put in it, and status must survive that state.
+        Path(WorkspaceLayout(tmp_path).marker).mkdir()
+        return tmp_path
+
+    def test_it_refuses_outside_a_workspace(self, tmp_path: Path):
+        result = runner.invoke(cli, ["status", str(tmp_path)])
+
+        assert isinstance(result.exception, PreconditionError)
+        assert PreconditionError.exit_code == 3  # UX-5
+
+    def test_an_empty_workspace_reports_the_manifest_as_absent(
+        self, empty_workspace: Path
+    ):
+        result = runner.invoke(cli, ["status", str(empty_workspace)])
+
+        assert result.exit_code == 0
+        assert "cangjie_compiler" in result.output
+        assert "No branch sets yet" in result.output
+
+    def test_an_unreadable_store_is_reported_and_is_not_a_success(
+        self, empty_workspace: Path
+    ):
+        # A report that saw only part of the workspace must not be mistaken
+        # for a clean one by a prompt or a script (UX-5).
+        layout = WorkspaceLayout(empty_workspace)
+        store = Path(layout.object_store("cangjie_compiler"))
+        store.mkdir(parents=True)
+        (store / "HEAD").write_text("not a git repository")
+
+        result = runner.invoke(cli, ["status", str(empty_workspace)])
+
+        assert result.exit_code == 1
+        assert "cangjie_compiler" in result.output
+        assert "not a git repository" in result.output
+
+    def test_json_is_parseable_rather_than_pretty(self, empty_workspace: Path):
+        # UX-6's whole point is that something else reads this, so rich must
+        # not colour, rewrap or reinterpret it on the way out.
+        result = runner.invoke(cli, ["status", str(empty_workspace), "--json"])
+
+        report = json.loads(result.output)
+        assert report["branch_sets"] == []
+        assert {p["name"] for p in report["projects"]} == {
+            p.name for p in Container().manifest.projects
+        }
+        assert not any(p["provisioned"] for p in report["projects"])
+
+
 def test_every_command_uses_the_typed_context():
     # Guards against a missing `cls=`: the annotation would still type-check
     # while the command silently received a bare click Context at run time.
@@ -82,9 +138,9 @@ def test_the_container_loads_the_bundled_manifest():
 
 
 def test_unimplemented_commands_say_so_rather_than_pretending():
-    # Until M1 lands these are wired but empty. Silently exiting 0 would be
-    # worse than failing: it reads as "the workspace is fine".
-    result = runner.invoke(cli, ["status"])
+    # `build` is wired to the manifest but has no builder behind it until M2.
+    # Silently exiting 0 would be worse than failing: it reads as "it built".
+    result = runner.invoke(cli, ["build"])
 
     assert isinstance(result.exception, NotImplementedYetError)
-    assert "M1" in str(result.exception)
+    assert "M2" in str(result.exception)

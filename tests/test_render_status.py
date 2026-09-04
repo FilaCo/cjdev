@@ -1,0 +1,111 @@
+"""What the status table shows, and what it deliberately does not."""
+
+from io import StringIO
+from pathlib import PurePath
+
+from rich.console import Console
+
+from cjdev.cli._render import render_status
+from cjdev.domain.state import (
+    BranchSet,
+    Checkout,
+    Store,
+    Tracking,
+    WorkspaceStatus,
+)
+
+ROOT = PurePath("/ws")
+HEAD = "4ee0b52be5aa162d0871d9cef11979191b6c6068"
+
+
+def checkout(
+    dirty: bool = False,
+    tracking: tuple[Tracking, ...] = (),
+    branch: str | None = "main",
+) -> Checkout:
+    return Checkout(
+        project="alpha",
+        path=ROOT / "main" / "alpha",
+        branch=branch,
+        head=HEAD,
+        dirty=dirty,
+        tracking=tracking,
+    )
+
+
+def render(*checkouts: Checkout, active: str | None = None) -> str:
+    sink = StringIO()
+    render_status(
+        Console(file=sink, force_terminal=False, width=100),
+        WorkspaceStatus(
+            root=ROOT,
+            active=active,
+            stores=(Store("alpha", provisioned=True),),
+            branch_sets=(
+                BranchSet(name="main", directory=ROOT / "main", checkouts=checkouts),
+            )
+            if checkouts
+            else (),
+        ),
+    )
+    return sink.getvalue()
+
+
+def test_the_sha_is_abbreviated():
+    # BRANCH-4 asks for a short SHA; forty columns of hash in a table read
+    # many times a day is the reason.
+    assert "4ee0b52" in render(checkout())
+    assert HEAD not in render(checkout())
+
+
+def test_a_clean_checkout_says_nothing_beyond_where_it_is():
+    output = render(checkout())
+
+    assert "dirty" not in output
+    assert "alpha" in output and "main" in output
+
+
+def test_a_dirty_checkout_says_so():
+    assert "dirty" in render(checkout(dirty=True))
+
+
+def test_a_detached_checkout_is_labelled_rather_than_left_blank():
+    assert "detached" in render(checkout(branch=None))
+
+
+class TestOnlyDriftWorthActingOnIsShown:
+    """An in-sync remote and a remote that never heard of the branch both mean
+    "nothing to do", and six projects times two remotes of `0/0` would bury
+    the one row that does need attention. `--json` carries the counts."""
+
+    def test_drift_is_reported_with_its_remote(self):
+        output = render(checkout(tracking=(Tracking("upstream", ahead=2, behind=1),)))
+
+        assert "upstream ↑2 ↓1" in output
+
+    def test_a_remote_in_sync_is_not_mentioned(self):
+        output = render(checkout(tracking=(Tracking("upstream", 0, 0),)))
+
+        assert "upstream" not in output
+
+    def test_a_side_with_nothing_on_it_is_dropped(self):
+        output = render(checkout(tracking=(Tracking("origin", ahead=3, behind=0),)))
+
+        assert "origin ↑3" in output
+        assert "↓" not in output
+
+
+class TestTheActiveBranchSet:
+    def test_it_is_marked_rather_than_coloured(self):
+        # A colour is invisible in a pipe and in a CI log; a mark is not.
+        assert "* main" in render(checkout(), active="main")
+
+    def test_the_others_are_not(self):
+        assert "* main" not in render(checkout(), active="fix/ice")
+
+
+def test_a_workspace_with_no_branch_sets_says_how_to_make_one():
+    output = render()
+
+    assert "No branch sets yet" in output
+    assert "alpha" in output  # the projects it does hold are still reported

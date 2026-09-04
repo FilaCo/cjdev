@@ -1,7 +1,7 @@
 [project]
 name = "cjdev"
 version = "0.1.0"
-description = "Cangjie's developer utilities"
+description = "Cangjie SDK developer utilities"
 readme = "README.md"
 authors = [{ name = "Dmitrii Chizha", email = "me@filaco.dev" }]
 requires-python = ">=3.10"
@@ -55,7 +55,7 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ARG"] # фикстуры
+"tests/**" = ["ARG"]         # фикстуры
 "src/cjdev/cli/*" = ["B008"] # Typer требует Option()/Argument() в дефолтах
 
 [tool.ruff.format]
@@ -63,7 +63,7 @@ docstring-code-format = true
 
 [tool.ty.environment]
 python-version = "3.10"
-root = ["./src"]
+root = ["./src", "./tests"]
 
 [tool.ty.terminal]
 error-on-warning = true

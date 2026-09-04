@@ -10,6 +10,12 @@ from cjdev.application.runner import Outcome
 
 console = Console()
 
+diagnostics = Console(stderr=True)
+"""Where the `-v` transcript goes: it annotates a command rather than being
+its output. On stderr so that `--json` stays a document something else can
+parse (UX-6), and so that piping a report never carries the commands that
+produced it."""
+
 OK = "green"
 FAILED = "bold red"
 CANCELLED = "yellow"

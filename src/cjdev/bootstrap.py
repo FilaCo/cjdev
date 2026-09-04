@@ -13,6 +13,7 @@ from typing import final
 from cjdev.application.clean_workspace import CleanWorkspace
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.ports import Executor, FileSystem, Prompt
+from cjdev.application.report_status import ReportStatus
 from cjdev.domain.manifest import Manifest
 from cjdev.infra.config import load_bundled_manifest, render_workspace_config
 from cjdev.infra.executor import build_executor
@@ -20,6 +21,7 @@ from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
     list_worktrees,
     provision_object_store,
+    read_checkouts,
     remove_object_store,
 )
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
@@ -72,6 +74,15 @@ class Container:
             provision=provision_object_store,
             remove=remove_object_store,
             render_config=render_workspace_config,
+        )
+
+    def report_status(self, *, verbose: bool = False) -> ReportStatus:
+        """No `FileSystem` and no `Prompt`: it changes nothing, so there is
+        nothing to make dry, and nothing to ask permission for."""
+        return ReportStatus(
+            manifest=self.manifest,
+            executor=self.executor(verbose=verbose),
+            read_checkouts=read_checkouts,
         )
 
     def clean_workspace(

@@ -1,4 +1,4 @@
-"""The project set and the build-unit graph (§4.3).
+"""The project set and the build-unit graph.
 
 Manifest data, not code: the six projects, their remotes and the dependency
 edges between build units all arrive from TOML (CFG-2) and are parsed into

@@ -22,5 +22,5 @@ cli.add_typer(build_cli, cls=CjdevGroup)
 
 @cli.callback(invoke_without_command=True)
 def cli_cb(ctx: CjdevContext) -> None:
-    """Cangjie's developer utilities."""
+    """Cangjie SDK developer utilities."""
     ctx.obj = Container()
