@@ -7,6 +7,7 @@ authors = [{ name = "Dmitrii Chizha", email = "me@filaco.dev" }]
 requires-python = ">=3.10"
 dependencies = [
     "questionary>=2.1.1",
+    "rich>=15.0.0",
     "tomlkit>=0.15.1",
     "typer>=0.27.2",
 ]
@@ -55,6 +56,7 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG"] # фикстуры
+"src/cjdev/cli/*" = ["B008"] # Typer требует Option()/Argument() в дефолтах
 
 [tool.ruff.format]
 docstring-code-format = true

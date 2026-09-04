@@ -1,7 +1,7 @@
 from typer import Context
 from typer.core import TyperCommand, TyperGroup
 
-from ._container import Container
+from cjdev.bootstrap import Container
 
 
 class CjdevContext(Context):

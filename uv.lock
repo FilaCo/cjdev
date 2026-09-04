@@ -189,6 +189,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "questionary" },
+    { name = "rich" },
     { name = "tomlkit" },
     { name = "typer" },
 ]
@@ -205,6 +206,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "questionary", specifier = ">=2.1.1" },
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "tomlkit", specifier = ">=0.15.1" },
     { name = "typer", specifier = ">=0.27.2" },
 ]
