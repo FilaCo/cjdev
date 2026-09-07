@@ -1,4 +1,11 @@
-"""Showing a fan-out while it runs, and capturing what it prints."""
+"""Showing a fan-out while it runs, and capturing what it prints.
+
+Three questions get asked of a command that takes minutes - what is it doing,
+how long has it been doing it, and how much longer - so the display answers
+all three rather than only spinning. The per-unit step comes from the command
+currently running in that unit; the estimate comes from the units that have
+already finished, and appears only once there is one to average.
+"""
 
 import threading
 import time
@@ -17,31 +24,67 @@ from cjdev.application.runner import Outcome
 from ._console import DETAIL, MARKS, RUNNING, WAITING
 
 
+def format_duration(seconds: float) -> str:
+    """`8.4s` below a minute, `2m 05s` above it.
+
+    Seconds keep a decimal only while they are the whole answer; once minutes
+    are on screen the tenth of a second is noise.
+    """
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, rest = divmod(int(seconds), 60)
+    return f"{minutes}m {rest:02d}s"
+
+
 @final
 class ConsoleProgress:
-    def __init__(self, console: Console) -> None:
+    def __init__(self, console: Console, fallback: Console | None = None) -> None:
         self._console = console
+        self._fallback = fallback
+        """Where the plain per-unit lines go when there is no terminal to
+        animate. Separate from `console` so that a CI log still sees movement
+        while stdout stays the ordered report something might be parsing."""
+        self._title = ""
+        self._jobs = 1
         self._labels: tuple[str, ...] = ()
         self._done: dict[str, Outcome] = {}
         self._started_at: dict[str, float] = {}
         self._took: dict[str, float] = {}
+        self._step: dict[str, str] = {}
         self._lines: dict[str, list[str]] = {}
         self._owner = threading.local()
         self._guard = threading.Lock()
         self._live: Live | None = None
+        self._began_at: float | None = None
         self._spinner = Spinner("dots", style=RUNNING)
 
-    def track(self, labels: Sequence[str]) -> None:
-        """The rows to show, in the order they must always appear."""
+    def track(self, labels: Sequence[str], *, title: str = "", jobs: int = 1) -> None:
+        """The rows to show, in the order they must always appear.
+
+        `jobs` is not decoration: the estimate divides the remaining work by
+        how much of it can be in flight at once, and at `-j1` that is a very
+        different number.
+        """
         self._labels = tuple(labels)
+        self._title = title
+        self._jobs = max(1, jobs)
+
+    def __rich__(self) -> Table:
+        """Rendered on every refresh rather than only when something changes.
+
+        `Live` re-renders whatever it was handed, so handing it `self` is what
+        makes the elapsed times and the estimate count up between events. A
+        table built once would freeze at whatever the last event left behind -
+        which, during a five-minute fetch, is `0.0s`.
+        """
+        return self._render()
 
     def __enter__(self) -> "ConsoleProgress":
-        # A pipe or a CI log gets the summary and nothing else: an animation
-        # redrawn 12 times a second is noise once it is not being watched.
+        self._began_at = time.monotonic()
+        # A pipe or a CI log gets one line per unit instead: an animation
+        # redrawn 8 times a second is control codes once nobody is watching.
         if self._console.is_terminal and self._labels:
-            self._live = Live(
-                self._render(), console=self._console, refresh_per_second=12
-            )
+            self._live = Live(self, console=self._console, refresh_per_second=8)
             self._live.__enter__()
         return self
 
@@ -52,7 +95,6 @@ class ConsoleProgress:
         trace: TracebackType | None,
     ) -> None:
         if self._live is not None:
-            self._live.update(self._render())
             self._live.__exit__(kind, value, trace)
             self._live = None
 
@@ -60,14 +102,28 @@ class ConsoleProgress:
         self._owner.label = label
         with self._guard:
             self._started_at[label] = time.monotonic()
-        self._refresh()
+            self._step[label] = "starting"
+
+    def step(self, what: str) -> None:
+        """What the unit running on this thread is doing right now.
+
+        Bound to the thread rather than passed a label, because it is called
+        from deep inside `infra/` by code that knows the command it is about
+        to run and nothing about the fan-out around it.
+        """
+        label = getattr(self._owner, "label", None)
+        if label is None:
+            return
+        with self._guard:
+            self._step[label] = what
 
     def finished(self, label: str, outcome: Outcome) -> None:
         with self._guard:
             self._done[label] = outcome
+            self._step.pop(label, None)
             if label in self._started_at:
                 self._took[label] = time.monotonic() - self._started_at.pop(label)
-        self._refresh()
+        self._report_plainly(label, outcome)
 
     def emit(self, line: str) -> None:
         """Buffered, never printed: a worker writing straight to the terminal
@@ -77,34 +133,118 @@ class ConsoleProgress:
         with self._guard:
             self._lines.setdefault(label or "", []).append(line)
 
-    def lines(self, label: str) -> tuple[str, ...]:
+    def lines(self, label: str = "") -> tuple[str, ...]:
+        """What one unit printed. The empty label is the command itself -
+        whatever was emitted before any unit of work started."""
         return tuple(self._lines.get(label, ()))
 
-    def _refresh(self) -> None:
-        if self._live is not None:
-            self._live.update(self._render())
+    def elapsed(self) -> float:
+        return 0.0 if self._began_at is None else time.monotonic() - self._began_at
+
+    def summary(self) -> str:
+        """One line for after the display is gone, and for when there was
+        never one: `3 done, 1 failed in 1m 12s`."""
+        counted = {
+            "done": sum(1 for o in self._done.values() if o is Outcome.DONE),
+            "failed": sum(1 for o in self._done.values() if o is Outcome.FAILED),
+            "cancelled": sum(1 for o in self._done.values() if o is Outcome.CANCELLED),
+        }
+        parts = [f"{count} {name}" for name, count in counted.items() if count]
+        happened = ", ".join(parts) or "nothing to do"
+        return f"{happened} in {format_duration(self.elapsed())}"
+
+    def _report_plainly(self, label: str, outcome: Outcome) -> None:
+        if self._live is not None or self._fallback is None or not self._labels:
+            return
+        mark, style = MARKS[outcome]
+        took = self._took.get(label)
+        suffix = f"  {format_duration(took)}" if took is not None else ""
+        self._fallback.print(
+            Text(f"{mark} ", style=style).append(
+                f"[{len(self._done)}/{len(self._labels)}] {label}{suffix}", style=DETAIL
+            ),
+            highlight=False,
+            soft_wrap=True,
+        )
 
     def _render(self) -> Table:
+        outer = Table.grid()
+        with self._guard:
+            outer.add_row(Text(self._headline(), style=DETAIL))
+            outer.add_row(self._rows())
+        return outer
+
+    def _headline(self) -> str:
+        """Counts, elapsed and an estimate, all of the run rather than a unit.
+
+        The estimate is prefixed `~` and omitted entirely until a unit has
+        finished, because an estimate with no sample behind it is a number
+        made up to fill a column.
+        """
+        parts = [self._title] if self._title else []
+        parts.append(f"{len(self._done)}/{len(self._labels)} done")
+        parts.append(f"{format_duration(self.elapsed())} elapsed")
+        remaining = self._remaining()
+        if remaining is not None:
+            parts.append(f"~{format_duration(remaining)} left")
+        return "  ·  ".join(parts)
+
+    def _remaining(self) -> float | None:
+        finished = [self._took[label] for label in self._took]
+        if not finished:
+            return None
+        typical = sum(finished) / len(finished)
+        now = time.monotonic()
+        outstanding = [
+            # A unit already running has served part of its time; one that has
+            # not started owes the whole of it. A unit running longer than
+            # typical owes nothing more that we can justify guessing at.
+            max(typical - (now - self._started_at[label]), 0.0)
+            if label in self._started_at
+            else typical
+            for label in self._labels
+            if label not in self._done
+        ]
+        if not outstanding:
+            return None
+        remaining = sum(outstanding) / min(self._jobs, len(outstanding))
+        # A unit that has already outrun the average owes an unknown amount,
+        # not zero. Saying "~0.0s left" while the spinner keeps turning is
+        # worse than saying nothing, so below a second the estimate goes away.
+        return remaining if remaining >= 1.0 else None
+
+    def _rows(self) -> Table:
         table = Table.grid(padding=(0, 1))
         table.add_column(width=2)
         table.add_column(ratio=1)
+        table.add_column(style=DETAIL)
         table.add_column(justify="right", style=DETAIL)
 
-        with self._guard:
-            for label in self._labels:
-                outcome = self._done.get(label)
-                if outcome is not None:
-                    mark, style = MARKS[outcome]
-                    table.add_row(
-                        Text(mark, style=style), label, self._took_text(label)
-                    )
-                elif label in self._started_at:
-                    table.add_row(self._spinner, label, "")
-                else:
-                    mark, style = WAITING
-                    table.add_row(Text(mark, style=style), Text(label, style=style), "")
+        now = time.monotonic()
+        for label in self._labels:
+            outcome = self._done.get(label)
+            if outcome is not None:
+                mark, style = MARKS[outcome]
+                table.add_row(
+                    Text(mark, style=style),
+                    label,
+                    "",
+                    self._took_text(label),
+                )
+            elif label in self._started_at:
+                table.add_row(
+                    self._spinner,
+                    label,
+                    self._step.get(label, ""),
+                    format_duration(now - self._started_at[label]),
+                )
+            else:
+                mark, style = WAITING
+                table.add_row(
+                    Text(mark, style=style), Text(label, style=style), "queued", ""
+                )
         return table
 
     def _took_text(self, label: str) -> str:
         took = self._took.get(label)
-        return f"{took:.1f}s" if took is not None else ""
+        return format_duration(took) if took is not None else ""

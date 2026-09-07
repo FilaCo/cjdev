@@ -1,6 +1,6 @@
 """What more than one suite needs from a real git.
 
-NFR-3 commits to the real binary, so the suites that exercise `infra/git.py`
+The real `git` binary, so the suites that exercise `infra/git.py`
 build repositories in a `tmp_path` rather than faking one. It costs
 milliseconds and it catches what a fake never would - which refs a bare `init`
 plus `fetch` actually produces, and what `worktree list --porcelain` prints

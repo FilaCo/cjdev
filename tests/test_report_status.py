@@ -1,4 +1,4 @@
-"""`cjdev status`, end to end against a real git (CFG-4).
+"""`cjdev status`, end to end against a real git.
 
 Real repositories in a `tmp_path` for the same reason `init` uses them: what
 `git worktree list --porcelain` prints for a detached checkout, and what
@@ -105,7 +105,7 @@ class TestWhatTheWorkspaceHolds:
     def test_provisioned_projects_come_from_the_disk(
         self, manifest: Manifest, workspace: Path
     ):
-        # CFG-10: a workspace's project set is what its object stores say it
+        # A workspace's project set is what its object stores say it
         # is, so removing one has to change the report.
         store = Path(WorkspaceLayout(workspace).object_store("beta"))
         subprocess.run(["rm", "-rf", str(store)], check=True)
@@ -121,7 +121,7 @@ class TestWhatTheWorkspaceHolds:
         self, manifest: Manifest, workspace: Path
     ):
         # Hiding a directory full of fetched objects because a manifest
-        # override stopped listing it makes the report untrustworthy (CFG-2).
+        # override stopped listing it makes the report untrustworthy.
         layout = WorkspaceLayout(workspace)
         provision_object_store(
             HostExecutor(),
@@ -161,7 +161,7 @@ class TestBranchSets:
     def test_checkouts_are_in_manifest_order_whatever_j_was(
         self, manifest: Manifest, workspace: Path
     ):
-        # PAR-4: six projects queried at once must not let the scheduler pick
+        # Six projects queried at once must not let the scheduler pick
         # the order they are printed in.
         add_worktree(workspace, "beta", "fix-ice", "-b", "fix/ice", "upstream/main")
         add_worktree(workspace, "alpha", "fix-ice", "-b", "fix/ice", "upstream/main")
@@ -176,7 +176,7 @@ class TestBranchSets:
     def test_a_detached_checkout_reports_no_branch(
         self, manifest: Manifest, workspace: Path
     ):
-        # A project not yet enrolled sits on its pinned base ref (§4.2).
+        # A project not yet enrolled sits on its pinned base ref.
         add_worktree(workspace, "alpha", "fix-ice", "--detach", "upstream/main")
 
         checkout = report(manifest).perform(workspace, cwd=workspace).branch_sets[0]
@@ -222,7 +222,7 @@ class TestPerProjectGitState:
     def test_an_untracked_file_alone_is_not_dirty(
         self, manifest: Manifest, workspace: Path
     ):
-        # SYNC-7 refuses to rebase a dirty worktree, and an untracked scratch
+        # A rebase refuses to run on a dirty worktree, and an untracked scratch
         # file blocks no rebase. Reporting it as dirty would cry wolf.
         path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
         (path / "scratch.txt").write_text("notes")
@@ -257,7 +257,7 @@ class TestPerProjectGitState:
 
 
 class TestOneBrokenProjectDoesNotHideTheRest:
-    """PAR-5: partial state is reported, never silent - and a report is the
+    """Partial state is reported, never silent - and a report is the
     one thing worth finishing partially."""
 
     @pytest.fixture

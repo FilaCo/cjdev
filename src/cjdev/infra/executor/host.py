@@ -13,7 +13,7 @@ class HostExecutor:
     def run(self, command: Command, *, check: bool = True) -> Completed:
         # Captured rather than streamed to the terminal: under a fan-out the
         # output of six projects has to be emitted whole and in manifest
-        # order, which is impossible once it has already been printed (PAR-4).
+        # order, which is impossible once it has already been printed.
         try:
             finished = subprocess.run(
                 list(command.argv),
@@ -25,7 +25,7 @@ class HostExecutor:
             )
         except OSError as failure:
             # A missing binary or a missing cwd arrives as an errno, and an
-            # errno reaching the user is the bare traceback UX-4 forbids.
+            # errno reaching the user is the bare traceback we never print.
             raise CommandError(
                 argv=command.argv,
                 cwd=str(command.cwd),

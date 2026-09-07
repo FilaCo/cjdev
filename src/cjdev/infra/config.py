@@ -1,4 +1,4 @@
-"""Reading the manifest, and the schema-version gate of CFG-3.
+"""Reading the manifest, and the schema-version gate.
 
 This is the boundary the CONTRIBUTING rule names: `tomlkit` types stop here.
 Everything above receives `domain/` dataclasses.
@@ -104,7 +104,7 @@ def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
 def _reject_unknown_keys(body: Any, allowed: set[str], where: str) -> None:
     """A key in the wrong place is the failure mode TOML makes easy: written
     after a table header it silently belongs to that table. Refusing what we
-    do not understand turns that into a message instead of a shrug (CFG-3)."""
+    do not understand turns that into a message instead of a shrug."""
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise ManifestError(
@@ -135,6 +135,6 @@ def render_workspace_config() -> str:
     user edits this file by hand and `cjdev config set` writes into it
     afterwards; a round trip that dropped their comments and reordered their
     keys would be the tool vandalising their file. Writing it is the caller's
-    job, so that `--dry-run` can decline to (UX-1).
+    job, so that `--dry-run` can decline to.
     """
     return tomlkit.dumps(tomlkit.parse(WORKSPACE_CONFIG_TEMPLATE))

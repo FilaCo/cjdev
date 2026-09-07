@@ -1,4 +1,4 @@
-"""Consent and settings are different questions (UX-2, UX-10)."""
+"""Consent and settings are different questions."""
 
 import pytest
 
@@ -8,7 +8,7 @@ from cjdev.infra.prompt import NonInteractivePrompt
 
 class TestWithoutATerminal:
     def test_a_destructive_action_is_refused_rather_than_assumed(self):
-        # UX-2's "never destructive by default", in the case where nobody is
+        # "Never destructive by default", in the case where nobody is
         # there to answer. Silence is not consent.
         prompt = NonInteractivePrompt(assume_yes=False)
 
@@ -39,7 +39,7 @@ class TestChoosing:
         assert chosen == ("a", "c")
 
     def test_the_answer_keeps_manifest_order(self):
-        # PAR-4: everything downstream orders by this, so it may not come
+        # Everything downstream orders by this, so it may not come
         # back in the order the answer happened to arrive in.
         chosen = NonInteractivePrompt(assume_yes=False).choose(
             "Projects", ["a", "b", "c"], preselected=["c", "a"]

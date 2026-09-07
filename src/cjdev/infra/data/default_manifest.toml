@@ -1,25 +1,25 @@
-# The project set and build graph of §4.3, as data rather than code (CFG-2).
+# The project set and the build-unit graph, as data rather than code.
 #
 # WHO OWNS THIS FILE: the cjdev maintainers. Nothing upstream publishes a machine
 # -readable description of the Cangjie project set - that absence is why this
-# file exists at all (§10.1 questions 1, 2 and 7). It is not user configuration
+# file exists at all. It is not user configuration
 # and it is not fetched from anywhere.
 #
 # WHERE IT IS USED: it ships inside the wheel as the *default* manifest, and is
-# the base layer of CFG-1. A workspace overrides any part of it in its own
+# the base layer of the config. A workspace overrides any part of it in its own
 # `.cjdev/config.toml`; `cjdev manifest show` prints the effective result so nobody has
-# to go looking inside site-packages for it (CFG-8).
+# to go looking inside site-packages for it.
 #
 # WHY TOML RATHER THAN PYTHON: workspaces override this, so a parser exists
 # either way - and routing the shipped default through the same parser as user
 # data removes the class of bugs where the built-in works and an override does
 # not. Upstream moves - new tools, new edges, a renamed build script - land here
-# and nowhere else (R7).
+# and nowhere else.
 
 schema_version = 1
 
-# Named subsets, for `--only` and for what `cjdev init` offers by default
-# (BRANCH-7). `minimal` is the smallest set that produces a usable SDK: the
+# Named subsets, for `--only` and for what `cjdev init` offers by default.
+# `minimal` is the smallest set that produces a usable SDK: the
 # compiler, the runtime and stdlib it needs, and the tooling built on top.
 #
 # `testing` is `minimal` plus the two test repositories, and it has to be,
@@ -28,7 +28,7 @@ schema_version = 1
 # two has a test runner and no SDK to point it at.
 #
 # cangjie_multiplatform_interop is in no group until its build edges are
-# established (question A, R11).
+# established.
 #
 # Both keys are document-level and must stay above the first table: a TOML key
 # written after one belongs to that table, which is silently a different thing.
@@ -45,8 +45,8 @@ testing = [
 ]
 
 # Six repositories, all under https://gitcode.com/Cangjie, all on `main` today.
-# `default_branch` is recorded per project rather than assumed: SYNC-8 forbids
-# hardcoding a branch name even when they currently agree.
+# `default_branch` is recorded per project rather than assumed: hardcoding a
+# branch name is wrong even when they currently agree.
 
 [projects.cangjie_compiler]
 role = "buildable"
@@ -73,8 +73,8 @@ role = "test_data"
 upstream = "https://gitcode.com/Cangjie/cangjie_test.git"
 default_branch = "main"
 
-# Buildable in principle, but its units and edges are not established yet
-# (question A, R11). It is cloned and branched like any other project and
+# Buildable in principle, but its units and edges are not established yet.
+# It is cloned and branched like any other project and
 # simply contributes nothing to the build graph until that is answered.
 [projects.cangjie_multiplatform_interop]
 role = "buildable"

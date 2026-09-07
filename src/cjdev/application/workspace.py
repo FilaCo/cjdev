@@ -1,4 +1,7 @@
-"""Finding the workspace a command was run inside (CFG-7)."""
+"""Finding the workspace a command was run inside.
+
+A directory is a workspace if and only if it holds `.cjdev/`.
+"""
 
 from pathlib import Path
 

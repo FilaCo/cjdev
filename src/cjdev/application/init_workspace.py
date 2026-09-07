@@ -2,8 +2,8 @@
 
 The three phases are kept apart on purpose. `observe` touches the filesystem,
 `decide` is pure and is what the tests assert on, and `perform` is the only
-part that changes anything. Preflight (BRANCH-8) is that split made visible:
-by the time the first directory is created, every decision has been taken.
+part that changes anything. Preflight is that split made visible: by the time
+the first directory is created, every decision has been taken.
 
 Run again on an existing workspace, this is how the project set is changed:
 the selection starts from what is on disk, and unchecking something removes
@@ -92,7 +92,7 @@ def decide(layout: WorkspaceLayout, manifest: Manifest, observed: Observed) -> I
         else frozenset(p.name for p in manifest.default_projects())
     )
     return InitPlan(
-        # No `cache/` yet: nothing reads it until CACHE-1 lands, and an empty
+        # No `cache/` yet: nothing reads it until builds land, and an empty
         # directory is a promise the tool is not keeping.
         directories=(layout.marker, layout.bare_dir),
         config_file=layout.config_file,
@@ -160,9 +160,9 @@ class InitWorkspace:
         if plan.write_config:
             self._fs.write_text(layout.config_file, self._render_config())
 
-        # A dry run prints in sequential order (PAR-6): there is no work to
-        # overlap, and its whole output would otherwise be at the mercy of
-        # the scheduler.
+        # A dry run prints in sequential order: there is no work to overlap,
+        # and its whole output would otherwise be at the mercy of the
+        # scheduler.
         return Runner(1 if dry_run else jobs).run(
             self._work(layout, plan), observer=observer
         )
@@ -170,7 +170,7 @@ class InitWorkspace:
     def _work(self, layout: WorkspaceLayout, plan: InitPlan) -> list[Work[None]]:
         return [
             # Keyed by project: the whole point of one object store per
-            # project is that they are independent (PAR-2).
+            # project is that they are independent.
             Work(key=p.name, label=p.name, action=self._provisioner(layout, p))
             for p in plan.to_provision
         ] + [
@@ -179,7 +179,7 @@ class InitWorkspace:
         ]
 
     def agree(self, plan: InitPlan, root: Path) -> InitPlan:
-        """Settle every question before the first side effect (PAR-6)."""
+        """Settle every question before the first side effect."""
         names = tuple(project.name for project in plan.projects)
         plan = plan.with_selection(
             self._prompt.choose(
@@ -197,7 +197,7 @@ class InitWorkspace:
     def _question(plan: InitPlan, root: Path) -> tuple[str, bool]:
         """Deleting a store throws away everything fetched into it, so a plan
         that removes anything asks as a destructive one - which is also what
-        makes it refuse rather than proceed with no terminal (UX-2)."""
+        makes it refuse rather than proceed with no terminal."""
         fetching = f"fetch {len(plan.to_provision)} project(s)"
         if not plan.to_remove:
             return f"Set up {root} and {fetching}?", False

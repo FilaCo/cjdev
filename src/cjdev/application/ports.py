@@ -1,11 +1,11 @@
 """What the application layer requires of the outside world.
 
-`Executor`, `FileSystem` and `Prompt` live here. `Forge` joins them in M5; it is absent
-rather than stubbed, because an empty protocol tells a reader nothing and
-invites guessing at a shape the gitcode spike has not settled yet (R6).
+`Executor`, `FileSystem` and `Prompt` live here. `Forge` joins them once the
+gitcode spike has settled its shape; it is absent rather than stubbed, because
+an empty protocol tells a reader nothing and invites guessing.
 
-Git is deliberately not a port: NFR-3 already commits to driving the `git`
-CLI, and the CLI runs through `Executor`.
+Git is deliberately not a port: driving the `git` CLI is a commitment made
+once, and the CLI runs through `Executor`.
 """
 
 from collections.abc import Mapping, Sequence
@@ -23,10 +23,18 @@ class Command:
     mutates: bool = True
     """Read-only commands survive `--dry-run`; mutating ones are printed
     instead of run. A dry run that could not inspect the world would have
-    nothing to decide from, and would print a plan built on guesses (UX-1).
+    nothing to decide from, and would print a plan built on guesses.
 
     It defaults to `True` so that forgetting to classify a command makes the
     dry run too cautious rather than destructive.
+    """
+    what: str = ""
+    """A short phrase for the progress display: "fetching from upstream".
+
+    Present on the command rather than announced by the caller so that every
+    invocation is describable from one place, and so a unit of work that runs
+    six commands shows six steps without threading a callback through itself.
+    Falls back to the program name when empty.
     """
 
 
@@ -55,12 +63,12 @@ class Prompt(Protocol):
     terminal, and that is a different behaviour rather than a stub.
 
     Use cases call this between deciding and applying, so no worker ever
-    prompts from inside a fan-out (PAR-6).
+    prompts from inside a fan-out.
     """
 
     def confirm(self, question: str, *, destructive: bool = True) -> bool:
         """`destructive` defaults to True so that a forgotten classification
-        makes a command ask too often rather than act unasked (UX-2)."""
+        makes a command ask too often rather than act unasked."""
         ...
 
     def choose(
@@ -71,10 +79,10 @@ class Prompt(Protocol):
 class FileSystem(Protocol):
     """Changing the workspace tree itself.
 
-    A port for the same reason `Executor` is one: `--dry-run` is a MUST on
-    every mutating command (UX-1), and a use case that calls `Path.mkdir`
-    directly escapes it. Reads are not here - a probe is always real, exactly
-    as read-only commands are (see `Command.mutates`).
+    A port for the same reason `Executor` is one: `--dry-run` has to hold on
+    every mutating command, and a use case that calls `Path.mkdir` directly
+    escapes it. Reads are not here - a probe is always real, exactly as
+    read-only commands are (see `Command.mutates`).
     """
 
     def mkdir(self, path: PurePath) -> None: ...

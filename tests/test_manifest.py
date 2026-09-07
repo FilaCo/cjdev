@@ -39,7 +39,7 @@ def manifest(*, projects: list[Project], units: list[BuildUnit]) -> Manifest:
 
 @pytest.fixture
 def sdk() -> Manifest:
-    """The confirmed part of §4.3, with the diamond that matters."""
+    """The confirmed part of the graph, with the diamond that matters."""
     return manifest(
         projects=[project("compiler"), project("runtime"), project("tools")],
         units=[
@@ -65,7 +65,7 @@ class TestBuildOrder:
 
     def test_breaks_ties_by_manifest_order(self):
         # Two independent units: nothing but declaration order can decide,
-        # and PAR-4 requires that the decision be the same every run.
+        # and the decision has to be the same every run.
         graph = manifest(
             projects=[project("a"), project("b")],
             units=[unit("b", "b"), unit("a", "a")],
@@ -74,7 +74,7 @@ class TestBuildOrder:
         assert ids(graph.build_order()) == ["b", "a"]
 
     def test_selecting_a_unit_pulls_in_its_dependencies(self, sdk: Manifest):
-        # `--upto runtime/stdlib` (BUILD-2): the unit and what it needs, and
+        # `--upto runtime/stdlib`: the unit and what it needs, and
         # explicitly not cjpm, which needs *it*.
         order = ids(sdk.build_order(["stdlib"]))
 

@@ -1,9 +1,9 @@
 """Driving the `git` CLI: building argv, and reading back what it prints.
 
-Not a port. NFR-3 already commits to the real `git` binary, and that binary is
-reached through `Executor`; a second abstraction over the same subprocess
-would have no second implementation to justify it. Tests point this at a real
-repository in a `tmp_path`, which is fast enough not to need a fake.
+Not a port. The commitment to the real `git` binary is made once, and that
+binary is reached through `Executor`; a second abstraction over the same
+subprocess would have no second implementation to justify it. Tests point this
+at a real repository in a `tmp_path`, which is fast enough not to need a fake.
 """
 
 from dataclasses import dataclass
@@ -16,8 +16,8 @@ from cjdev.domain.state import Checkout, Tracking
 from cjdev.errors import PreconditionError
 
 UPSTREAM = "upstream"
-"""The canonical repository (§2). Read-only: `cjdev` fetches it and never
-pushes to it (SYNC-4)."""
+"""The canonical repository. Read-only: `cjdev` fetches it and never pushes
+to it."""
 
 ORIGIN = "origin"
 """The user's fork, and the only place a fork URL is ever stored - git needs
@@ -25,7 +25,7 @@ it here to push at all, so a copy in the workspace config would be a second
 source of truth to keep in sync."""
 
 REMOTES = (UPSTREAM, ORIGIN)
-"""The two BRANCH-4 asks for drift against, in the order they are reported."""
+"""The two remotes drift is reported against, in the order they are shown."""
 
 
 @final
@@ -44,13 +44,17 @@ class Git:
         self._executor = executor
 
     def init_bare(self, store: Path) -> None:
-        self._run(("init", "--bare", "--quiet", store.name), cwd=store.parent)
+        self._run(
+            ("init", "--bare", "--quiet", store.name),
+            cwd=store.parent,
+            what="creating the object store",
+        )
 
     def add_remote(self, store: Path, name: str, url: str) -> None:
-        self._run(("remote", "add", name, url), cwd=store)
+        self._run(("remote", "add", name, url), cwd=store, what=f"wiring up {name}")
 
     def remotes(self, store: Path) -> tuple[str, ...]:
-        result = self._run(("remote"), cwd=store, mutates=False)
+        result = self._run(("remote",), cwd=store, mutates=False)
         return tuple(line.strip() for line in result.splitlines() if line.strip())
 
     def linked_worktrees(self, store: Path) -> tuple[Linked, ...]:
@@ -61,7 +65,10 @@ class Git:
         dropped here rather than by every caller.
         """
         blocks = self._run(
-            ("worktree", "list", "--porcelain"), cwd=store, mutates=False
+            ("worktree", "list", "--porcelain"),
+            cwd=store,
+            mutates=False,
+            what="listing worktrees",
         ).split("\n\n")
         linked = []
         for block in blocks:
@@ -90,14 +97,15 @@ class Git:
     def is_dirty(self, worktree: Path) -> bool:
         """Tracked changes only.
 
-        Untracked files are excluded because this is the flag SYNC-7 refuses
-        to rebase on, and an untracked scratch file blocks nothing. Build
-        output cannot reach it either way: BUILD-5 keeps it out of tree.
+        Untracked files are excluded because this is the flag a rebase refuses
+        to run on, and an untracked scratch file blocks nothing. Build output
+        cannot reach it either way: it is kept out of the source tree.
         """
         status = self._run(
             ("status", "--porcelain", "--untracked-files=no"),
             cwd=worktree,
             mutates=False,
+            what="checking for local changes",
         )
         return bool(status.strip())
 
@@ -112,6 +120,7 @@ class Git:
                 f"refs/heads/{branch}...refs/remotes/{remote}/{branch}",
             ),
             cwd=worktree,
+            what=f"comparing with {remote}",
         )
         parts = counts.split() if counts is not None else []
         if len(parts) != 2:
@@ -120,24 +129,38 @@ class Git:
 
     def fetch(self, store: Path, remote: str) -> None:
         # --prune so a branch deleted upstream does not linger as a stale
-        # remote-tracking ref and quietly serve as somebody's base (SYNC-12).
-        self._run(("fetch", "--quiet", "--prune", "--tags", remote), cwd=store)
+        # remote-tracking ref and quietly serve as somebody's base.
+        self._run(
+            ("fetch", "--quiet", "--prune", "--tags", remote),
+            cwd=store,
+            what=f"fetching from {remote}",
+        )
 
     def detect_default_branch(self, store: Path, remote: str) -> None:
-        """Record `refs/remotes/<remote>/HEAD`, which SYNC-8 reads back.
+        """Record `refs/remotes/<remote>/HEAD`, which the sync commands read.
 
         Asking the remote rather than assuming `main`: every project happens
         to agree today, and that stays an observation rather than a constant.
         """
-        self._run(("remote", "set-head", remote, "--auto"), cwd=store)
+        self._run(
+            ("remote", "set-head", remote, "--auto"),
+            cwd=store,
+            what="detecting the default branch",
+        )
 
     def _run(
-        self, args: tuple[str, ...] | str, *, cwd: Path, mutates: bool = True
+        self,
+        args: tuple[str, ...],
+        *,
+        cwd: Path,
+        mutates: bool = True,
+        what: str = "",
     ) -> str:
-        argv = ("git", *((args,) if isinstance(args, str) else args))
-        return self._executor.run(Command(argv=argv, cwd=cwd, mutates=mutates)).stdout
+        return self._executor.run(
+            Command(argv=("git", *args), cwd=cwd, mutates=mutates, what=what)
+        ).stdout
 
-    def _try(self, args: tuple[str, ...], *, cwd: Path) -> str | None:
+    def _try(self, args: tuple[str, ...], *, cwd: Path, what: str = "") -> str | None:
         """For a read-only query whose failure is itself an answer.
 
         Asking about a ref that does not exist is the normal case, not a
@@ -145,7 +168,8 @@ class Git:
         checked call would.
         """
         result = self._executor.run(
-            Command(argv=("git", *args), cwd=cwd, mutates=False), check=False
+            Command(argv=("git", *args), cwd=cwd, mutates=False, what=what),
+            check=False,
         )
         return result.stdout if result.ok else None
 
@@ -155,13 +179,13 @@ def provision_object_store(executor: Executor, store: Path, project: Project) ->
 
     `git init` plus `remote add` plus `fetch` rather than `git clone --bare`:
     a bare clone writes the remote's branches straight into `refs/heads/*` and
-    creates no `refs/remotes/*` at all, which would leave SYNC-8 with no
-    `refs/remotes/upstream/HEAD` to read and SYNC-2 with nothing to fast-forward
-    the local default branch *from*.
+    creates no `refs/remotes/*` at all, which would leave nothing to read the
+    default branch back from, and nothing to fast-forward the local default
+    branch *from*.
 
-    `origin` is not wired here: creating or discovering a user's fork is
-    FORGE-11, and guessing its URL from a username would be wrong for anyone
-    whose fork is named differently.
+    `origin` is not wired here: creating or discovering a user's fork is a
+    later milestone, and guessing its URL from a username would be wrong for
+    anyone whose fork is named differently.
     """
     git = Git(executor)
     fresh = not (store / "HEAD").is_file()
@@ -183,7 +207,7 @@ def remove_object_store(
 
     Refuses while worktrees are linked to the store: deleting it under them
     leaves checkouts whose git metadata points at nothing, which is worse than
-    the state the user was trying to leave (UX-2, R9).
+    the state the user was trying to leave.
     """
     linked = Git(executor).worktrees(store)
     if linked:
@@ -201,12 +225,12 @@ def list_worktrees(executor: Executor, store: Path) -> tuple[str, ...]:
 def read_checkouts(
     executor: Executor, store: Path, project: str
 ) -> tuple[Checkout, ...]:
-    """Every worktree of one project, with the state CFG-4 reports.
+    """Every worktree of one project, with the state `status` reports.
 
     One store's worth of queries, so that the caller's fan-out unit is the
-    project and no two of these ever run against the same store at once
-    (PAR-2). The queries are serial *within* it: git is being asked about one
-    repository, and the win is across the six (PAR-9).
+    project and no two of these ever run against the same store at once. The
+    queries are serial *within* it: git is being asked about one repository,
+    and the win is across the six.
     """
     git = Git(executor)
     return tuple(
@@ -217,7 +241,7 @@ def read_checkouts(
             head=linked.head,
             dirty=git.is_dirty(Path(linked.path)),
             # A detached worktree has no branch to compare, and asking about
-            # `refs/heads/None` would be a query with no meaning (§4.2).
+            # `refs/heads/None` would be a query with no meaning.
             tracking=(
                 _drift(git, Path(linked.path), linked.branch)
                 if linked.branch is not None

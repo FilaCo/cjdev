@@ -20,8 +20,8 @@ def failing(*, mutates: bool = True) -> Command:
 
 class TestHostExecutor:
     def test_captures_output_rather_than_streaming_it(self):
-        # PAR-4: output already printed cannot be reordered into manifest
-        # order later, so the executor must hold it.
+        # Output already printed cannot be reordered into manifest order
+        # later, so the executor must hold it.
         result = HostExecutor().run(echo("hello"))
 
         assert result.ok
@@ -33,7 +33,7 @@ class TestHostExecutor:
 
         message = str(caught.value)
         assert "exited 3" in message
-        assert "boom" in message  # UX-4: the tail of the output, not a traceback
+        assert "boom" in message  # the tail of the output, not a traceback
 
     def test_check_false_reports_the_failure_instead_of_raising(self):
         result = HostExecutor().run(failing(), check=False)

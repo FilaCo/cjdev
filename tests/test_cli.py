@@ -36,7 +36,7 @@ class TestBuildTakesItsUnitsFromTheManifest:
     """One command over manifest data, not one hand-written stub per unit.
 
     Thirteen stubs and four manifest entries could not disagree with each
-    other by accident, which is exactly what they were doing (R11).
+    other by accident, which is exactly what they were doing.
     """
 
     def test_an_unknown_unit_is_refused_with_the_known_ones(self):
@@ -45,11 +45,11 @@ class TestBuildTakesItsUnitsFromTheManifest:
         result = runner.invoke(cli, ["build", "nope"])
 
         assert isinstance(result.exception, ManifestError)
-        assert ManifestError.exit_code == 3  # UX-5
+        assert ManifestError.exit_code == 3  # preconditions unmet
         assert "compiler, runtime, stdlib, cjpm" in str(result.exception)
 
     def test_naming_a_unit_pulls_in_what_it_needs(self):
-        # `cjdev build stdlib` is `--upto stdlib` (BUILD-2).
+        # `cjdev build stdlib` is `--upto stdlib`.
         result = runner.invoke(cli, ["build", "stdlib"])
 
         assert "compiler, runtime, stdlib" in str(result.exception)
@@ -76,7 +76,7 @@ class TestStatus:
         result = runner.invoke(cli, ["status", str(tmp_path)])
 
         assert isinstance(result.exception, PreconditionError)
-        assert PreconditionError.exit_code == 3  # UX-5
+        assert PreconditionError.exit_code == 3  # preconditions unmet
 
     def test_an_empty_workspace_reports_the_manifest_as_absent(
         self, empty_workspace: Path
@@ -91,7 +91,7 @@ class TestStatus:
         self, empty_workspace: Path
     ):
         # A report that saw only part of the workspace must not be mistaken
-        # for a clean one by a prompt or a script (UX-5).
+        # for a clean one by a prompt or a script.
         layout = WorkspaceLayout(empty_workspace)
         store = Path(layout.object_store("cangjie_compiler"))
         store.mkdir(parents=True)
@@ -104,8 +104,8 @@ class TestStatus:
         assert "not a git repository" in result.output
 
     def test_json_is_parseable_rather_than_pretty(self, empty_workspace: Path):
-        # UX-6's whole point is that something else reads this, so rich must
-        # not colour, rewrap or reinterpret it on the way out.
+        # The whole point of --json is that something else reads it, so rich
+        # must not colour, rewrap or reinterpret it on the way out.
         result = runner.invoke(cli, ["status", str(empty_workspace), "--json"])
 
         report = json.loads(result.output)
@@ -144,3 +144,37 @@ def test_unimplemented_commands_say_so_rather_than_pretending():
 
     assert isinstance(result.exception, NotImplementedYetError)
     assert "M2" in str(result.exception)
+
+
+class TestInitDoesNotOverclaim:
+    def test_a_dry_run_does_not_say_the_workspace_is_ready(self, tmp_path: Path):
+        # It creates nothing, so "ready" would be a claim about a workspace
+        # that does not exist - the one message a dry run must never print.
+        result = runner.invoke(
+            cli, ["init", str(tmp_path / "ws"), "--defaults", "--dry-run"]
+        )
+
+        assert result.exit_code == 0
+        assert "Workspace ready" not in result.output
+        assert "was not touched" in result.output
+        assert not (tmp_path / "ws").exists()
+
+    def test_a_dry_run_prints_the_skeleton_it_would_create(self, tmp_path: Path):
+        # Printed by the dry-run filesystem itself rather than by a second
+        # renderer that would have to be kept in step with it.
+        result = runner.invoke(
+            cli, ["init", str(tmp_path / "ws"), "--defaults", "--dry-run"]
+        )
+
+        assert "mkdir -p" in result.output
+        assert ".cjdev" in result.output
+
+
+def test_a_reported_error_is_prefixed_rather_than_traced(capsys):
+    from cjdev.cli._console import print_error
+
+    print_error("something went wrong\n  and here is why")
+
+    printed = capsys.readouterr().err
+    assert printed.startswith("error: something went wrong")
+    assert "and here is why" in printed

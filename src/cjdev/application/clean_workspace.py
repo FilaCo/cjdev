@@ -1,6 +1,8 @@
 """Removing a workspace: the inverse of `init`.
+
 Everything *inside* the workspace root goes, branch-set worktrees included.
-The root directory itself is left standing.
+The root directory itself is left standing, so that nobody's shell ends up
+inside a directory that no longer exists.
 """
 
 from collections.abc import Callable
@@ -26,8 +28,8 @@ class CleanPlan:
     """Checkouts linked to these stores from *outside* the workspace root.
 
     Ones inside it are deleted along with everything else; ones outside would
-    be left pointing at a store that no longer exists (R9). `cjdev` never
-    creates those, so finding any means something else did.
+    be left pointing at a store that no longer exists. `cjdev` never creates
+    those, so finding any means something else did.
     """
 
 
@@ -50,7 +52,7 @@ class CleanWorkspace:
         # Read off the disk rather than off the manifest: what a workspace
         # holds is what was fetched into it, and a manifest that has since
         # gained or lost a project would otherwise make `clean` miss stores or
-        # invent ones (CFG-10).
+        # invent ones.
         bare = Path(layout.bare_dir)
         provisioned = (
             [

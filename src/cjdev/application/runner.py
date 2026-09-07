@@ -1,9 +1,9 @@
-"""Fan-out: the one place in `cjdev` that runs work concurrently (§5.10).
+"""Fan-out: the one place in `cjdev` that runs work concurrently.
 
 Commands hand this a list of independent units of work and get back a report.
-They never spawn a thread themselves (PAR-1), so `-j`, output ordering,
-cancellation and the per-unit summary have one implementation each instead of
-one per command.
+They never spawn a thread themselves, so `-j`, output ordering, cancellation
+and the per-unit summary have one implementation each instead of one per
+command.
 
 Threads rather than processes: every unit of work is a subprocess wait, which
 releases the GIL.
@@ -21,9 +21,9 @@ from cjdev.errors import UsageError
 T = TypeVar("T")
 
 DEFAULT_NETWORK_JOBS = 4
-"""Deliberately below the six-project fan-out: question H - whether gitcode
-throttles concurrent fetches from one account - is unanswered, and the cost of
-guessing high is being rate-limited mid-clone (PAR-3, R13)."""
+"""Deliberately below the six-project fan-out: whether gitcode throttles
+concurrent fetches from one account is unanswered, and the cost of guessing
+high is being rate-limited mid-clone."""
 
 
 class RunObserver(Protocol):
@@ -66,7 +66,7 @@ class Work(Generic[T]):
     """Two units of work sharing a key never run at the same time.
 
     For git operations the key is the project, because git does not serialise
-    worktree, branch and fetch operations on one object store for us (PAR-2).
+    worktree, branch and fetch operations on one object store for us.
     """
     label: str
     action: Callable[[], T]
@@ -86,7 +86,7 @@ class UnitResult(Generic[T]):
 class RunReport(Generic[T]):
     results: tuple[UnitResult[T], ...]
     """In submission order, never completion order, so that the transcript and
-    the exit code do not depend on scheduling (PAR-4)."""
+    the exit code do not depend on scheduling."""
     interrupted: bool = False
 
     @property
@@ -152,7 +152,7 @@ class Runner:
             except KeyboardInterrupt:
                 # Pending work is dropped, in-flight work is left to finish
                 # rather than killed mid-write; leaving the pool's context
-                # manager is what waits for it (PAR-7).
+                # manager is what waits for it.
                 interrupted = True
                 stop.set()
                 for future in futures:

@@ -107,8 +107,9 @@ Adding new subcommands then needs no change to `pyproject.toml`.
 
 ## Code layout
 
-The layers come from [`docs/requirements.md`](docs/requirements.md) §7.6, and the import
-direction is the point of them: `domain` depends on nothing of ours except `errors`,
+The layers come from the architecture decisions in
+[`docs/requirements.md`](docs/requirements.md), and the import direction is the point of
+them: `domain` depends on nothing of ours except `errors`,
 `application` depends on `domain` and on its own ports, `infra` and `cli` depend inwards.
 An `import` from `domain` into `infra` is a bug, not a shortcut.
 
@@ -125,46 +126,54 @@ when the entire persistent state is a handful of files this tool wrote itself.
 src/cjdev/
   __init__.py              # main(); the console script entry point
   bootstrap.py             # composition root - assembles executor, forge, use cases
-  errors.py                # error hierarchy → exit codes (UX-5)
+  errors.py                # error hierarchy → exit codes
 
-  domain/                  # pure: no subprocess, no filesystem, no network (NFR-2)
-    manifest.py            # Project, BuildUnit and the build graph (§4.3)
-    layout.py              # workspace path algebra, parameterised by root (§4.1)
+  domain/                  # pure: no subprocess, no filesystem, no network
+    manifest.py            # Project, BuildUnit and the build graph
+    layout.py              # workspace path algebra, parameterised by root
     state.py               # branch / SHA / dirty / ahead-behind
 
   application/             # orchestration and policy; one module per command
     ports.py               # Executor, FileSystem, Prompt, Forge - nothing else
-    runner.py              # fan-out, -j, output ordering, cancellation (§5.10)
+    runner.py              # fan-out, -j, output ordering, cancellation
     init_workspace.py
     report_status.py
 
   infra/                   # the only layer that touches the outside world
     executor/              # build_executor(); hides the decorator order
-      host.py  log.py  dry_run.py
-    git.py                 # argv for git, and parsing its output (NFR-3)
-    config.py              # layered config + manifest loading (CFG-1/2/3)
+      host.py  trace.py  dry_run.py
+    git.py                 # argv for git, and parsing its output
+    journal.py             # the workspace log, .cjdev/log/cjdev.log
+    config.py              # layered config + manifest loading
     data/default_manifest.toml      # the shipped manifest; travels in the wheel
 
   cli/                     # Typer wiring, thin by construction
     _context.py            # the typed Context
     _console.py            # one Console, and the marks for ok/failed/cancelled
     _progress.py           # the live display, and per-unit output capture
-    _render.py             # summaries and --json (UX-6, UX-8)
+    _render.py             # summaries and --json
     init.py  clean.py  status.py  build.py
 
 ### Terminal output
 
-`rich` renders it. It is a real dependency rather than hand-rolled ANSI because UX-8 asks
-for a stable live display while six things run at once, and because the fallbacks - width
-detection, colour support, a pipe or a CI log getting plain text - are exactly the part
-that is tedious to get right and invisible when wrong.
+`rich` renders it. It is a real dependency rather than hand-rolled ANSI because a stable
+live display while six things run at once is the requirement, and because the fallbacks -
+width detection, colour support, a pipe or a CI log getting plain text - are exactly the
+part that is tedious to get right and invisible when wrong.
 
-Two rules for it. **Marks, not emoji**: `✓`, `✗` and `-` say how something ended, line up
-in a column and mean the same thing to everyone; a picture of a rocket does neither. And
-**a worker never prints**. Under `-j` the order things happen in belongs to the scheduler,
-and the transcript is not allowed to (PAR-4), so command output is captured per unit and
-rendered afterwards in manifest order. The live display is the one thing allowed to be
-concurrent, and it draws only status.
+Three rules for it. **Marks, not emoji**: `✓`, `✗` and `-` say how something ended, line
+up in a column and mean the same thing to everyone; a picture of a rocket does neither.
+**A worker never prints**: under `-j` the order things happen in belongs to the scheduler,
+and the transcript is not allowed to, so command output is captured per unit and rendered
+afterwards in manifest order. The live display is the one thing allowed to be concurrent,
+and it draws only status. And **stdout is the report, stderr is everything about it** -
+the `-v` transcript, the progress fallback and errors all go to `diagnostics`, so that
+`--json` stays a document something else can parse.
+
+A long-running command answers three questions, not one: what it is doing, how long it
+has been doing it, and how much longer. `_progress.py` shows all three; the per-unit step
+comes from `Command.what` through `StepExecutor`, so adding a step to a new command means
+labelling the command, never threading a callback through the use case.
 ```
 
 ### Four ports, and only four
@@ -183,6 +192,18 @@ supposed to only describe, because the executor covers subprocesses and `Path.mk
 not one. Anything that changes the tree goes through the port; anything that only reads it
 does not, since a probe has to be real or the plan is built on guesses.
 
+### The workspace log
+
+Every mutating command opens `.cjdev/log/cjdev.log` before it builds its use case, and
+`RecordingExecutor` writes one complete line per external command - status, duration,
+argv, cwd - plus the output of anything that failed. It is always on, because the question
+it answers ("what did that actually run?") is only ever asked afterwards, and `-v` has to
+be turned on in advance. A dry run records nothing; `status` and the other read-only
+commands do not open it at all.
+
+Writing to it is best-effort: a full or read-only disk must never be the reason a command
+fails, so `CommandJournal` swallows its own errors.
+
 Git in particular is **not** a port. NFR-3 already commits to driving the `git` CLI, and
 the CLI runs through `Executor`; a second abstraction over the same subprocess is a tax
 with no payer. `infra/git.py` builds argv and parses output, and is tested against real
@@ -191,7 +212,7 @@ git in a `tmp_path`, which is fast enough not to need a fake.
 ### Use cases are gather → decide → apply
 
 A use case reads the world, computes a decision purely, then applies it. Keeping the
-middle phase pure is what makes preflight (BRANCH-8), `--dry-run` (UX-1) and the tests
+middle phase pure is what makes preflight, `--dry-run` and the tests
 possible at all: the decision can be asserted on without git, network or containers.
 Complex flows are a sequence of such phases, not one big pure function - resist the urge
 to make the whole command pure, and resist the urge to interleave the three.
@@ -199,10 +220,10 @@ to make the whole command pure, and resist the urge to interleave the three.
 ### Concurrency lives in `application/runner.py`
 
 Commands hand the runner a list of independent units of work; they never spawn threads
-themselves (PAR-1). `-j`, output ordering, cancellation and the per-unit summary are
+themselves. `-j`, output ordering, cancellation and the per-unit summary are
 implemented once, there. Two units touching the same object store must not run
-concurrently - the fan-out key is the project for git work and the build unit for builds
-(PAR-2).
+concurrently - the fan-out key is the project for git work and the build unit for
+builds.
 
 ### File or folder?
 
@@ -223,7 +244,7 @@ layering violation rather than organise anything.
 A related smell, and one this project actually grew: a command file with one subcommand
 per manifest entry. `build.py` was thirteen near-identical stubs against a manifest of
 four units, and the two had already drifted. One command that takes its names *from* the
-manifest cannot drift, and gets completion for free (UX-7). If you are about to write the
+manifest cannot drift, and gets completion for free. If you are about to write the
 same command shape N times, the N belongs in data.
 
 `domain/` and `application/` are folders for a different reason. They are not grouping
@@ -233,9 +254,15 @@ related files; they are the layer boundaries that review and `ty` check against.
 
 The code already says what it does; a comment repeating that is a second copy to keep in
 sync, and it goes stale silently. So a comment earns its place only by carrying something
-the code cannot: the reason a decision was made, the requirement it satisfies, the
+the code cannot: the reason a decision was made, the constraint it satisfies, the
 alternative that was rejected and why, or the non-obvious behaviour of something else that
 forced this shape.
+
+**Write the reason, not a requirement ID.** `(UX-1)` and `(PAR-4)` are pointers into a
+document the reader has to go and open, and they age badly - the IDs outlive the wording,
+and a comment that only names one says nothing to anyone who has not memorised the spec.
+Say the reason in the comment; if the requirement is worth citing at all, cite it in the
+commit message or the PR, where it belongs.
 
 ```python
 # No. Restates the line below.
@@ -256,14 +283,15 @@ earns its place by giving a concrete example a bare `value: str` cannot; a docst
 restates the function name does not. Typer command docstrings are the exception - they are
 user-facing help text, not commentary.
 
-In tests, "why" is usually the requirement under test. Naming it (`CACHE-1`, `PAR-4`,
-`R11`) turns an assertion that looks arbitrary into one a reader can check against the
-spec, and makes it obvious what breaks if the requirement changes.
+In tests, "why" is usually what the assertion is protecting against. State it - "two
+operations on one object store must not run at once, because git does not serialise them
+for us" - so that an assertion which looks arbitrary reads as one with a reason, and it is
+obvious what breaks if the behaviour changes.
 
 ### Names
 
-The vocabulary is [`docs/requirements.md`](docs/requirements.md) §2, and the code uses it
-verbatim. **Project** is one git repository - the unit of cloning, branching and PR
+The vocabulary is the glossary in [`docs/requirements.md`](docs/requirements.md), and the
+code uses it verbatim. **Project** is one git repository - the unit of cloning, branching and PR
 creation. **Build unit** is one buildable subproject inside a project; a project may hold
 several, and the dependency graph is over units, never over projects. Getting these two
 mixed up is the single easiest way to write a wrong requirement or a wrong function.

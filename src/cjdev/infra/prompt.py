@@ -15,7 +15,7 @@ class InteractivePrompt:
         if answer is None:
             # `ask()` returns None on Ctrl-C. Treating that as "no" would be
             # defensible for a confirmation and wrong for anything else, so it
-            # is an abort rather than an answer (UX-9).
+            # is an abort rather than an answer.
             raise AbortedError(question)
         return bool(answer)
 
@@ -32,7 +32,7 @@ class InteractivePrompt:
         if chosen is None:
             raise AbortedError(question)
         # Re-ordered to match `options`, because that is manifest order and
-        # everything downstream depends on it being stable (PAR-4).
+        # everything downstream depends on it being stable.
         return tuple(option for option in options if option in set(chosen))
 
 
@@ -41,8 +41,8 @@ class NonInteractivePrompt:
     """No terminal, or `--yes`, or `--dry-run`.
 
     Silence is not consent for a destructive action: without `--yes` those
-    refuse rather than proceed, which is UX-2's "never destructive by
-    default" in the case where nobody is there to answer.
+    refuse rather than proceed, which is "never destructive by default" in
+    the case where nobody is there to answer.
     """
 
     def __init__(self, *, assume_yes: bool) -> None:

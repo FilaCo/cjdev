@@ -12,8 +12,8 @@ def complete_unit(incomplete: str) -> list[str]:
     """Unit names for the shell.
 
     Completion runs in its own process with no context, so this reads the
-    shipped manifest rather than the effective one. A workspace that overrides
-    the unit set will complete the defaults
+    shipped manifest rather than the effective one: a workspace that overrides
+    the unit set still completes to the shipped names.
     """
     return [
         unit.name

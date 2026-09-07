@@ -1,9 +1,8 @@
 """`cjdev init`, end to end against a real git.
 
-NFR-3 commits to the real binary, so these clone from the `file://`
-repositories `conftest` builds rather than from a fake - it catches which refs
-a bare `init` + `fetch` actually produces, and where `remote set-head` puts
-`HEAD`.
+The real binary, so these clone from the `file://` repositories `conftest`
+builds rather than from a fake - it catches which refs a bare `init` + `fetch`
+actually produces, and where `remote set-head` puts `HEAD`.
 """
 
 import subprocess
@@ -70,7 +69,7 @@ def manifest(tmp_path: Path) -> Manifest:
 
 
 class TestDecide:
-    """The pure half. No filesystem, no git (NFR-2)."""
+    """The pure half. No filesystem, no git."""
 
     def test_a_fresh_workspace_provisions_every_project(self, manifest: Manifest):
         layout = WorkspaceLayout(PurePath("/ws"))
@@ -80,7 +79,7 @@ class TestDecide:
         assert [p.name for p in plan.to_provision] == ["alpha", "beta"]
         assert plan.write_config
         assert layout.bare_dir in plan.directories
-        # No cache/ until something reads it (CACHE-1 lands in M2).
+        # No cache/ until something reads it; that lands with the builds.
         assert layout.ccache_dir not in plan.directories
 
     def test_re_running_tops_up_only_what_is_missing(self, manifest: Manifest):
@@ -159,14 +158,14 @@ class TestEndToEnd:
         assert report.ok, [str(r.error) for r in report.results]
         return WorkspaceLayout(root)
 
-    def test_the_tree_matches_section_41(self, initialised: WorkspaceLayout):
+    def test_the_tree_is_the_documented_one(self, initialised: WorkspaceLayout):
         root = Path(initialised.root)
 
         assert sorted(p.name for p in root.iterdir()) == [".cjdev"]
         assert Path(initialised.config_file).is_file()
         assert Path(initialised.bare_dir).is_dir()
         # No cache/ until something reads it: an empty directory is a promise
-        # the tool is not keeping (CACHE-1 lands in M2).
+        # the tool is not keeping.
         assert not Path(initialised.cache_dir).exists()
 
     def test_each_project_gets_a_bare_store(self, initialised: WorkspaceLayout):
@@ -178,7 +177,7 @@ class TestEndToEnd:
     def test_upstream_refs_land_under_refs_remotes(self, initialised: WorkspaceLayout):
         # The reason `init` does not use `git clone --bare`: a bare clone
         # writes branches into refs/heads/* and creates no refs/remotes/*,
-        # leaving SYNC-2 nothing to fast-forward the local default branch from.
+        # leaving nothing to fast-forward the local default branch from.
         store = Path(initialised.object_store("alpha"))
 
         assert (store / "refs" / "remotes" / "upstream" / "main").is_file()
@@ -187,7 +186,8 @@ class TestEndToEnd:
     def test_the_default_branch_is_detected_rather_than_assumed(
         self, initialised: WorkspaceLayout
     ):
-        # SYNC-8 reads this ref back instead of hardcoding main/master/dev.
+        # The sync commands read this ref back instead of hardcoding
+        # main/master/dev.
         head = subprocess.run(
             ["git", "symbolic-ref", "refs/remotes/upstream/HEAD"],
             cwd=Path(initialised.object_store("alpha")),
@@ -259,8 +259,8 @@ def test_the_rendered_config_is_valid_toml_and_carries_its_comments():
 
 class TestDryRun:
     def test_it_changes_nothing_at_all(self, tmp_path: Path, manifest: Manifest):
-        # UX-1 is a MUST, and the workspace skeleton is written outside the
-        # executor, so it is the part that quietly escapes a dry run.
+        # The workspace skeleton is written outside the executor, so it is
+        # the part that quietly escapes a dry run.
         root = tmp_path / "ws"
         root.mkdir()
         printed: list[str] = []
@@ -279,7 +279,7 @@ class TestDryRun:
         dry_run_workspace(manifest, printed).perform(root, jobs=2, dry_run=True)
 
         # The workspace skeleton first, then each project whole and in
-        # manifest order, never interleaved (PAR-6).
+        # manifest order, never interleaved.
         assert [line.split()[0] for line in printed[:3]] == [
             "mkdir",
             "mkdir",

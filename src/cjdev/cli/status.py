@@ -28,17 +28,21 @@ def status(
     # what it finds, and reading is not worth the same caution.
     root = require_root((path or Path.cwd()).resolve())
 
-    # -v echoes each command as it runs (UX-3), and under a fan-out the order
-    # it echoes in would belong to the scheduler. PAR-3 makes -j1 the
-    # supported way to get a readable transcript, so asking for one implies it.
+    # -v echoes each command as it runs, and under a fan-out the order it
+    # echoes in would belong to the scheduler. -j1 is the supported way to get
+    # a readable transcript, so asking for one implies it.
     if verbose:
         jobs = 1
     ctx.obj.emit = lambda line: diagnostics.print(
         line, style=DETAIL, highlight=False, soft_wrap=True
     )
 
+    # The cwd is resolved for the same reason the root is: git reports
+    # worktree paths physically, so one reached through a symlink would match
+    # no branch set and `status` would quietly say you are standing outside
+    # all of them.
     report = ctx.obj.report_status(verbose=verbose).perform(
-        root, cwd=Path.cwd(), jobs=jobs
+        root, cwd=Path.cwd().resolve(), jobs=jobs
     )
 
     if as_json:
@@ -52,6 +56,6 @@ def status(
 
     # A report that could not read every project is still worth printing, but
     # it is not a success: a prompt or a script that treats it as one would be
-    # acting on a workspace it only partly saw (UX-5).
+    # acting on a workspace it only partly saw.
     if any(store.error is not None for store in report.stores):
         raise Exit(1)

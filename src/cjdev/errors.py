@@ -1,4 +1,4 @@
-"""The error hierarchy, and the exit codes it maps to (UX-5).
+"""The error hierarchy, and the exit codes it maps to.
 
 This module sits *below* `domain/`: it imports nothing of ours, so every layer
 may raise from it. Nothing else in `cjdev` is allowed that position.
@@ -10,8 +10,8 @@ from typing import final
 class CjdevError(Exception):
     """Base class for every error `cjdev` reports rather than crashes on.
 
-    `cli/` catches this, prints `str(exc)` and exits with `exit_code`. A
-    traceback reaching the user is a defect (UX-4).
+    `main()` catches this, prints `str(exc)` and exits with `exit_code`. A
+    traceback reaching the user is a defect.
     """
 
     exit_code = 1
@@ -34,7 +34,7 @@ class PreconditionError(CjdevError):
 class ManifestError(PreconditionError):
     """The manifest is unreadable, unsupported or internally inconsistent.
 
-    Includes the schema-version refusal required by CFG-3.
+    Includes the refusal of a schema version this cjdev does not understand.
     """
 
 
@@ -47,10 +47,7 @@ class NotImplementedYetError(CjdevError):
     """
 
     def __init__(self, what: str, milestone: str) -> None:
-        super().__init__(
-            f"{what} is not implemented yet - it lands in {milestone}. "
-            f"See docs/requirements.md §8."
-        )
+        super().__init__(f"{what} is not implemented yet - it lands in {milestone}.")
 
 
 @final
@@ -58,7 +55,7 @@ class CommandError(CjdevError):
     """An external command exited non-zero.
 
     Carries the argv, the working directory and the tail of the output so the
-    CLI can report all three; a bare traceback is a defect (UX-4).
+    CLI can report all three; a bare traceback is a defect.
     """
 
     TAIL_LINES = 20
@@ -82,7 +79,7 @@ class AbortedError(CjdevError):
     """The user declined a confirmation, or interrupted a prompt.
 
     Not an error in the usual sense, but it must not be mistaken for success:
-    exit code 1 says the operation did not happen (UX-5).
+    exit code 1 says the operation did not happen.
     """
 
     def __init__(self, what: str) -> None:

@@ -105,7 +105,7 @@ def test_declining_leaves_everything_alone(manifest: Manifest, workspace: Path):
 def test_it_refuses_without_a_terminal_and_without_yes(
     manifest: Manifest, workspace: Path
 ):
-    # UX-2: deleting a whole workspace is exactly the case where silence must
+    # Deleting a whole workspace is exactly the case where silence must
     # not be read as consent.
     with pytest.raises(PreconditionError, match="--yes"):
         clean(yes=False).perform(workspace)

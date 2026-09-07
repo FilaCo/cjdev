@@ -33,14 +33,18 @@ def checkout(
     )
 
 
-def render(*checkouts: Checkout, active: str | None = None) -> str:
+def render(
+    *checkouts: Checkout,
+    active: str | None = None,
+    stores: tuple[Store, ...] = (Store("alpha", provisioned=True),),
+) -> str:
     sink = StringIO()
     render_status(
         Console(file=sink, force_terminal=False, width=100),
         WorkspaceStatus(
             root=ROOT,
             active=active,
-            stores=(Store("alpha", provisioned=True),),
+            stores=stores,
             branch_sets=(
                 BranchSet(name="main", directory=ROOT / "main", checkouts=checkouts),
             )
@@ -52,7 +56,7 @@ def render(*checkouts: Checkout, active: str | None = None) -> str:
 
 
 def test_the_sha_is_abbreviated():
-    # BRANCH-4 asks for a short SHA; forty columns of hash in a table read
+    # A short SHA; forty columns of hash in a table read
     # many times a day is the reason.
     assert "4ee0b52" in render(checkout())
     assert HEAD not in render(checkout())
@@ -109,3 +113,27 @@ def test_a_workspace_with_no_branch_sets_says_how_to_make_one():
 
     assert "No branch sets yet" in output
     assert "alpha" in output  # the projects it does hold are still reported
+
+
+def test_a_project_with_no_worktree_here_is_named_rather_than_omitted():
+    # "Not enrolled in this branch set" and "missing from the report" read
+    # identically when the row is simply absent, and only one of them is
+    # something the reader should act on.
+    drawn = render(
+        checkout(),
+        stores=(Store("alpha", provisioned=True), Store("beta", provisioned=True)),
+    )
+
+    assert "beta" in drawn
+    assert "not checked out here" in drawn
+
+
+def test_a_project_the_workspace_does_not_hold_is_not_named_per_branch_set():
+    # It is absent from every branch set by definition, so saying so once per
+    # set would be six lines telling the reader the same thing.
+    drawn = render(
+        checkout(),
+        stores=(Store("alpha", provisioned=True), Store("beta", provisioned=False)),
+    )
+
+    assert "not checked out here" not in drawn

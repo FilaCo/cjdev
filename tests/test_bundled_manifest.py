@@ -1,4 +1,4 @@
-"""The manifest that ships in the wheel (§4.3).
+"""The manifest that ships in the wheel.
 
 Loaded through `importlib.resources`, not from the working tree, so that a
 packaging regression fails here rather than only for users who pip-installed.
@@ -34,7 +34,7 @@ def test_ships_the_six_projects_of_section_43(bundled: Manifest):
 
 
 def test_every_project_records_its_own_default_branch(bundled: Manifest):
-    # SYNC-8: they all happen to be `main`, and that stays data.
+    # They all happen to be `main`, and that stays data.
     assert all(p.default_branch == "main" for p in bundled.projects)
 
 
@@ -86,7 +86,7 @@ class TestSchemaVersion:
         assert bundled.schema_version == SUPPORTED_SCHEMA_VERSION
 
     def test_a_future_version_is_refused_with_an_actionable_message(self):
-        # CFG-3: refuse, do not best-effort parse.
+        # Refuse, do not best-effort parse.
         with pytest.raises(ManifestError, match="Upgrade cjdev"):
             parse_manifest("schema_version = 99", source="test")
 

@@ -1,11 +1,11 @@
-"""Printing what would run instead of running it (UX-1)."""
+"""Printing what would run instead of running it."""
 
 from collections.abc import Callable
 from typing import final
 
 from cjdev.application.ports import Command, Completed, Executor
 
-from .log import render
+from .trace import render
 
 
 @final

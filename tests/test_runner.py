@@ -1,4 +1,4 @@
-"""The concurrency guarantees of §5.10, which are the ones easiest to lose."""
+"""The concurrency guarantees, which are the ones easiest to lose."""
 
 import threading
 import time
@@ -23,8 +23,8 @@ def outcomes(report) -> list[Outcome]:
 
 class TestOrdering:
     def test_results_follow_submission_order_not_completion_order(self):
-        # PAR-4: the transcript may not depend on scheduling. The first unit
-        # sleeps so that it reliably finishes last.
+        # The transcript may not depend on scheduling. The first unit sleeps
+        # so that it reliably finishes last.
         report = Runner(jobs=4).run(
             [
                 work("slow", lambda: time.sleep(0.05)),
@@ -50,8 +50,8 @@ class TestOrdering:
 
 class TestKeysSerialise:
     def test_work_sharing_a_key_never_overlaps(self):
-        # PAR-2: two operations on one object store must not run at once,
-        # because git does not serialise them for us.
+        # Two operations on one object store must not run at once, because
+        # git does not serialise them for us.
         overlapping = False
         active = 0
         guard = threading.Lock()
@@ -84,7 +84,7 @@ class TestKeysSerialise:
 
 class TestFailure:
     def test_fail_fast_cancels_work_not_yet_started(self):
-        # PAR-5: partial state is reported per unit, never silent.
+        # Partial state is reported per unit, never silent.
         def boom() -> None:
             raise RuntimeError("nope")
 

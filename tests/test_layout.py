@@ -16,8 +16,8 @@ def layout() -> WorkspaceLayout:
     return WorkspaceLayout(ROOT)
 
 
-class TestSection41Tree:
-    """Every path below is quoted from docs/requirements.md §4.1."""
+class TestWorkspaceTree:
+    """The documented tree: branch sets in the root, everything else hidden."""
 
     def test_branch_sets_are_the_only_thing_in_the_root(self, layout: WorkspaceLayout):
         # The root is the part a person browses and `cd`s into. Everything
@@ -84,9 +84,9 @@ class TestFlattening:
 
 class TestCacheIsShared:
     def test_ccache_is_not_keyed_by_anything(self, layout: WorkspaceLayout):
-        # CACHE-1: one store for every branch set and every environment mode.
-        # A parameter here would be the bug that quietly kills cross-branch
-        # reuse (R3), so the absence of one is the thing worth asserting.
+        # One store for every branch set and every environment mode. A
+        # parameter here would be the bug that quietly kills cross-branch
+        # reuse, so the absence of one is the thing worth asserting.
         assert layout.ccache_dir == CJDEV / "cache" / "ccache"
 
 
@@ -131,7 +131,7 @@ class TestBranchSetNamesFollowGitsRules:
 
 class TestBranchSetIsolation:
     def test_two_branch_sets_never_share_a_build_dir(self, layout: WorkspaceLayout):
-        # BUILD-5 / NFR-6: this is what makes switching cheap.
+        # This is what makes switching branch sets cheap.
         assert layout.build_dir("a", "debug", STDLIB) != layout.build_dir(
             "b", "debug", STDLIB
         )
@@ -142,9 +142,9 @@ class TestBranchSetIsolation:
         )
 
     def test_a_layout_works_from_a_root_that_cannot_do_io(self):
-        # NFR-2: `PurePath` has no exists/mkdir/read_text, so a layout built
-        # on one cannot touch the filesystem even by accident. `ty` enforces
-        # this statically; the test pins the runtime half.
+        # `PurePath` has no exists/mkdir/read_text, so a layout built on one
+        # cannot touch the filesystem even by accident. `ty` enforces this
+        # statically; the test pins the runtime half.
         layout = WorkspaceLayout(PurePath("/nowhere"))
 
         assert layout.worktree("any", COMPILER).name == "cangjie_compiler"

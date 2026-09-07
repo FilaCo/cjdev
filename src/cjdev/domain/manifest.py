@@ -1,10 +1,10 @@
 """The project set and the build-unit graph.
 
 Manifest data, not code: the six projects, their remotes and the dependency
-edges between build units all arrive from TOML (CFG-2) and are parsed into
-these types at the `infra/` boundary. Nothing here touches the outside world.
+edges between build units all arrive from TOML and are parsed into these types
+at the `infra/` boundary. Nothing here touches the outside world.
 
-The distinction §2 draws is the one to keep straight: a **project** is one git
+The distinction to keep straight: a **project** is one git
 repository - the unit of cloning, branching and PR creation - while a **build
 unit** is one buildable subproject inside it. `cangjie_runtime` holds two. The
 dependency graph is over units, never over projects.
@@ -24,7 +24,7 @@ from cjdev.errors import ManifestError
 class ProjectRole(Enum):
     """What a project contributes to the SDK.
 
-    `TEST_RUNNER` and `TEST_DATA` build nothing (§4.3); they are cloned,
+    `TEST_RUNNER` and `TEST_DATA` build nothing; they are cloned,
     branched and shipped like any other project, and simply own no build units.
     """
 
@@ -41,8 +41,8 @@ class Project:
     role: ProjectRole
     upstream_url: str
     default_branch: str
-    """Detected per project, never hardcoded (SYNC-8). Manifest data even
-    though every project happens to be `main` today."""
+    """Detected per project, never hardcoded. Manifest data even though every
+    project happens to be `main` today."""
 
 
 @final
@@ -69,18 +69,18 @@ class Manifest:
 
     Manifest order is the tie-break for every ordering `cjdev` produces -
     build order, status rows, the summary table - so that output does not
-    depend on scheduling once commands fan out (PAR-4).
+    depend on scheduling once commands fan out.
     """
 
     schema_version: int
     projects: tuple[Project, ...]
     build_units: tuple[BuildUnit, ...]
     groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
-    """Named subsets of the project set, for `--only` and friends (BRANCH-7)."""
+    """Named subsets of the project set, for `--only` and friends."""
     default_group: str | None = None
     """Which group a command offers when the user has expressed no preference.
     Manifest data rather than a constant, so that a workspace can decide the
-    SDK it cares about without patching `cjdev` (CFG-2)."""
+    SDK it cares about without patching `cjdev`."""
 
     def __post_init__(self) -> None:
         self._reject_duplicates()
@@ -119,9 +119,9 @@ class Manifest:
     def units_of(self, name: str) -> tuple[BuildUnit, ...]:
         """Every unit the project holds, in manifest order.
 
-        Empty for a project that builds nothing, and - until question A is
-        answered - for one whose edges are simply not established yet (R11).
-        Naming a project on the command line selects exactly this (BUILD-2).
+        Empty for a project that builds nothing, and for one whose edges are
+        not established yet. Naming a project on the command line selects
+        exactly this.
         """
         self.project(name)
         return tuple(unit for unit in self.build_units if unit.project == name)
@@ -131,9 +131,8 @@ class Manifest:
     ) -> tuple[BuildUnit, ...]:
         """The selection plus everything it depends on, in dependency order.
 
-        This is `--upto` (BUILD-2) and, with no selection, the whole-SDK build
-        of BUILD-1. Ties are broken by manifest order, so the sequence is
-        reproducible run to run.
+        This is `--upto` and, with no selection, the whole-SDK build. Ties are
+        broken by manifest order, so the sequence is reproducible run to run.
         """
         wanted = self._with_dependencies(selection)
         position = {unit.name: i for i, unit in enumerate(self.build_units)}

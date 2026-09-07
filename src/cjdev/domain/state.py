@@ -1,7 +1,7 @@
 """What a workspace currently holds: branch sets, checkouts and their git state.
 
-The shape CFG-4 reports and BRANCH-4 lists. Every value here is read back from
-git rather than kept in a file of our own (§4.2), so these types are a
+The shape `status` reports. Every value here is read back from git rather than
+kept in a file of our own, so these types are a
 *snapshot* - two of them taken a second apart may legitimately disagree, and
 nothing may cache one across a mutating command.
 
@@ -39,7 +39,7 @@ class Checkout:
     path: PurePath
     branch: str | None
     """None when the worktree is detached: a project enrolled into the branch
-    set lazily still sits on the pinned base ref (§4.2, BRANCH-6)."""
+    set lazily still sits on the pinned base ref."""
     head: str
     """The full SHA. Abbreviating is the renderer's business, so that `--json`
     stays useful to something that wants to look the commit up."""
@@ -63,7 +63,7 @@ class Store:
     provisioned: bool
     error: str | None = None
     """Why this project could not be read. Set on one project rather than
-    raised, because five readable projects are still worth printing (PAR-5)."""
+    raised, because five readable projects are still worth printing."""
 
 
 @final
@@ -82,14 +82,14 @@ def branch_sets_of(
 
     Grouping by directory rather than by branch name is what tolerates lazy
     enrolment: a detached project has no branch to group on, but it does sit
-    next to its siblings (§4.2).
+    next to its siblings.
     """
     grouped: dict[PurePath, list[Checkout]] = {}
     for checkout in checkouts:
         directory = checkout.path.parent
         # git reported it, but a worktree that is not one directory below the
         # root is not one cjdev laid out - it was linked from somewhere else,
-        # which is the case `clean` refuses to break silently (R9).
+        # which is the case `clean` refuses to break silently.
         if directory.parent != root:
             continue
         grouped.setdefault(directory, []).append(checkout)
@@ -111,7 +111,7 @@ def active_branch_set(
 
     Matched on the directory rather than on the name, because flattening is
     one-way: turning `fix/ice` back into a directory to compare would have to
-    guess, and BRANCH-1 refusing a colliding name is what makes the directory
+    guess, and refusing a colliding branch-set name is what makes the directory
     an unambiguous key in the first place.
     """
     for directory in (cwd, *cwd.parents):
@@ -123,7 +123,7 @@ def active_branch_set(
 
 
 def _name_of(directory: PurePath, checkouts: Sequence[Checkout]) -> str:
-    """The branch checked out in it, not the directory holding it (CFG-9).
+    """The branch checked out in it, not the directory holding it.
 
     A branch set whose every project is still detached has no branch to read,
     and falls back to the flattened label on disk - lossy, and the best that

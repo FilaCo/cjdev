@@ -1,4 +1,4 @@
-"""Reading a workspace and saying what it holds (CFG-4).
+"""Reading a workspace and saying what it holds.
 
 The one command that changes nothing, which is what shapes it: there is no
 `--dry-run` to honour, no confirmation to collect and no `FileSystem` in
@@ -6,10 +6,10 @@ sight. What is left is gather and decide - `_observe` reads the disk, git
 answers per project, and `branch_sets_of` turns the answers into the report
 without touching anything again.
 
-Its budget is under a second (NFR-5), because it is meant to be run
-constantly and possibly from a shell prompt. Six sequential `git` invocations
-do not fit that, which is why the per-project queries go through the runner
-(PAR-9) even though each one is only reading.
+Its budget is under a second, because it is meant to be run constantly and
+possibly from a shell prompt. Six sequential `git` invocations do not fit
+that, which is why the per-project queries go through the runner even though
+each one is only reading.
 """
 
 from collections.abc import Callable, Iterable
@@ -33,7 +33,7 @@ ReadCheckouts = Callable[[Executor, Path, str], tuple[Checkout, ...]]
 
 DEFAULT_QUERY_JOBS = 8
 """Read-only local git queries: nothing to rate-limit and nothing to
-saturate, so this is bounded only because PAR-3 forbids unbounded, and sits
+saturate, so this is bounded only because unbounded is never right, and sits
 above the project count so the fan-out is one wave."""
 
 
@@ -56,9 +56,9 @@ class ReportStatus:
         provisioned = _observe(layout, self._manifest)
 
         # fail_fast=False: one unreadable store must not hide the five that
-        # read fine. A report is the one thing worth finishing partially, and
-        # PAR-5 asks only that the partial state be reported rather than
-        # silent - which `Store.error` is.
+        # read fine. A report is the one thing worth finishing partially, so
+        # long as the partial state is reported rather than silent - which
+        # `Store.error` is.
         report = Runner(jobs, fail_fast=False).run(
             [
                 Work(
@@ -70,10 +70,10 @@ class ReportStatus:
             ]
         )
 
-        # A half-read workspace printed as if it were the whole one is the
-        # silent partial result R9 forbids, and here it is indistinguishable
-        # from a workspace that really has no branch sets. Nothing was
-        # changed, so there is nothing to resume - only nothing to report.
+        # A half-read workspace printed as if it were the whole one is a
+        # silent partial result, and here it is indistinguishable from a
+        # workspace that really has no branch sets. Nothing was changed, so
+        # there is nothing to resume - only nothing to report.
         if report.interrupted:
             raise AbortedError("status")
 
@@ -122,7 +122,7 @@ def _observe(layout: WorkspaceLayout, manifest: Manifest) -> tuple[str, ...]:
     """The projects this workspace actually holds, in manifest order.
 
     Read off the disk rather than off the manifest, because a workspace's
-    project set is what its object stores say it is (CFG-10). A store the
+    project set is what its object stores say it is. A store the
     manifest has since stopped listing is still reported: hiding a directory
     full of fetched objects because a config no longer mentions it is how a
     status report becomes a thing you cannot trust.
@@ -140,7 +140,7 @@ def _in_manifest_order(manifest: Manifest, names: Iterable[str]) -> tuple[str, .
     """Manifest order first, then whatever the manifest has never heard of.
 
     Manifest order is the tie-break for every ordering cjdev produces, so that
-    output cannot depend on scheduling (PAR-4). A store the manifest has no
+    output cannot depend on scheduling. A store the manifest has no
     opinion about still has to be ordered by something, and its name is the
     only stable thing left.
     """

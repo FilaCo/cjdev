@@ -1,4 +1,4 @@
-"""Grouping worktrees into branch sets, with no repository in sight (NFR-2)."""
+"""Grouping worktrees into branch sets, with no repository in sight."""
 
 from pathlib import PurePath
 
@@ -28,7 +28,7 @@ class TestBranchSetsComeFromGitNotFromDirectories:
         assert [c.project for c in sets[0].checkouts] == ["alpha", "beta"]
 
     def test_the_name_is_the_branch_not_the_directory(self):
-        # CFG-9: flattening is one-way, so `fix-ice` on disk cannot say
+        # Flattening is one-way, so `fix-ice` on disk cannot say
         # whether the branch is `fix/ice` or `fix-ice`. git can.
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice")])
 
@@ -36,14 +36,14 @@ class TestBranchSetsComeFromGitNotFromDirectories:
         assert sets[0].directory == ROOT / "fix-ice"
 
     def test_an_all_detached_branch_set_falls_back_to_the_directory(self):
-        # Every project still on its pinned base ref (§4.2): there is no
+        # Every project still on its pinned base ref: there is no
         # branch anywhere to read the real name off.
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice", branch=None)])
 
         assert sets[0].name == "fix-ice"
 
     def test_one_enrolled_project_is_enough_to_name_the_set(self):
-        # BRANCH-6 enrols lazily, so a set is normally a mix.
+        # Projects enrol lazily, so a set is normally a mix.
         sets = branch_sets_of(
             ROOT,
             [checkout("alpha", "fix-ice", branch=None), checkout("beta", "fix-ice")],
@@ -52,7 +52,7 @@ class TestBranchSetsComeFromGitNotFromDirectories:
         assert sets[0].name == "fix/ice"
 
     def test_sets_are_ordered_by_directory_not_by_arrival(self):
-        # PAR-4: the fan-out that produced these must not decide the order
+        # The fan-out that produced these must not decide the order
         # they are printed in.
         sets = branch_sets_of(
             ROOT, [checkout("alpha", "main"), checkout("alpha", "fix-ice")]
@@ -75,7 +75,7 @@ class TestBranchSetsComeFromGitNotFromDirectories:
         assert branch_sets_of(ROOT, [stray]) == ()
 
     def test_a_worktree_nested_deeper_than_one_level_is_not_one_either(self):
-        # The root holds branch sets and nothing else (§4.1); anything deeper
+        # The root holds branch sets and nothing else; anything deeper
         # is something a person made by hand.
         deep = checkout("alpha", "fix-ice/extra")
 
@@ -101,7 +101,7 @@ class TestActiveBranchSet:
         assert active_branch_set(ROOT, PurePath("/tmp/elsewhere"), sets) is None
 
     def test_a_stray_directory_in_the_root_is_not_a_branch_set(self):
-        # CFG-9: a directory a user made in the root is not one, so standing
+        # A directory a user made in the root is not a branch set, so standing
         # in it must not name one either.
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice")])
 

@@ -5,7 +5,7 @@ from typer import Argument, Option, Typer
 from cjdev.application.workspace import find_root, require_root
 from cjdev.errors import PreconditionError
 
-from ._console import console
+from ._console import DETAIL, console
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
 from ._render import render_clean_plan
 
@@ -27,6 +27,18 @@ def clean(
 ) -> None:
     """Empty this workspace: worktrees, object stores and all."""
     root = _root(path)
+    # Straight to the terminal: `clean` has no fan-out, so there is no
+    # scheduling for the order of these lines to depend on, and holding them
+    # back until the end would mean printing a dry run's plan after it.
+    ctx.obj.emit = lambda line: console.print(
+        line, style=DETAIL, highlight=False, soft_wrap=True
+    )
+    if not dry_run:
+        # The log lives inside what is about to be deleted, which is right:
+        # the record of a workspace goes when the workspace does. The handle
+        # stays open across the removal and simply stops mattering.
+        ctx.obj.journal(root, ["clean", str(root)])
+
     plan = ctx.obj.clean_workspace(
         dry_run=dry_run, verbose=verbose, assume_yes=assume_yes
     ).perform(root, force=force)
