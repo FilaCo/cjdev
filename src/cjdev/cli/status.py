@@ -7,7 +7,8 @@ from cjdev.application.workspace import require_root
 
 from ._console import DETAIL, console, diagnostics
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
-from ._render import render_status, render_status_json
+from ._output import begin, problem
+from ._render import render_status, status_payload
 
 cli = Typer(cls=CjdevGroup)
 
@@ -23,6 +24,7 @@ def status(
     verbose: bool = Option(False, "-v", "--verbose", help="Echo every command."),
 ) -> None:
     """Show what this workspace holds: branch sets, projects and their git state."""
+    out = begin("status", as_json=as_json)
     # Walking up from a named path, unlike `clean`, which insists on being
     # handed the root itself. That asymmetry is deliberate: `clean` empties
     # what it finds, and reading is not worth the same caution.
@@ -45,17 +47,20 @@ def status(
         root, cwd=Path.cwd().resolve(), jobs=jobs
     )
 
+    # A report that could not read every project is still worth printing, but
+    # it is not a success: a prompt or a script that treats it as one would be
+    # acting on a workspace it only partly saw. The document says both at once -
+    # everything that was read, and `ok: false` next to what was not.
+    unreadable = [
+        problem("project_unreadable", message, subject=store.project)
+        for store in report.stores
+        if (message := store.error) is not None
+    ]
+
     if as_json:
-        # markup and highlighting off, soft_wrap on: rich must not colour,
-        # rewrap or reinterpret a document something else is about to parse.
-        console.print(
-            render_status_json(report), markup=False, highlight=False, soft_wrap=True
-        )
+        out.document(status_payload(report), ok=not unreadable, errors=unreadable)
     else:
         render_status(console, report)
 
-    # A report that could not read every project is still worth printing, but
-    # it is not a success: a prompt or a script that treats it as one would be
-    # acting on a workspace it only partly saw.
-    if any(store.error is not None for store in report.stores):
+    if unreadable:
         raise Exit(1)

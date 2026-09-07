@@ -2,7 +2,7 @@
 
 import pytest
 
-from cjdev.errors import PreconditionError
+from cjdev.errors import InputRequiredError, PreconditionError
 from cjdev.infra.prompt import NonInteractivePrompt
 
 
@@ -12,8 +12,13 @@ class TestWithoutATerminal:
         # there to answer. Silence is not consent.
         prompt = NonInteractivePrompt(assume_yes=False)
 
-        with pytest.raises(PreconditionError, match="--yes"):
+        with pytest.raises(InputRequiredError) as refusal:
             prompt.confirm("Delete every worktree?", destructive=True)
+
+        # The flag is a field rather than a sentence in the message: the
+        # caller this refusal exists for re-runs the command, and reads what
+        # to add from the envelope rather than by parsing prose.
+        assert refusal.value.remedy == "re-run with --yes"
 
     def test_yes_supplies_the_consent_a_terminal_would_have(self):
         assert NonInteractivePrompt(assume_yes=True).confirm("Delete?")

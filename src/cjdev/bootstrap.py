@@ -131,14 +131,23 @@ class Container:
         )
 
     def clean_workspace(
-        self, *, dry_run: bool = False, verbose: bool = False, assume_yes: bool = False
+        self,
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        assume_yes: bool = False,
+        interactive: bool = True,
     ) -> CleanWorkspace:
+        """`interactive` is what `init` spells `defaults`: there is no wizard
+        here, only the confirmation, so a caller that has no terminal to draw
+        one on says so directly."""
         return CleanWorkspace(
             executor=self.executor(dry_run=dry_run, verbose=verbose),
             file_system=self.file_system(dry_run=dry_run),
             # A dry run removes nothing, so there is nothing to consent to.
             prompt=self.prompt(
-                interactive=not dry_run, assume_yes=assume_yes or dry_run
+                interactive=interactive and not dry_run,
+                assume_yes=assume_yes or dry_run,
             ),
             list_worktrees=list_worktrees,
         )

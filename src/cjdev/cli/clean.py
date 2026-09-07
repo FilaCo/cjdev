@@ -7,7 +7,8 @@ from cjdev.errors import PreconditionError
 
 from ._console import DETAIL, console
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
-from ._render import render_clean_plan
+from ._output import begin
+from ._render import clean_payload, render_clean_plan
 
 cli = Typer(cls=CjdevGroup)
 
@@ -24,13 +25,17 @@ def clean(
     ),
     verbose: bool = Option(False, "-v", "--verbose", help="Echo every command."),
     assume_yes: bool = Option(False, "-y", "--yes", help="Skip the confirmation."),
+    as_json: bool = Option(
+        False, "--json", help="Print the result as JSON. Never asks; needs --yes."
+    ),
 ) -> None:
     """Empty this workspace: worktrees, object stores and all."""
+    out = begin("clean", as_json=as_json)
     root = _root(path)
     # Straight to the terminal: `clean` has no fan-out, so there is no
     # scheduling for the order of these lines to depend on, and holding them
     # back until the end would mean printing a dry run's plan after it.
-    ctx.obj.emit = lambda line: console.print(
+    ctx.obj.emit = lambda line: out.display.print(
         line, style=DETAIL, highlight=False, soft_wrap=True
     )
     if not dry_run:
@@ -40,10 +45,18 @@ def clean(
         ctx.obj.journal(root, ["clean", str(root)])
 
     plan = ctx.obj.clean_workspace(
-        dry_run=dry_run, verbose=verbose, assume_yes=assume_yes
+        dry_run=dry_run,
+        verbose=verbose,
+        assume_yes=assume_yes,
+        # A wizard drawn over the document would corrupt it, and there is no
+        # second stream to draw it on: `--json` owns stdout.
+        interactive=not as_json,
     ).perform(root, force=force)
 
-    render_clean_plan(console, plan, dry_run=dry_run)
+    if as_json:
+        out.document(clean_payload(plan, dry_run=dry_run))
+    else:
+        render_clean_plan(console, plan, dry_run=dry_run)
 
 
 def _root(path: Path | None) -> Path:

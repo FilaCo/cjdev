@@ -21,7 +21,7 @@ from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.runner import Runner, RunObserver, RunReport, Work
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project
-from cjdev.errors import AbortedError
+from cjdev.errors import AbortedError, UsageError
 
 Provision = Callable[[Executor, Path, Project], None]
 Remove = Callable[[Executor, FileSystem, Path, Project], None]
@@ -178,11 +178,21 @@ class InitWorkspace:
             for p in plan.to_remove
         ]
 
-    def agree(self, plan: InitPlan, root: Path) -> InitPlan:
-        """Settle every question before the first side effect."""
+    def agree(
+        self, plan: InitPlan, root: Path, selection: Sequence[str] | None = None
+    ) -> InitPlan:
+        """Settle every question before the first side effect.
+
+        A selection handed in is an *answer*, not a default: the question is
+        not asked, terminal or no terminal. Consent is still asked for
+        separately below, because supplying the project set says nothing about
+        agreeing to delete what is no longer in it.
+        """
         names = tuple(project.name for project in plan.projects)
         plan = plan.with_selection(
-            self._prompt.choose(
+            self._checked(selection, names)
+            if selection is not None
+            else self._prompt.choose(
                 "Projects in this workspace",
                 names,
                 preselected=sorted(plan.selected),
@@ -192,6 +202,24 @@ class InitWorkspace:
         if not self._prompt.confirm(question, destructive=destructive):
             raise AbortedError("init")
         return plan
+
+    @staticmethod
+    def _checked(selection: Sequence[str], names: Sequence[str]) -> tuple[str, ...]:
+        """A typo is a usage error, and the reply lists what would have worked.
+
+        Re-ordered into manifest order for the same reason `choose` re-orders
+        what a person ticked: every ordering downstream is manifest order, and
+        a caller must not be able to change one by naming projects backwards.
+        """
+        known = set(names)
+        unknown = [name for name in selection if name not in known]
+        if unknown:
+            raise UsageError(
+                f"unknown project(s): {', '.join(unknown)}. "
+                f"Known projects: {', '.join(names)}."
+            )
+        chosen = set(selection)
+        return tuple(name for name in names if name in chosen)
 
     @staticmethod
     def _question(plan: InitPlan, root: Path) -> tuple[str, bool]:

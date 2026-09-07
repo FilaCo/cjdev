@@ -151,8 +151,10 @@ src/cjdev/
     _context.py            # the typed Context
     _console.py            # one Console, and the marks for ok/failed/cancelled
     _progress.py           # the live display, and per-unit output capture
-    _render.py             # summaries and --json
+    _output.py             # the --json envelope, and which mode a run is in
+    _render.py             # the terminal report, and the payload --json carries
     init.py  clean.py  status.py  build.py
+```
 
 ### Terminal output
 
@@ -174,7 +176,54 @@ A long-running command answers three questions, not one: what it is doing, how l
 has been doing it, and how much longer. `_progress.py` shows all three; the per-unit step
 comes from `Command.what` through `StepExecutor`, so adding a step to a new command means
 labelling the command, never threading a callback through the use case.
-```
+
+### The machine surface
+
+`--json` is a contract with something that is not a person, so it is shaped like one.
+Every command prints the same envelope - `schema`, `command`, `ok`, `data`, `errors` -
+and a caller pins `schema` rather than the layout of whichever report it happens to be
+reading. Fields are added and never repurposed; anything else bumps the number in
+`cli/_output.py`. Three rules follow, and they are why that module exists instead of
+each command reaching for `json.dumps`:
+
+- **The document is written with `print`, never through `rich`.** A renderer that knows
+  about terminal width, colour and markup has no business near something a parser is
+  about to read, and "remember to pass `markup=False`" is not a guarantee.
+- **Stdout carries the document and nothing else.** Under `--json` the progress display
+  and the transcript move to stderr; a command asks `out.display` which console it is
+  writing to rather than deciding for itself.
+- **A failure goes inside the envelope, not beside it.** `main()` renders whatever
+  escapes through `Output.failure`, which is why the mode is module state: by then
+  Typer's context is gone, and `_output.py` is the only thing left that knows how the
+  command meant to report. A command that already printed its own document - `init`
+  reporting four fetched projects and one that failed - keeps it, because one document
+  per run beats a second one contradicting it.
+
+Every failure carries a **code** as well as an exit code, and they answer different
+questions: the exit code says which of the four kinds it was, the code says which failure
+it was and survives someone rewording the message. `errors.py` documents both in one
+table. Where a failure has a fix that can be named, it goes in `remedy` and both
+renderings print it - but an invented remedy is worse than a null one, because the caller
+it exists for cannot tell a good guess from a bad one.
+
+### Questions, answers, and consent
+
+Three flags that look interchangeable and are not:
+
+| flag | supplies | |
+| --- | --- | --- |
+| `--defaults` | *skips* the questions, taking what is already there | no use to a caller that wants a different answer |
+| `-p/--project` | *answers* the project-set question | says nothing about consent |
+| `--yes` | consent to a destructive step | answers no question |
+
+`--json` implies `--defaults`, because a wizard drawn over the document would corrupt it
+and there is no second stream to draw it on. It does **not** imply `--yes`: a caller with
+no terminal that means to drop a project has to say so, and is told which flag to add if
+it did not.
+
+The rule behind `-p`: **every question the wizard asks needs a flag that answers it.**
+`--defaults` is not that flag - it takes what is on disk, which is precisely what a caller
+setting up a workspace for the first time has none of.
 
 ### Four ports, and only four
 

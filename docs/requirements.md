@@ -4,6 +4,8 @@ Status: **draft**. Written before implementation. The project set, targets, forg
 client and environment baseline were settled on 2026-09-03 ([§10.1](#101-resolved)); the
 questions remaining in [§10.2](#102-still-open) still block the requirements they name.
 Parallel execution ([§5.10](#510-par--parallel-execution)) was added on 2026-09-04.
+The machine-facing half of [§5.9](#59-ux--cross-cutting-behaviour) (UX-6, UX-11..18) was
+added on 2026-09-07.
 
 Requirement IDs are stable. Refer to them from issues, commits and PRs.
 
@@ -358,6 +360,15 @@ default to off.
 
 ### 5.9 UX - cross-cutting behaviour
 
+Two consumers, one surface. Most of what follows applies to whoever is reading the output:
+a person at a terminal, or an agent driving `cjdev` from a pipe with no terminal at all.
+Where the two differ the agent is the stricter of the two - it cannot see a spinner, cannot
+answer a prompt, cannot infer meaning from formatting, and pays for every line it reads -
+so UX-6 and UX-11..18 state the machine contract explicitly instead of leaving it to
+whatever the renderer happens to emit. Note the direction: decision 8 is `cjdev`
+delegating *to* a model, this is an agent *calling* `cjdev`. Nothing here adds a model
+SDK, a key or a network call, and the tool stays exactly as usable by hand.
+
 | ID | Priority | Requirement |
 | --- | --- | --- |
 | UX-1 | MUST | `--dry-run` on every mutating command, printing the exact external commands that would run. |
@@ -365,11 +376,19 @@ default to off.
 | UX-3 | MUST | Every external invocation is logged with its full argv, cwd and exit status; `-v` echoes it live. |
 | UX-4 | MUST | On failure, report the failing project, the command, and the tail of its output - never a bare traceback. |
 | UX-5 | MUST | Exit codes are meaningful and documented (0 ok, 1 operation failed, 2 usage error, 3 preconditions unmet). |
-| UX-6 | SHOULD | `--json` output for the reporting commands (`status`, `branch list`, `test`, `pr status`). |
+| UX-6 | MUST | `--json` on every command, not only the reporting ones. A reporting command emits what it observed; a mutating command emits what it changed, per project or build unit, in the same envelope. `--json` implies `--defaults` (UX-10) and never implies `--yes` (UX-2). |
 | UX-7 | SHOULD | Shell completion for fish, bash and zsh, including dynamic completion of branch sets, projects, build units and presets. Completion runs without a workspace context, so it offers the shipped manifest's names until CFG-2's overrides are resolvable from the working directory alone. |
 | UX-8 | SHOULD | Multi-project operations run with a stable, non-interleaved progress display and a final summary table. Under concurrency this is PAR-4. |
 | UX-9 | SHOULD | Interrupting (`Ctrl-C`) leaves the workspace in a resumable state, never a half-rewritten one. |
 | UX-10 | SHOULD | Commands that collect *settings* rather than *consent* run as an interactive wizard with defaults - `init` today, and every question ENV-3 and CACHE-4 add later. `--defaults` skips it and a non-TTY implies `--defaults`. This is a different flag from UX-2's `--yes` on purpose: one supplies answers, the other supplies permission to destroy something, and a single flag that did both would arm deletions in every CI script that only wanted to skip a wizard. |
+| UX-11 | MUST | Machine output is a single versioned envelope: schema version, the command, an ok flag, the payload and the errors. Callers pin the version; fields are added, never repurposed, and a breaking change bumps it. A skill or a prompt that parses this output is written once, not re-derived after every release. |
+| UX-12 | MUST | Under `--json`, stdout carries exactly one JSON document and nothing else; progress, logs, warnings and prompts go to stderr. Colour, spinners and every other ANSI escape are suppressed when stdout is not a TTY. A parser must never have to strip decoration to find the payload. |
+| UX-13 | MUST | Every failure carries a stable machine-readable code, the project or unit it occurred in, and the command that resolves or resumes it - the same three in the text rendering (UX-4) and in the envelope. Codes are documented next to the exit codes (UX-5). A caller with no terminal recovers only from what the output states. |
+| UX-14 | MUST | `cjdev` never blocks on stdin without a TTY. Where a terminal would prompt, a pipe fails with exit 3 and names the flag that supplies the answer (`--yes`, `--defaults`, or the option itself). For an unattended caller a hang is worse than a failure: a failure produces something to act on. |
+| UX-15 | SHOULD | Captured subprocess output is bounded: a documented tail in the transcript and in the envelope, with the full text in the per-unit log file (PAR-11) whose path is part of the output. A build log runs to thousands of lines and belongs behind a path, not inlined into every caller's buffer. |
+| UX-16 | SHOULD | `cjdev schema --json` describes the surface: commands, their flags, the exit codes, the error codes and the envelope version. It runs without a workspace, so a caller learns the surface from the tool rather than guessing at `--help` prose. |
+| UX-17 | SHOULD | The package ships an agent-facing description of the workflow (`SKILL.md` / `AGENTS.md`): the command vocabulary, the read-only vs. mutating split, and the recovery paths. It is generated from the CLI, or checked against it in CI, so it cannot drift into being confidently wrong - which is worse than not shipping it at all. |
+| UX-18 | MUST | Every question a wizard asks has a flag that *answers* it, not only one that skips it: `init` takes the project set on the command line. `--defaults` is not that flag - it takes what is already on disk, which is exactly what a caller setting a workspace up for the first time has none of, and a caller with no terminal cannot tick a checkbox instead. |
 
 ### 5.10 PAR - parallel execution
 
@@ -481,12 +500,12 @@ into proper ADRs.
 
 | Milestone | Contents | Rationale |
 | --- | --- | --- |
-| **M1 - workspace & git** | CFG-1..4, BRANCH-1..5, SYNC-1..9, UX-1..5, PAR-1..9 | The daily pain is branch juggling, and this milestone alone is already worth using. PAR-1..7 are structural and belong here for the same reason the executor port does; PAR-8/9 are the payoff on clone, fetch and status. |
+| **M1 - workspace & git** | CFG-1..4, BRANCH-1..5, SYNC-1..9, UX-1..6, UX-11..14, UX-18, PAR-1..9 | The daily pain is branch juggling, and this milestone alone is already worth using. PAR-1..7 are structural and belong here for the same reason the executor port does; PAR-8/9 are the payoff on clone, fetch and status. The machine contract is here for that same reason: an envelope, stream discipline and error codes retrofitted across five milestones of commands is a rewrite of every renderer. |
 | **M2 - build & cache** | BUILD-1..6, CACHE-1..3, PAR-10..11, executor (host only) | Delivers the incrementality promise. The job budget only becomes meaningful once something nests builds inside the fan-out. |
 | **M3 - containers** | ENV-1..10 | Slots into M2's executor port with no command changes - that is the test of decision 2. |
 | **M4 - test** | TEST-1..6 | Depends on a working build. |
 | **M5 - forge** | FORGE-1..7, FORGE-9 | Needs branch sets, and the branch state in git, to know what to publish. |
-| **M6 - polish** | FORGE-8, BUILD-7..10, BUILD-11, PAR-12, UX-6..9, completions | Everything that is a multiplier rather than a capability. |
+| **M6 - polish** | FORGE-8, BUILD-7..10, BUILD-11, PAR-12, UX-7..9, UX-15..17, completions | Everything that is a multiplier rather than a capability. |
 
 ## 9. Risks
 
@@ -504,6 +523,7 @@ into proper ADRs.
 | R10 | **Scope.** Seven feature areas is a lot for one tool. | Milestones are ordered so each is independently useful; M1 ships before M2 starts. |
 | R11 | **The build graph is only partly known.** The units and edges of `cangjie_tools` beyond `cjpm`, and of `cangjie_multiplatform_interop`, are not established. | The graph is manifest data, not code (CFG-2). Ship with the four confirmed units; add edges as they are verified. |
 | R12 | **Concurrency turns latent bugs into intermittent ones.** Interleaved output, scheduling-dependent exit codes, two operations racing on one object store, and failures that reproduce only at `-j8` are the standard tax, and they are far worse to debug than the sequential runs they replace. | The requirements that make this tractable are structural, not optional: one runner (PAR-1), per-project serialisation (PAR-2), scheduling-independent output and exit codes (PAR-4/5), and `-j1` as a first-class supported mode for reproducing anything suspicious (PAR-3). |
+| R14 | **The machine surface is a compatibility contract.** An envelope, error codes and a shipped agent doc are things callers pin. Once someone's prompt or script depends on a field, renaming it breaks a caller that cannot report the break - it just starts doing the wrong thing quietly. | Version the envelope from the first release and change it additively (UX-11), document the error codes next to the exit codes (UX-13), and generate the agent doc from the CLI instead of maintaining a second copy by hand (UX-17). |
 | R13 | **The parallel win may be smaller than it looks.** If the forge throttles concurrent fetches, or if builds are already saturating the machine through their own `-j`, fan-out buys little and costs complexity. | Measure `init` and `sync` at `-j1` against `-j6` before extending fan-out anywhere else. PAR-10 exists precisely so the CPU-bound case does not oversubscribe. |
 
 ## 10. Open questions

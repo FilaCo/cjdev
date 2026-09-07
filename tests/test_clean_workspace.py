@@ -8,7 +8,7 @@ from cjdev.application.clean_workspace import CleanWorkspace
 from cjdev.application.ports import Executor
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
-from cjdev.errors import AbortedError, PreconditionError
+from cjdev.errors import AbortedError, InputRequiredError, PreconditionError
 from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.filesystem import HostFileSystem, build_file_system
 from cjdev.infra.prompt import NonInteractivePrompt
@@ -107,8 +107,10 @@ def test_it_refuses_without_a_terminal_and_without_yes(
 ):
     # Deleting a whole workspace is exactly the case where silence must
     # not be read as consent.
-    with pytest.raises(PreconditionError, match="--yes"):
+    with pytest.raises(InputRequiredError) as refusal:
         clean(yes=False).perform(workspace)
+
+    assert refusal.value.remedy == "re-run with --yes"
 
 
 class TestStrayWorktrees:

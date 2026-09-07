@@ -1,9 +1,10 @@
-from typer import Argument, Typer
+from typer import Argument, Option, Typer
 
 from cjdev.errors import NotImplementedYetError
 from cjdev.infra.config import load_bundled_manifest
 
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
+from ._output import begin
 
 cli = Typer(cls=CjdevGroup)
 
@@ -30,8 +31,12 @@ def build(
         help="Build units to build. Defaults to the whole SDK.",
         autocompletion=complete_unit,
     ),
+    as_json: bool = Option(False, "--json", help="Print the result as JSON."),
 ) -> None:
     """Build Cangjie SDK build units, in dependency order."""
+    # Before the refusal below, so that a caller asking for JSON is told in
+    # JSON that this lands in M2, rather than being handed a line of prose.
+    begin("build", as_json=as_json)
     ordered = ctx.obj.manifest.build_order(units or None)
 
     raise NotImplementedYetError(

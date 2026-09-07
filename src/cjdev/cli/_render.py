@@ -1,7 +1,13 @@
-"""Turning a report into terminal output."""
+"""Turning a report into terminal output, and into the document `--json` prints.
 
-import json
+Both renderings of one report live together on purpose: a field added to the
+report has exactly two places to appear, and they are on the same screen. What
+they may not share is a shape - the table hides what a reader would skim past,
+and the payload hides nothing.
+"""
+
 from collections.abc import Callable
+from pathlib import Path
 from typing import TypeVar
 
 from rich.console import Console
@@ -9,6 +15,7 @@ from rich.table import Table
 from rich.text import Text
 
 from cjdev.application.clean_workspace import CleanPlan
+from cjdev.application.init_workspace import InitPlan
 from cjdev.application.runner import Outcome, RunReport
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
@@ -88,7 +95,7 @@ def render_status(console: Console, status: WorkspaceStatus) -> None:
     _render_stores(console, status)
 
 
-def render_status_json(status: WorkspaceStatus) -> str:
+def status_payload(status: WorkspaceStatus) -> dict[str, object]:
     """The same report, for something that is not a person.
 
     Built by hand rather than from `asdict`, because the field names are a
@@ -97,47 +104,85 @@ def render_status_json(status: WorkspaceStatus) -> str:
     zero to stay skimmable, and a script has no such problem.
     """
     held = {store.project for store in status.stores if store.provisioned}
-    return json.dumps(
-        {
-            "root": str(status.root),
-            "active_branch_set": status.active,
-            "projects": [
-                {
-                    "name": store.project,
-                    "provisioned": store.provisioned,
-                    "error": store.error,
-                }
-                for store in status.stores
-            ],
-            "branch_sets": [
-                {
-                    "name": branch_set.name,
-                    "directory": str(branch_set.directory),
-                    "projects": [
-                        {
-                            "name": checkout.project,
-                            "path": str(checkout.path),
-                            "branch": checkout.branch,
-                            "head": checkout.head,
-                            "dirty": checkout.dirty,
-                            "tracking": [
-                                {
-                                    "remote": tracking.remote,
-                                    "ahead": tracking.ahead,
-                                    "behind": tracking.behind,
-                                }
-                                for tracking in checkout.tracking
-                            ],
-                        }
-                        for checkout in branch_set.checkouts
-                    ],
-                    "not_checked_out": list(_absent(branch_set, tuple(held))),
-                }
-                for branch_set in status.branch_sets
-            ],
-        },
-        indent=2,
-    )
+    return {
+        "root": str(status.root),
+        "active_branch_set": status.active,
+        "projects": [
+            {
+                "name": store.project,
+                "provisioned": store.provisioned,
+                "error": store.error,
+            }
+            for store in status.stores
+        ],
+        "branch_sets": [
+            {
+                "name": branch_set.name,
+                "directory": str(branch_set.directory),
+                "projects": [
+                    {
+                        "name": checkout.project,
+                        "path": str(checkout.path),
+                        "branch": checkout.branch,
+                        "head": checkout.head,
+                        "dirty": checkout.dirty,
+                        "tracking": [
+                            {
+                                "remote": tracking.remote,
+                                "ahead": tracking.ahead,
+                                "behind": tracking.behind,
+                            }
+                            for tracking in checkout.tracking
+                        ],
+                    }
+                    for checkout in branch_set.checkouts
+                ],
+                "not_checked_out": list(_absent(branch_set, tuple(held))),
+            }
+            for branch_set in status.branch_sets
+        ],
+    }
+
+
+def init_payload(
+    root: Path, plan: InitPlan, report: RunReport[None], *, dry_run: bool
+) -> dict[str, object]:
+    """What the run decided and what became of each project.
+
+    Per project rather than as one verdict, because a fan-out that failed
+    halfway leaves five different answers and a caller has to see all of them
+    to know what to resume (PAR-5).
+    """
+    action = {p.name: "fetch" for p in plan.to_provision} | {
+        p.name: "remove" for p in plan.to_remove
+    }
+    return {
+        "root": str(root),
+        "dry_run": dry_run,
+        "noop": plan.is_noop,
+        "config_file": str(plan.config_file),
+        "config_written": plan.write_config,
+        "selected": [p.name for p in plan.projects if p.name in plan.selected],
+        "changes": [
+            {
+                "project": result.label,
+                "action": action.get(result.label, ""),
+                "outcome": result.outcome.name.lower(),
+            }
+            for result in report.results
+        ],
+        "interrupted": report.interrupted,
+    }
+
+
+def clean_payload(plan: CleanPlan, *, dry_run: bool) -> dict[str, object]:
+    return {
+        "root": str(plan.root),
+        "dry_run": dry_run,
+        "removed": [str(entry) for entry in plan.entries],
+        "projects": list(plan.projects),
+        "stray_worktrees": list(plan.stray_worktrees),
+    }
 
 
 def _detail(

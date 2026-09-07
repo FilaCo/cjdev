@@ -5,7 +5,7 @@ from typing import final
 
 import questionary
 
-from cjdev.errors import AbortedError, PreconditionError
+from cjdev.errors import AbortedError, InputRequiredError
 
 
 @final
@@ -51,9 +51,12 @@ class NonInteractivePrompt:
     def confirm(self, question: str, *, destructive: bool = True) -> bool:
         if self._assume_yes or not destructive:
             return True
-        raise PreconditionError(
-            f"{question}\n  Refusing a destructive action with no terminal to "
-            f"ask at. Re-run with --yes if that is what you want."
+        # Named as a flag rather than described in prose, because the caller
+        # this refusal exists for cannot read prose: it re-runs the command,
+        # and the only way it learns what to add is this field (UX-14).
+        raise InputRequiredError(
+            f"{question}\n  Refusing a destructive action with no terminal to ask at.",
+            remedy="re-run with --yes",
         )
 
     def choose(
