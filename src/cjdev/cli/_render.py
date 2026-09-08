@@ -7,7 +7,6 @@ and the payload hides nothing.
 """
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import TypeVar
 
 from rich.console import Console
@@ -15,7 +14,6 @@ from rich.table import Table
 from rich.text import Text
 
 from cjdev.application.clean_workspace import CleanPlan
-from cjdev.application.init_workspace import InitPlan
 from cjdev.application.runner import Outcome, RunReport
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
@@ -141,37 +139,6 @@ def status_payload(status: WorkspaceStatus) -> dict[str, object]:
             }
             for branch_set in status.branch_sets
         ],
-    }
-
-
-def init_payload(
-    root: Path, plan: InitPlan, report: RunReport[None], *, dry_run: bool
-) -> dict[str, object]:
-    """What the run decided and what became of each project.
-
-    Per project rather than as one verdict, because a fan-out that failed
-    halfway leaves five different answers and a caller has to see all of them
-    to know what to resume (PAR-5).
-    """
-    action = {p.name: "fetch" for p in plan.to_provision} | {
-        p.name: "remove" for p in plan.to_remove
-    }
-    return {
-        "root": str(root),
-        "dry_run": dry_run,
-        "noop": plan.is_noop,
-        "config_file": str(plan.config_file),
-        "config_written": plan.write_config,
-        "selected": [p.name for p in plan.projects if p.name in plan.selected],
-        "changes": [
-            {
-                "project": result.label,
-                "action": action.get(result.label, ""),
-                "outcome": result.outcome.name.lower(),
-            }
-            for result in report.results
-        ],
-        "interrupted": report.interrupted,
     }
 
 

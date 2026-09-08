@@ -10,10 +10,16 @@ from pathlib import Path, PurePath
 
 import pytest
 
-from cjdev.application.init_workspace import InitWorkspace, Observed, decide
+from cjdev.application.init_workspace import (
+    InitWorkspace,
+    Observed,
+    decide,
+    observe,
+)
 from cjdev.application.ports import Command
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
+from cjdev.errors import PreconditionError, UsageError
 from cjdev.infra.config import render_workspace_config
 from cjdev.infra.executor import build_executor
 from cjdev.infra.executor.host import HostExecutor
@@ -113,7 +119,7 @@ class TestDecide:
             WorkspaceLayout(PurePath("/ws")),
             manifest,
             Observed(frozenset({"alpha"}), config_exists=True),
-        ).with_selection(["alpha", "beta"])
+        ).with_selection(frozenset({"alpha", "beta"}))
 
         assert [p.name for p in plan.to_provision] == ["beta"]
         assert plan.to_remove == ()
@@ -125,10 +131,24 @@ class TestDecide:
             WorkspaceLayout(PurePath("/ws")),
             manifest,
             Observed(frozenset({"alpha", "beta"}), config_exists=True),
-        ).with_selection(["alpha"])
+        ).with_selection(frozenset({"alpha"}))
 
         assert [p.name for p in plan.to_remove] == ["beta"]
         assert plan.to_provision == ()
+
+    def test_a_workspace_inside_another_is_refused(self, manifest: Manifest):
+        # Two markers on one path make `find_root` answer with whichever is
+        # nearer, so `clean` on the outer one would delete the inner one's
+        # object stores out from under its worktrees.
+        with pytest.raises(PreconditionError) as refusal:
+            decide(
+                WorkspaceLayout(PurePath("/ws/fix-ice/inner")),
+                manifest,
+                Observed(frozenset(), config_exists=False, enclosing=PurePath("/ws")),
+            )
+
+        assert "/ws" in str(refusal.value)
+        assert refusal.value.remedy == "create it outside /ws"
 
     def test_a_fresh_workspace_starts_from_the_manifests_default_group(self):
         # The bundled manifest offers the minimal SDK, not all six projects.
@@ -146,6 +166,43 @@ class TestDecide:
             "cangjie_runtime",
             "cangjie_tools",
         ]
+
+
+class TestObserve:
+    def test_re_running_on_a_workspace_is_not_a_nested_one(
+        self, tmp_path: Path, manifest: Manifest
+    ):
+        # The marker `find_root` reports is this root's own, which is the
+        # supported case; only a marker further up is a nesting.
+        layout = WorkspaceLayout(tmp_path)
+        Path(layout.marker).mkdir()
+
+        assert observe(layout, manifest).enclosing is None
+
+    def test_a_root_below_a_marker_reports_the_workspace_it_is_in(
+        self, tmp_path: Path, manifest: Manifest
+    ):
+        Path(WorkspaceLayout(tmp_path).marker).mkdir()
+        inner = WorkspaceLayout(tmp_path / "fix-ice" / "inner")
+
+        assert observe(inner, manifest).enclosing == tmp_path
+
+
+class TestJobCount:
+    def test_a_bad_job_count_fails_before_anything_is_created(
+        self, tmp_path: Path, manifest: Manifest
+    ):
+        # A usage error that has already written half a workspace is worse
+        # than the one it reports, so the count is checked ahead of the first
+        # `mkdir` rather than where the runner happens to be built.
+        root = tmp_path / "ws"
+        root.mkdir()
+        use_case = init_workspace(manifest)
+
+        with pytest.raises(UsageError):
+            use_case.apply(root, use_case.plan(root), jobs=0)
+
+        assert list(root.iterdir()) == []
 
 
 class TestEndToEnd:

@@ -18,7 +18,6 @@ listed here because a caller has to look them up in one place:
 | `input_required` | 3 | an answer is needed and there is no terminal to ask at |
 | `aborted` | 1 | the user declined, or interrupted a prompt |
 | `command_failed` | 1 | an external command exited non-zero |
-| `not_implemented` | 1 | the command is wired up but lands in a later milestone |
 """
 
 from typing import final
@@ -95,24 +94,6 @@ class InputRequiredError(PreconditionError):
 
     def __init__(self, question: str, *, remedy: str) -> None:
         super().__init__(question, remedy=remedy)
-
-
-@final
-class NotImplementedYetError(CjdevError):
-    """A command that is wired up but has no implementation behind it yet.
-
-    Temporary by construction: every instance is removed by the milestone that
-    implements the command.
-    """
-
-    code = "not_implemented"
-
-    def __init__(self, what: str, milestone: str) -> None:
-        super().__init__(f"{what} is not implemented yet - it lands in {milestone}.")
-        self.milestone = milestone
-
-    def details(self) -> dict[str, object]:
-        return {"milestone": self.milestone}
 
 
 @final

@@ -15,15 +15,10 @@ from cjdev.bootstrap import Container
 from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
 from cjdev.cli._output import SCHEMA
-from cjdev.cli.build import complete_unit
-from cjdev.cli.init import complete_project
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.errors import (
     InputRequiredError,
-    ManifestError,
-    NotImplementedYetError,
     PreconditionError,
-    UsageError,
 )
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
 
@@ -48,40 +43,8 @@ def test_help_lists_commands():
     result = runner.invoke(cli, ["-h"])
 
     assert result.exit_code == 0
-    for command in ("init", "status", "clean", "build"):
+    for command in ("init", "status", "clean"):
         assert command in result.output
-
-
-class TestBuildTakesItsUnitsFromTheManifest:
-    """One command over manifest data, not one hand-written stub per unit.
-
-    Thirteen stubs and four manifest entries could not disagree with each
-    other by accident, which is exactly what they were doing.
-    """
-
-    def test_an_unknown_unit_is_refused_with_the_known_ones(self):
-        # The exit code comes from `main()`, which CliRunner does not go
-        # through, so the type is what carries "preconditions unmet" here.
-        result = runner.invoke(cli, ["build", "nope"])
-
-        assert isinstance(result.exception, ManifestError)
-        assert ManifestError.exit_code == 3  # preconditions unmet
-        assert "compiler, runtime, stdlib, cjpm" in str(result.exception)
-
-    def test_naming_a_unit_pulls_in_what_it_needs(self):
-        # `cjdev build stdlib` is `--upto stdlib`.
-        result = runner.invoke(cli, ["build", "stdlib"])
-
-        assert "compiler, runtime, stdlib" in str(result.exception)
-
-    def test_no_arguments_means_the_whole_sdk(self):
-        result = runner.invoke(cli, ["build"])
-
-        assert "compiler, runtime, stdlib, cjpm" in str(result.exception)
-
-    def test_completion_offers_manifest_units(self):
-        assert complete_unit("cj") == ["cjpm"]
-        assert "stdlib" in complete_unit("")
 
 
 class TestStatus:
@@ -140,43 +103,73 @@ def test_the_container_loads_the_bundled_manifest():
 
 def test_no_terminal_means_no_question_rather_than_a_wait_for_one():
     # The one line standing between an unattended caller and a command that
-    # hangs with nothing on either stream (UX-14).
+    # hangs with nothing on either stream.
+    assert isinstance(_prompt_with_stdin(isatty=False), NonInteractivePrompt)
+    assert isinstance(_prompt_with_stdin(isatty=True), InteractivePrompt)
+
+
+def test_consent_given_up_front_does_not_also_answer_a_wizard():
+    # `--yes` is permission, not a setting. A command that asks both has to
+    # say so itself; the two must not collapse into one knob here, or `--yes`
+    # would silently pick the settings as well.
     assert isinstance(
-        _prompt_with_stdin(isatty=False, assume_yes=False), NonInteractivePrompt
+        _prompt_with_stdin(isatty=True, assume_yes=True), InteractivePrompt
     )
     assert isinstance(
-        _prompt_with_stdin(isatty=True, assume_yes=False), InteractivePrompt
-    )
-    # `--yes` is an answer already given, so there is nothing left to ask even
-    # with a terminal to ask at.
-    assert isinstance(
-        _prompt_with_stdin(isatty=True, assume_yes=True), NonInteractivePrompt
+        _prompt_with_stdin(isatty=True, assume_yes=True, interactive=False),
+        NonInteractivePrompt,
     )
 
 
-def _prompt_with_stdin(*, isatty: bool, assume_yes: bool) -> object:
+def _prompt_with_stdin(
+    *, isatty: bool, assume_yes: bool = False, interactive: bool = True
+) -> object:
     with mock.patch.object(
         bootstrap.sys, "stdin", SimpleNamespace(isatty=lambda: isatty)
     ):
-        return Container().prompt(assume_yes=assume_yes)
+        return Container().prompt(interactive=interactive, assume_yes=assume_yes)
 
 
-def test_unimplemented_commands_say_so_rather_than_pretending():
-    # `build` is wired to the manifest but has no builder behind it until M2.
-    # Silently exiting 0 would be worse than failing: it reads as "it built".
-    result = runner.invoke(cli, ["build"])
+class TestInitNeedsSomewhereToAsk:
+    def test_no_terminal_is_a_refusal_rather_than_a_default_set(self, tmp_path: Path):
+        # The wizard is the only way `init` learns the project set, and there
+        # is no flag that supplies one yet. Picking a set unasked would fetch
+        # gigabytes nobody chose.
+        result = runner.invoke(cli, ["init", str(tmp_path / "ws")])
 
-    assert isinstance(result.exception, NotImplementedYetError)
-    assert "M2" in str(result.exception)
+        assert isinstance(result.exception, InputRequiredError)
+        assert InputRequiredError.exit_code == 3  # preconditions unmet
+        assert not (tmp_path / "ws").exists()
+
+    def test_a_dry_run_still_works_without_one(self, tmp_path: Path):
+        # It asks nothing, so the plan is available to a pipe.
+        result = runner.invoke(cli, ["init", str(tmp_path / "ws"), "--dry-run"])
+
+        assert result.exit_code == 0
+
+
+class TestWorkspacesDoNotNest:
+    def test_a_root_inside_a_workspace_is_refused(self, empty_workspace: Path):
+        result = runner.invoke(
+            cli, ["init", str(empty_workspace / "inner"), "--dry-run"]
+        )
+
+        assert isinstance(result.exception, PreconditionError)
+        assert str(empty_workspace) in str(result.exception)
+
+    def test_re_running_on_the_workspace_itself_is_not_nesting(
+        self, empty_workspace: Path
+    ):
+        result = runner.invoke(cli, ["init", str(empty_workspace), "--dry-run"])
+
+        assert result.exit_code == 0
 
 
 class TestInitDoesNotOverclaim:
     def test_a_dry_run_does_not_say_the_workspace_is_ready(self, tmp_path: Path):
         # It creates nothing, so "ready" would be a claim about a workspace
         # that does not exist - the one message a dry run must never print.
-        result = runner.invoke(
-            cli, ["init", str(tmp_path / "ws"), "--defaults", "--dry-run"]
-        )
+        result = runner.invoke(cli, ["init", str(tmp_path / "ws"), "--dry-run"])
 
         assert result.exit_code == 0
         assert "Workspace ready" not in result.output
@@ -186,9 +179,7 @@ class TestInitDoesNotOverclaim:
     def test_a_dry_run_prints_the_skeleton_it_would_create(self, tmp_path: Path):
         # Printed by the dry-run filesystem itself rather than by a second
         # renderer that would have to be kept in step with it.
-        result = runner.invoke(
-            cli, ["init", str(tmp_path / "ws"), "--defaults", "--dry-run"]
-        )
+        result = runner.invoke(cli, ["init", str(tmp_path / "ws"), "--dry-run"])
 
         assert "mkdir -p" in result.output
         assert ".cjdev" in result.output
@@ -226,18 +217,18 @@ class TestTheEnvelope:
         }
 
     def test_stdout_carries_the_document_and_the_transcript_goes_to_stderr(
-        self, tmp_path: Path
+        self, empty_workspace: Path
     ):
-        # The dry run still owes its command list (UX-1), and a parser still
-        # owes nothing to whatever else the command had to say.
+        # A dry run still owes the command list it promises, and a parser
+        # still owes nothing to whatever else the command had to say.
         result = runner.invoke(
-            cli, ["init", str(tmp_path / "ws"), "--dry-run", "--json"]
+            cli, ["clean", str(empty_workspace), "--dry-run", "--json"]
         )
 
         document = json.loads(result.stdout)
         assert document["data"]["dry_run"]
-        assert "mkdir -p" not in result.stdout
-        assert "mkdir -p" in result.stderr
+        assert "rm -rf" not in result.stdout
+        assert "rm -rf" in result.stderr
 
     def test_a_partly_read_workspace_is_a_document_and_a_failure_at_once(
         self, empty_workspace: Path
@@ -308,80 +299,3 @@ class TestTheEnvelope:
         assert printed.out == ""
         assert "error: " in printed.err
         assert "try: re-run with --yes" in printed.err
-
-
-class TestTheProjectSetCanBeNamedRatherThanTicked:
-    """The wizard's question, asked on the command line.
-
-    Without this a caller with no terminal can only take the default set:
-    `--defaults` skips the question, it does not answer it.
-    """
-
-    def test_named_projects_answer_the_question(self, tmp_path: Path):
-        result = runner.invoke(
-            cli,
-            [
-                "init",
-                str(tmp_path / "ws"),
-                "-p",
-                "cangjie_compiler",
-                "--dry-run",
-                "--json",
-            ],
-        )
-
-        document = json.loads(result.stdout)
-        assert document["data"]["selected"] == ["cangjie_compiler"]
-        assert [c["project"] for c in document["data"]["changes"]] == [
-            "cangjie_compiler"
-        ]
-
-    def test_the_order_is_the_manifest_s_and_not_the_caller_s(self, tmp_path: Path):
-        # Every ordering cjdev produces is manifest order; naming projects
-        # backwards must not be a way to reorder a fan-out.
-        result = runner.invoke(
-            cli,
-            [
-                "init",
-                str(tmp_path / "ws"),
-                "-p",
-                "cangjie_runtime",
-                "-p",
-                "cangjie_compiler",
-                "--dry-run",
-                "--json",
-            ],
-        )
-
-        document = json.loads(result.stdout)
-        assert document["data"]["selected"] == ["cangjie_compiler", "cangjie_runtime"]
-
-    def test_an_unknown_project_is_a_usage_error_listing_the_known_ones(
-        self, tmp_path: Path
-    ):
-        result = runner.invoke(
-            cli, ["init", str(tmp_path / "ws"), "-p", "nope", "--dry-run"]
-        )
-
-        assert isinstance(result.exception, UsageError)
-        assert UsageError.exit_code == 2  # the invocation itself is wrong
-        assert "cangjie_compiler" in str(result.exception)
-
-    def test_naming_the_set_is_not_consent_to_the_deletion_it_implies(
-        self, empty_workspace: Path
-    ):
-        # `--json` supplies answers; only `--yes` supplies permission. A
-        # dropped project still costs everything fetched into it.
-        store = Path(WorkspaceLayout(empty_workspace).object_store("cangjie_compiler"))
-        store.mkdir(parents=True)
-
-        result = runner.invoke(
-            cli, ["init", str(empty_workspace), "-p", "cangjie_runtime", "--json"]
-        )
-
-        assert isinstance(result.exception, InputRequiredError)
-        assert result.exception.remedy == "re-run with --yes"
-
-    def test_completion_offers_manifest_projects(self):
-        assert complete_project("cangjie_com") == ["cangjie_compiler"]
-        assert "cangjie_runtime" in complete_project("")

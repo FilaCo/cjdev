@@ -83,22 +83,21 @@ class Container:
         return build_file_system(dry_run=dry_run, emit=self.emit)
 
     def prompt(self, *, interactive: bool = True, assume_yes: bool = False) -> Prompt:
-        """`interactive` and `assume_yes` are separate because they answer
-        different questions: one supplies settings, the other supplies consent
-        to a destructive action. A pipe forces the first; only `--yes`
-        supplies the second.
+        """`interactive` is whether to ask; `assume_yes` is the answer to give
+        when nobody is asked.
+
+        They are kept apart here rather than folded together, because consent
+        and settings are different questions: a command whose only question is
+        its confirmation may pass `interactive=False` on `--yes`, but a command
+        with a wizard as well must not, or `--yes` would silently answer the
+        wizard too.
         """
-        if interactive and not assume_yes and sys.stdin.isatty():
+        if interactive and sys.stdin.isatty():
             return InteractivePrompt()
         return NonInteractivePrompt(assume_yes=assume_yes)
 
     def init_workspace(
-        self,
-        *,
-        dry_run: bool = False,
-        verbose: bool = False,
-        defaults: bool = False,
-        assume_yes: bool = False,
+        self, *, dry_run: bool = False, verbose: bool = False
     ) -> InitWorkspace:
         return InitWorkspace(
             manifest=self.manifest,
@@ -108,14 +107,7 @@ class Container:
             # wizard would only stand between the user and the plan, and a
             # plan that happens to include a removal still has nothing to ask
             # consent for.
-            # `--defaults` and `--yes` are separate on purpose: one supplies
-            # the answers, the other supplies permission to delete a store.
-            # A single flag doing both would arm deletions in every CI script
-            # that only wanted to skip the wizard.
-            prompt=self.prompt(
-                interactive=not (defaults or dry_run),
-                assume_yes=assume_yes or dry_run,
-            ),
+            prompt=self.prompt(interactive=not dry_run, assume_yes=dry_run),
             provision=provision_object_store,
             remove=remove_object_store,
             render_config=render_workspace_config,
@@ -138,15 +130,16 @@ class Container:
         assume_yes: bool = False,
         interactive: bool = True,
     ) -> CleanWorkspace:
-        """`interactive` is what `init` spells `defaults`: there is no wizard
-        here, only the confirmation, so a caller that has no terminal to draw
-        one on says so directly."""
+        """`interactive` is here for the caller that has no second stream to
+        draw a prompt on - `--json` owns stdout."""
         return CleanWorkspace(
             executor=self.executor(dry_run=dry_run, verbose=verbose),
             file_system=self.file_system(dry_run=dry_run),
-            # A dry run removes nothing, so there is nothing to consent to.
             prompt=self.prompt(
-                interactive=interactive and not dry_run,
+                # The confirmation is the only question `clean` asks, so
+                # `--yes` leaves nothing to ask. A dry run removes nothing, so
+                # there is nothing to consent to either.
+                interactive=interactive and not (assume_yes or dry_run),
                 assume_yes=assume_yes or dry_run,
             ),
             list_worktrees=list_worktrees,

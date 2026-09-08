@@ -12,16 +12,17 @@ workspace about", instead of a create-only command plus a separate one for
 every later adjustment.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePath
 from typing import final
 
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.runner import Runner, RunObserver, RunReport, Work
+from cjdev.application.workspace import find_root
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project
-from cjdev.errors import AbortedError, UsageError
+from cjdev.errors import AbortedError, PreconditionError
 
 Provision = Callable[[Executor, Path, Project], None]
 Remove = Callable[[Executor, FileSystem, Path, Project], None]
@@ -35,6 +36,12 @@ class Observed:
     to "which projects am I about" - not a list kept in a file that could
     disagree with the disk."""
     config_exists: bool
+    enclosing: PurePath | None = None
+    """A workspace this root would sit *inside*, if there is one.
+
+    Observed rather than derived so that refusing it stays a decision `decide`
+    can take without a filesystem to look at.
+    """
 
 
 @final
@@ -67,11 +74,13 @@ class InitPlan:
     def is_noop(self) -> bool:
         return not self.to_provision and not self.to_remove and not self.write_config
 
-    def with_selection(self, names: Sequence[str]) -> "InitPlan":
-        return replace(self, selected=frozenset(names))
+    def with_selection(self, names: frozenset[str]) -> "InitPlan":
+        return replace(self, selected=names)
 
 
 def observe(layout: WorkspaceLayout, manifest: Manifest) -> Observed:
+    root = Path(layout.root)
+    enclosing = find_root(root)
     return Observed(
         provisioned=frozenset(
             project.name
@@ -79,10 +88,23 @@ def observe(layout: WorkspaceLayout, manifest: Manifest) -> Observed:
             if Path(layout.object_store(project.name)).is_dir()
         ),
         config_exists=Path(layout.config_file).is_file(),
+        # Re-running `init` on a workspace finds that workspace, which is the
+        # supported case rather than a nested one.
+        enclosing=enclosing if enclosing not in (None, root) else None,
     )
 
 
 def decide(layout: WorkspaceLayout, manifest: Manifest, observed: Observed) -> InitPlan:
+    if observed.enclosing is not None:
+        # Two markers on one path make `find_root` answer with whichever is
+        # nearer, so `clean` on the outer one would delete the inner one's
+        # object stores out from under its worktrees.
+        raise PreconditionError(
+            f"{layout.root} is inside the cjdev workspace at "
+            f"{observed.enclosing}, and workspaces do not nest.",
+            remedy=f"create it outside {observed.enclosing}",
+        )
+
     # An existing workspace starts from what it already holds, so the wizard
     # shows the truth and an unchanged answer is a no-op. Only a fresh one
     # falls back to the manifest's default group.
@@ -152,6 +174,14 @@ class InitWorkspace:
         observer: RunObserver | None = None,
     ) -> RunReport[None]:
         layout = WorkspaceLayout(root)
+        # Built before the first directory rather than where it is used: the
+        # job count is validated here, and a usage error that has already
+        # created half a workspace is worse than the one it reports.
+        #
+        # A dry run prints in sequential order: there is no work to overlap,
+        # and its whole output would otherwise be at the mercy of the
+        # scheduler.
+        runner = Runner(1 if dry_run else jobs)
         if plan.is_noop:
             return RunReport(())
 
@@ -160,12 +190,7 @@ class InitWorkspace:
         if plan.write_config:
             self._fs.write_text(layout.config_file, self._render_config())
 
-        # A dry run prints in sequential order: there is no work to overlap,
-        # and its whole output would otherwise be at the mercy of the
-        # scheduler.
-        return Runner(1 if dry_run else jobs).run(
-            self._work(layout, plan), observer=observer
-        )
+        return runner.run(self._work(layout, plan), observer=observer)
 
     def _work(self, layout: WorkspaceLayout, plan: InitPlan) -> list[Work[None]]:
         return [
@@ -178,48 +203,27 @@ class InitWorkspace:
             for p in plan.to_remove
         ]
 
-    def agree(
-        self, plan: InitPlan, root: Path, selection: Sequence[str] | None = None
-    ) -> InitPlan:
+    def agree(self, plan: InitPlan, root: Path) -> InitPlan:
         """Settle every question before the first side effect.
 
-        A selection handed in is an *answer*, not a default: the question is
-        not asked, terminal or no terminal. Consent is still asked for
-        separately below, because supplying the project set says nothing about
-        agreeing to delete what is no longer in it.
+        The settings and the consent are collected separately, because ticking
+        a project set says nothing about agreeing to delete what is no longer
+        in it.
         """
         names = tuple(project.name for project in plan.projects)
         plan = plan.with_selection(
-            self._checked(selection, names)
-            if selection is not None
-            else self._prompt.choose(
-                "Projects in this workspace",
-                names,
-                preselected=sorted(plan.selected),
+            frozenset(
+                self._prompt.choose(
+                    "Projects in this workspace",
+                    names,
+                    preselected=sorted(plan.selected),
+                )
             )
         )
         question, destructive = self._question(plan, root)
         if not self._prompt.confirm(question, destructive=destructive):
             raise AbortedError("init")
         return plan
-
-    @staticmethod
-    def _checked(selection: Sequence[str], names: Sequence[str]) -> tuple[str, ...]:
-        """A typo is a usage error, and the reply lists what would have worked.
-
-        Re-ordered into manifest order for the same reason `choose` re-orders
-        what a person ticked: every ordering downstream is manifest order, and
-        a caller must not be able to change one by naming projects backwards.
-        """
-        known = set(names)
-        unknown = [name for name in selection if name not in known]
-        if unknown:
-            raise UsageError(
-                f"unknown project(s): {', '.join(unknown)}. "
-                f"Known projects: {', '.join(names)}."
-            )
-        chosen = set(selection)
-        return tuple(name for name in names if name in chosen)
 
     @staticmethod
     def _question(plan: InitPlan, root: Path) -> tuple[str, bool]:
