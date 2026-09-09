@@ -17,24 +17,20 @@ cli = Typer(cls=CjdevGroup)
 def status(
     ctx: CjdevContext,
     path: Path | None = Argument(None, help="The workspace. Defaults to the cwd."),
-    jobs: int = Option(
-        DEFAULT_QUERY_JOBS, "-j", "--jobs", help="Projects to query at once."
-    ),
     as_json: bool = Option(False, "--json", help="Print the report as JSON."),
     verbose: bool = Option(False, "-v", "--verbose", help="Echo every command."),
 ) -> None:
     """Show what this workspace holds: branch sets, projects and their git state."""
     out = begin("status", as_json=as_json)
-    # Walking up from a named path, unlike `clean`, which insists on being
-    # handed the root itself. That asymmetry is deliberate: `clean` empties
-    # what it finds, and reading is not worth the same caution.
+    # A walk up from wherever the caller is standing, the way git's own
+    # commands work: being inside a worktree is the normal place to ask from,
+    # and reading warrants none of the caution a removal would.
     root = require_root((path or Path.cwd()).resolve())
 
-    # -v echoes each command as it runs, and under a fan-out the order it
-    # echoes in would belong to the scheduler. -j1 is the supported way to get
-    # a readable transcript, so asking for one implies it.
-    if verbose:
-        jobs = 1
+    # Everything that can overlap does, with one exception: -v echoes each
+    # command as it runs, and under a fan-out the order it echoes in would
+    # belong to the scheduler rather than to the manifest.
+    jobs = 1 if verbose else DEFAULT_QUERY_JOBS
     ctx.obj.emit = lambda line: diagnostics.print(
         line, style=DETAIL, highlight=False, soft_wrap=True
     )

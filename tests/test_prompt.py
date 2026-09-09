@@ -15,17 +15,17 @@ class TestWithoutATerminal:
         with pytest.raises(InputRequiredError) as refusal:
             prompt.confirm("Delete every worktree?", destructive=True)
 
-        # The flag is a field rather than a sentence in the message: the
+        # The remedy is a field rather than a sentence in the message: the
         # caller this refusal exists for re-runs the command, and reads what
-        # to add from the envelope rather than by parsing prose.
-        assert refusal.value.remedy == "re-run with --yes"
+        # to change from the envelope rather than by parsing prose.
+        assert refusal.value.remedy == "run it in a terminal"
 
-    def test_yes_supplies_the_consent_a_terminal_would_have(self):
+    def test_an_answer_given_up_front_is_the_consent_a_terminal_would_have(self):
         assert NonInteractivePrompt(assume_yes=True).confirm("Delete?")
 
-    def test_a_harmless_question_proceeds_without_yes(self):
-        # Otherwise every CI script that runs `init` would need --yes, which
-        # would then also be the flag that arms deletions.
+    def test_a_harmless_question_proceeds_unanswered(self):
+        # Otherwise every CI script that runs `init` would need consent it has
+        # no way to give, and whatever gave it would also arm the deletions.
         prompt = NonInteractivePrompt(assume_yes=False)
 
         assert prompt.confirm("Create a workspace?", destructive=False)

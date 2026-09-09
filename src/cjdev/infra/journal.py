@@ -8,8 +8,8 @@ know would go wrong.
 
 One appended file, `.cjdev/log/cjdev.log`, so that following it is a single
 `tail -f` and the history of a workspace is one place. It lives inside the
-workspace, so `rm -rf .cjdev` still takes everything with it, and a `clean`
-that deletes the workspace legitimately takes its log too.
+workspace, so whatever removes the workspace takes the log with it: the record
+of a workspace goes when the workspace does.
 
 Best-effort by construction: a failure to write a log line must never be the
 reason a command fails, so every write swallows its own errors.

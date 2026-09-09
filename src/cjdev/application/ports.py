@@ -59,8 +59,8 @@ class Prompt(Protocol):
     """Asking the person running the command.
 
     A port because it has two real implementations, not because tests need a
-    seam: `--yes`, a pipe and `--dry-run` all have to answer without a
-    terminal, and that is a different behaviour rather than a stub.
+    seam: a pipe and `--dry-run` both have to answer without a terminal, and
+    that is a different behaviour rather than a stub.
 
     Use cases call this between deciding and applying, so no worker ever
     prompts from inside a fan-out.

@@ -218,10 +218,6 @@ def remove_object_store(
     fs.remove(store)
 
 
-def list_worktrees(executor: Executor, store: Path) -> tuple[str, ...]:
-    return Git(executor).worktrees(store)
-
-
 def read_checkouts(
     executor: Executor, store: Path, project: str
 ) -> tuple[Checkout, ...]:

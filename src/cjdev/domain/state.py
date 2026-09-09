@@ -89,7 +89,7 @@ def branch_sets_of(
         directory = checkout.path.parent
         # git reported it, but a worktree that is not one directory below the
         # root is not one cjdev laid out - it was linked from somewhere else,
-        # which is the case `clean` refuses to break silently.
+        # and this report describes the workspace, not everything git knows.
         if directory.parent != root:
             continue
         grouped.setdefault(directory, []).append(checkout)

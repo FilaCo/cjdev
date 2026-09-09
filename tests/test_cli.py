@@ -43,7 +43,7 @@ def test_help_lists_commands():
     result = runner.invoke(cli, ["-h"])
 
     assert result.exit_code == 0
-    for command in ("init", "status", "clean"):
+    for command in ("init", "status"):
         assert command in result.output
 
 
@@ -109,9 +109,9 @@ def test_no_terminal_means_no_question_rather_than_a_wait_for_one():
 
 
 def test_consent_given_up_front_does_not_also_answer_a_wizard():
-    # `--yes` is permission, not a setting. A command that asks both has to
-    # say so itself; the two must not collapse into one knob here, or `--yes`
-    # would silently pick the settings as well.
+    # Consent is permission, not a setting. The two must not collapse into
+    # one knob here, or whatever eventually supplies the permission would
+    # silently pick the settings as well.
     assert isinstance(
         _prompt_with_stdin(isatty=True, assume_yes=True), InteractivePrompt
     )
@@ -148,16 +148,17 @@ class TestInitNeedsSomewhereToAsk:
         assert result.exit_code == 0
 
 
-class TestWorkspacesDoNotNest:
-    def test_a_root_inside_a_workspace_is_refused(self, empty_workspace: Path):
+class TestWorkspacesMayNest:
+    def test_a_root_inside_a_workspace_is_allowed(self, empty_workspace: Path):
+        # `find_root` answers with the nearest marker, so an inner workspace
+        # shadows the outer one and nothing has to be refused for it.
         result = runner.invoke(
             cli, ["init", str(empty_workspace / "inner"), "--dry-run"]
         )
 
-        assert isinstance(result.exception, PreconditionError)
-        assert str(empty_workspace) in str(result.exception)
+        assert result.exit_code == 0
 
-    def test_re_running_on_the_workspace_itself_is_not_nesting(
+    def test_re_running_on_the_workspace_itself_is_supported(
         self, empty_workspace: Path
     ):
         result = runner.invoke(cli, ["init", str(empty_workspace), "--dry-run"])
@@ -219,16 +220,15 @@ class TestTheEnvelope:
     def test_stdout_carries_the_document_and_the_transcript_goes_to_stderr(
         self, empty_workspace: Path
     ):
-        # A dry run still owes the command list it promises, and a parser
-        # still owes nothing to whatever else the command had to say.
-        result = runner.invoke(
-            cli, ["clean", str(empty_workspace), "--dry-run", "--json"]
-        )
+        # A parser owes nothing to whatever else the command had to say, so
+        # the whole of stdout has to parse while -v is still echoing.
+        store = Path(WorkspaceLayout(empty_workspace).object_store("cangjie_compiler"))
+        store.mkdir(parents=True)
 
-        document = json.loads(result.stdout)
-        assert document["data"]["dry_run"]
-        assert "rm -rf" not in result.stdout
-        assert "rm -rf" in result.stderr
+        result = runner.invoke(cli, ["status", str(empty_workspace), "--json", "-v"])
+
+        assert json.loads(result.stdout)["command"] == "status"
+        assert "$ git" in result.stderr
 
     def test_a_partly_read_workspace_is_a_document_and_a_failure_at_once(
         self, empty_workspace: Path
@@ -249,30 +249,12 @@ class TestTheEnvelope:
         assert failure["code"] == "project_unreadable"
         assert failure["subject"] == "cangjie_compiler"
 
-    def test_a_dry_run_reports_what_it_would_have_removed(self, empty_workspace: Path):
-        # The one command whose plan is the whole of its result: what `clean`
-        # would delete has to be readable without running it.
-        result = runner.invoke(
-            cli, ["clean", str(empty_workspace), "--dry-run", "--json"]
-        )
-
-        document = json.loads(result.stdout)
-        assert document["command"] == "clean"
-        assert document["ok"]
-        assert document["data"]["dry_run"]
-        assert (
-            str(WorkspaceLayout(empty_workspace).marker) in document["data"]["removed"]
-        )
-        assert empty_workspace.is_dir()
-
-    def test_a_failure_names_the_flag_that_would_have_answered_it(
-        self, empty_workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    def test_a_failure_travels_inside_the_document_rather_than_beside_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):
         # Through `main()` rather than the runner: the envelope for a failure
         # is printed on the way out, which is the path CliRunner skips.
-        monkeypatch.setattr(
-            sys, "argv", ["cjdev", "clean", str(empty_workspace), "--json"]
-        )
+        monkeypatch.setattr(sys, "argv", ["cjdev", "status", str(tmp_path), "--json"])
 
         with pytest.raises(SystemExit) as stopped:
             main()
@@ -280,17 +262,19 @@ class TestTheEnvelope:
         document = json.loads(capsys.readouterr().out)
         assert stopped.value.code == 3  # preconditions unmet
         assert not document["ok"]
-        assert document["command"] == "clean"
+        assert document["command"] == "status"
         failure = document["errors"][0]
-        assert failure["code"] == "input_required"
-        assert failure["remedy"] == "re-run with --yes"
+        assert failure["code"] == "precondition"
+        # Null rather than invented: a caller that cannot tell a good guess
+        # from a bad one is better served by nothing.
+        assert failure["remedy"] is None
 
     def test_the_same_failure_reads_as_a_line_when_nobody_asked_for_json(
-        self, empty_workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):
-        # The code, the subject and the remedy are the same three either way;
-        # only the shape differs (UX-13).
-        monkeypatch.setattr(sys, "argv", ["cjdev", "clean", str(empty_workspace)])
+        # The code and the message are the same either way; only the shape
+        # differs, and stdout stays empty for a run that produced no document.
+        monkeypatch.setattr(sys, "argv", ["cjdev", "status", str(tmp_path)])
 
         with pytest.raises(SystemExit):
             main()
@@ -298,4 +282,18 @@ class TestTheEnvelope:
         printed = capsys.readouterr()
         assert printed.out == ""
         assert "error: " in printed.err
-        assert "try: re-run with --yes" in printed.err
+
+    def test_a_named_remedy_is_printed_with_the_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ):
+        # The remedy is a field rather than a sentence in the message: the
+        # caller it exists for re-runs the command, and this is where it
+        # learns what to add. `init` without a terminal is the one failure
+        # that has a fix worth naming.
+        monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
+        monkeypatch.setattr(sys, "argv", ["cjdev", "init", str(tmp_path / "ws")])
+
+        with pytest.raises(SystemExit):
+            main()
+
+        assert "try: run it from a terminal" in capsys.readouterr().err

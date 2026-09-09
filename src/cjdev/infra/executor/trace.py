@@ -63,7 +63,7 @@ class RecordingExecutor:
     repositories?" - which nobody thinks to enable in advance.
 
     One line per command, written when it finishes rather than a line before
-    and a line after. Under `-j` a start line and an exit line from different
+    and a line after. Under a fan-out a start line and an exit line from different
     projects interleave, and a reader cannot tell which exit belongs to which
     command; a single completed line cannot be misread that way.
     """

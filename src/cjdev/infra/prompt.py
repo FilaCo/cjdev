@@ -38,11 +38,12 @@ class InteractivePrompt:
 
 @final
 class NonInteractivePrompt:
-    """No terminal, or `--yes`, or `--dry-run`.
+    """No terminal, or `--dry-run`.
 
-    Silence is not consent for a destructive action: without `--yes` those
-    refuse rather than proceed, which is "never destructive by default" in
-    the case where nobody is there to answer.
+    Silence is not consent for a destructive action: unless the caller already
+    answered - which today only a dry run does - those refuse rather than
+    proceed, which is "never destructive by default" in the case where nobody
+    is there to answer.
     """
 
     def __init__(self, *, assume_yes: bool) -> None:
@@ -51,12 +52,12 @@ class NonInteractivePrompt:
     def confirm(self, question: str, *, destructive: bool = True) -> bool:
         if self._assume_yes or not destructive:
             return True
-        # Named as a flag rather than described in prose, because the caller
+        # A field rather than a sentence in the message, because the caller
         # this refusal exists for cannot read prose: it re-runs the command,
-        # and the only way it learns what to add is this field (UX-14).
+        # and this is the only place it learns what to change.
         raise InputRequiredError(
-            f"{question}\n  Refusing a destructive action with no terminal to ask at.",
-            remedy="re-run with --yes",
+            f"{question}\n  Refusing a destructive action with nothing to answer it.",
+            remedy="run it in a terminal",
         )
 
     def choose(

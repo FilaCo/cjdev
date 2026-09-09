@@ -11,7 +11,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import final
 
-from cjdev.application.clean_workspace import CleanWorkspace
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.report_status import ReportStatus
@@ -20,7 +19,6 @@ from cjdev.infra.config import load_bundled_manifest, render_workspace_config
 from cjdev.infra.executor import build_executor
 from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
-    list_worktrees,
     provision_object_store,
     read_checkouts,
     remove_object_store,
@@ -87,10 +85,10 @@ class Container:
         when nobody is asked.
 
         They are kept apart here rather than folded together, because consent
-        and settings are different questions: a command whose only question is
-        its confirmation may pass `interactive=False` on `--yes`, but a command
-        with a wizard as well must not, or `--yes` would silently answer the
-        wizard too.
+        and settings are different questions. Nothing supplies consent from the
+        command line today; whatever eventually does must not also answer a
+        wizard, or a script that only wanted to skip the questions would arm
+        the deletions too.
         """
         if interactive and sys.stdin.isatty():
             return InteractivePrompt()
@@ -120,27 +118,4 @@ class Container:
             manifest=self.manifest,
             executor=self.executor(verbose=verbose),
             read_checkouts=read_checkouts,
-        )
-
-    def clean_workspace(
-        self,
-        *,
-        dry_run: bool = False,
-        verbose: bool = False,
-        assume_yes: bool = False,
-        interactive: bool = True,
-    ) -> CleanWorkspace:
-        """`interactive` is here for the caller that has no second stream to
-        draw a prompt on - `--json` owns stdout."""
-        return CleanWorkspace(
-            executor=self.executor(dry_run=dry_run, verbose=verbose),
-            file_system=self.file_system(dry_run=dry_run),
-            prompt=self.prompt(
-                # The confirmation is the only question `clean` asks, so
-                # `--yes` leaves nothing to ask. A dry run removes nothing, so
-                # there is nothing to consent to either.
-                interactive=interactive and not (assume_yes or dry_run),
-                assume_yes=assume_yes or dry_run,
-            ),
-            list_worktrees=list_worktrees,
         )

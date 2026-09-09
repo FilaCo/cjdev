@@ -13,11 +13,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from cjdev.application.clean_workspace import CleanPlan
 from cjdev.application.runner import Outcome, RunReport
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
-from ._console import CANCELLED, DETAIL, MARKS, OK, WAITING
+from ._console import CANCELLED, DETAIL, MARKS, WAITING
 
 T = TypeVar("T")
 
@@ -32,7 +31,7 @@ def render_report(
     """What the command itself printed, then each unit, then each failure.
 
     `lines` supplies what was captured. It is rendered here, after the run,
-    rather than as it happened: under `-j` the order it happened in is the
+    rather than as it happened: under a fan-out the order it happened in is the
     scheduler's, and the transcript is not allowed to be.
     """
     _detail(console, lines(""))
@@ -52,25 +51,6 @@ def render_report(
 
     if report.interrupted:
         console.print("\ninterrupted; nothing further was started.", style=CANCELLED)
-
-
-def render_clean_plan(console: Console, plan: CleanPlan, *, dry_run: bool) -> None:
-    verb = "Would empty" if dry_run else "Emptied"
-    console.print(f"{verb} {plan.root}", style=OK, soft_wrap=True, highlight=False)
-    if plan.projects:
-        console.print(
-            f"  including the object stores of {', '.join(plan.projects)}",
-            style=DETAIL,
-            soft_wrap=True,
-            highlight=False,
-        )
-    if not dry_run:
-        console.print(
-            f"  the directory itself is left; remove it with `rmdir {plan.root}`",
-            style=DETAIL,
-            soft_wrap=True,
-            highlight=False,
-        )
 
 
 def render_status(console: Console, status: WorkspaceStatus) -> None:
@@ -139,16 +119,6 @@ def status_payload(status: WorkspaceStatus) -> dict[str, object]:
             }
             for branch_set in status.branch_sets
         ],
-    }
-
-
-def clean_payload(plan: CleanPlan, *, dry_run: bool) -> dict[str, object]:
-    return {
-        "root": str(plan.root),
-        "dry_run": dry_run,
-        "removed": [str(entry) for entry in plan.entries],
-        "projects": list(plan.projects),
-        "stray_worktrees": list(plan.stray_worktrees),
     }
 
 

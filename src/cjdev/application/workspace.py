@@ -13,7 +13,8 @@ def find_root(start: Path) -> Path | None:
     """The nearest ancestor holding `.cjdev/`, or None.
 
     A walk rather than an exact match, so that commands work from inside a
-    worktree the way git's own do.
+    worktree the way git's own do. Workspaces may nest, and the nearest marker
+    is the answer: an inner one shadows the outer for anything run inside it.
     """
     for candidate in (start, *start.parents):
         if (candidate / CJDEV_DIR).is_dir():

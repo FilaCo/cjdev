@@ -1,9 +1,9 @@
 """Fan-out: the one place in `cjdev` that runs work concurrently.
 
 Commands hand this a list of independent units of work and get back a report.
-They never spawn a thread themselves, so `-j`, output ordering, cancellation
-and the per-unit summary have one implementation each instead of one per
-command.
+They never spawn a thread themselves, so the job count, output ordering,
+cancellation and the per-unit summary have one implementation each instead of
+one per command.
 
 Threads rather than processes: every unit of work is a subprocess wait, which
 releases the GIL.
@@ -103,7 +103,7 @@ class RunReport(Generic[T]):
 class Runner:
     def __init__(self, jobs: int = 1, *, fail_fast: bool = True) -> None:
         if jobs < 1:
-            raise UsageError(f"--jobs must be at least 1, got {jobs}.")
+            raise UsageError(f"jobs must be at least 1, got {jobs}.")
         self._jobs = jobs
         self._fail_fast = fail_fast
 

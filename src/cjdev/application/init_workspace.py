@@ -19,10 +19,9 @@ from typing import final
 
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.runner import Runner, RunObserver, RunReport, Work
-from cjdev.application.workspace import find_root
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project
-from cjdev.errors import AbortedError, PreconditionError
+from cjdev.errors import AbortedError
 
 Provision = Callable[[Executor, Path, Project], None]
 Remove = Callable[[Executor, FileSystem, Path, Project], None]
@@ -36,12 +35,6 @@ class Observed:
     to "which projects am I about" - not a list kept in a file that could
     disagree with the disk."""
     config_exists: bool
-    enclosing: PurePath | None = None
-    """A workspace this root would sit *inside*, if there is one.
-
-    Observed rather than derived so that refusing it stays a decision `decide`
-    can take without a filesystem to look at.
-    """
 
 
 @final
@@ -79,8 +72,6 @@ class InitPlan:
 
 
 def observe(layout: WorkspaceLayout, manifest: Manifest) -> Observed:
-    root = Path(layout.root)
-    enclosing = find_root(root)
     return Observed(
         provisioned=frozenset(
             project.name
@@ -88,23 +79,10 @@ def observe(layout: WorkspaceLayout, manifest: Manifest) -> Observed:
             if Path(layout.object_store(project.name)).is_dir()
         ),
         config_exists=Path(layout.config_file).is_file(),
-        # Re-running `init` on a workspace finds that workspace, which is the
-        # supported case rather than a nested one.
-        enclosing=enclosing if enclosing not in (None, root) else None,
     )
 
 
 def decide(layout: WorkspaceLayout, manifest: Manifest, observed: Observed) -> InitPlan:
-    if observed.enclosing is not None:
-        # Two markers on one path make `find_root` answer with whichever is
-        # nearer, so `clean` on the outer one would delete the inner one's
-        # object stores out from under its worktrees.
-        raise PreconditionError(
-            f"{layout.root} is inside the cjdev workspace at "
-            f"{observed.enclosing}, and workspaces do not nest.",
-            remedy=f"create it outside {observed.enclosing}",
-        )
-
     # An existing workspace starts from what it already holds, so the wizard
     # shows the truth and an unchanged answer is a no-op. Only a fresh one
     # falls back to the manifest's default group.

@@ -62,8 +62,8 @@ class ConsoleProgress:
         """The rows to show, in the order they must always appear.
 
         `jobs` is not decoration: the estimate divides the remaining work by
-        how much of it can be in flight at once, and at `-j1` that is a very
-        different number.
+        how much of it can be in flight at once, and sequentially that is a
+        very different number.
         """
         self._labels = tuple(labels)
         self._title = title

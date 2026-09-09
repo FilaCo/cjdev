@@ -1,7 +1,7 @@
 """Reading the manifest, and the schema-version gate.
 
-This is the boundary the CONTRIBUTING rule names: `tomlkit` types stop here.
-Everything above receives `domain/` dataclasses.
+This is the boundary the TOML rule in docs/architecture.md names: `tomlkit` types
+stop here. Everything above receives `domain/` dataclasses.
 """
 
 from importlib.resources import files

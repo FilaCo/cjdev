@@ -61,8 +61,8 @@ class TestBranchSetsComeFromGitNotFromDirectories:
         assert [s.directory.name for s in sets] == ["fix-ice", "main"]
 
     def test_a_worktree_outside_the_root_is_not_a_branch_set(self):
-        # git reported it, but cjdev did not lay it out - this is the stray
-        # checkout `clean` refuses to break silently (R9).
+        # git reported it, but cjdev did not lay it out, so presenting it as
+        # part of a branch set would describe a layout that nobody chose.
         stray = Checkout(
             project="alpha",
             path=PurePath("/elsewhere/hand-made/alpha"),
