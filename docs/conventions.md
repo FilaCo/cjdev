@@ -40,3 +40,23 @@ In tests, "why" is usually what the assertion is protecting against. State it - 
 operations on one object store must not run at once, because git does not serialise them
 for us" - so that an assertion which looks arbitrary reads as one with a reason, and it is
 obvious what breaks if the behaviour changes.
+
+## What a test may depend on
+
+The decision a command makes must be assertable with nothing available: no git, no network,
+no workspace on disk. That is what the pure decide phase is for, and a test that needs a
+repository in order to check a decision is testing the wrong layer.
+
+Behaviour that genuinely depends on git is tested against a real git repository in a
+`tmp_path`. A fake would only assert what we believe git does, which is the thing most
+worth doubting - `worktree add` creating a branch before it fails is exactly the kind of
+detail no fake would have reproduced.
+
+Nothing in the suite may touch the network. A test that would need a remote is a sign the
+seam is in the wrong place: fetching is a command's job, not an assertion's.
+
+## Commands are listed in README.md
+
+The feature list in `README.md` is where a command is looked for, so it is updated by the
+same change that adds the command. One that ships unlisted is one nobody outside this
+repository can find.
