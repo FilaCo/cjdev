@@ -12,12 +12,13 @@ that, which is why the per-project queries go through the runner even though
 each one is only reading.
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from pathlib import Path
 from typing import final
 
 from cjdev.application.ports import Executor
 from cjdev.application.runner import Outcome, Runner, Work
+from cjdev.application.workspace import held_projects, in_manifest_order
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest
 from cjdev.domain.state import (
@@ -53,7 +54,7 @@ class ReportStatus:
         self, root: Path, *, cwd: Path, jobs: int = DEFAULT_QUERY_JOBS
     ) -> WorkspaceStatus:
         layout = WorkspaceLayout(root)
-        provisioned = _observe(layout, self._manifest)
+        provisioned = held_projects(layout, self._manifest)
 
         # fail_fast=False: one unreadable store must not hide the five that
         # read fine. A report is the one thing worth finishing partially, so
@@ -99,7 +100,7 @@ class ReportStatus:
                     provisioned=project in provisioned,
                     error=failures.get(project),
                 )
-                for project in _in_manifest_order(
+                for project in in_manifest_order(
                     self._manifest,
                     {p.name for p in self._manifest.projects} | set(provisioned),
                 )
@@ -116,37 +117,3 @@ class ReportStatus:
             return self._read_checkouts(self._executor, store, project)
 
         return read
-
-
-def _observe(layout: WorkspaceLayout, manifest: Manifest) -> tuple[str, ...]:
-    """The projects this workspace actually holds, in manifest order.
-
-    Read off the disk rather than off the manifest, because a workspace's
-    project set is what its object stores say it is. A store the
-    manifest has since stopped listing is still reported: hiding a directory
-    full of fetched objects because a config no longer mentions it is how a
-    status report becomes a thing you cannot trust.
-    """
-    bare = Path(layout.bare_dir)
-    if not bare.is_dir():
-        return ()
-    return _in_manifest_order(
-        manifest,
-        (store.name.removesuffix(".git") for store in bare.iterdir() if store.is_dir()),
-    )
-
-
-def _in_manifest_order(manifest: Manifest, names: Iterable[str]) -> tuple[str, ...]:
-    """Manifest order first, then whatever the manifest has never heard of.
-
-    Manifest order is the tie-break for every ordering cjdev produces, so that
-    output cannot depend on scheduling. A store the manifest has no
-    opinion about still has to be ordered by something, and its name is the
-    only stable thing left.
-    """
-    known = tuple(project.name for project in manifest.projects)
-    remaining = set(names)
-    return tuple(
-        [name for name in known if name in remaining]
-        + sorted(remaining.difference(known))
-    )

@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
 from cjdev.application.runner import Outcome, RunReport
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
@@ -23,6 +24,21 @@ T = TypeVar("T")
 SHORT_SHA = 7
 """A table read many times a day cannot spend forty columns on a hash.
 `--json` carries the full one."""
+
+NOTES: dict[Action, str] = {
+    Action.CREATE: "created",
+    Action.ADOPT: "adopted",
+    Action.PRESENT: "already there",
+}
+"""How each outcome reads in the table."""
+
+OUTCOMES: dict[Action, str] = {
+    Action.CREATE: "created",
+    Action.ADOPT: "adopted",
+    Action.PRESENT: "present",
+}
+"""And in the document. Separate from `NOTES` because one is a phrase and the
+other is a token something matches on."""
 
 
 def render_report(
@@ -51,6 +67,79 @@ def render_report(
 
     if report.interrupted:
         console.print("\ninterrupted; nothing further was started.", style=CANCELLED)
+
+
+def render_branch_set(
+    console: Console,
+    report: BranchSetReport,
+    *,
+    lines: Callable[[str], tuple[str, ...]],
+) -> None:
+    """The set as one row per project, then whatever the run had to say.
+
+    The path is shown relative to the workspace root, because it is there to
+    be typed after a `cd` rather than read.
+    """
+    _detail(console, lines(""))
+
+    root = report.plan.directory.parent
+    table = Table.grid(padding=(0, 2))
+    table.add_column(width=1)
+    table.add_column()
+    table.add_column()
+    table.add_column(style=DETAIL)
+    for row in report.rows:
+        mark, style = MARKS[row.outcome]
+        table.add_row(
+            Text(mark, style=style),
+            row.project,
+            str(row.worktree.relative_to(root)),
+            NOTES[row.action] if row.outcome is Outcome.DONE else "",
+        )
+    console.print(table)
+
+    for row in report.rows:
+        captured = lines(row.project)
+        if not captured:
+            continue
+        console.print(row.project)
+        _detail(console, captured, indent="  ")
+
+    for row in report.failures:
+        mark, style = MARKS[Outcome.FAILED]
+        console.print()
+        console.print(Text(f"{mark} {row.project}", style=style))
+        _detail(console, str(row.error).splitlines(), indent="  ")
+
+    if report.interrupted:
+        console.print("\ninterrupted; nothing further was started.", style=CANCELLED)
+
+
+def branch_set_payload(report: BranchSetReport) -> dict[str, object]:
+    """The same report, for something that is not a person.
+
+    The four outcomes are one field rather than a flag each: a caller asks
+    what happened to a project, and every answer to that is a value here.
+    """
+    return {
+        "branch": report.plan.branch,
+        "directory": str(report.plan.directory),
+        "projects": [
+            {
+                "name": row.project,
+                "path": str(row.worktree),
+                "outcome": _outcome_of(row),
+                "error": None if row.error is None else str(row.error),
+            }
+            for row in report.rows
+        ],
+    }
+
+
+def _outcome_of(row: Enrolled) -> str:
+    if row.outcome is not Outcome.DONE:
+        return row.outcome.name.lower()
+    return OUTCOMES[row.action]
 
 
 def render_status(console: Console, status: WorkspaceStatus) -> None:
