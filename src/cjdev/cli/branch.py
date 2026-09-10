@@ -8,7 +8,7 @@ from cjdev.application.workspace import require_root
 from ._console import DETAIL, OK, console, diagnostics
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
 from ._output import begin, from_error
-from ._progress import ConsoleProgress
+from ._progress import LIVE_AFTER, ConsoleProgress
 from ._render import branch_set_payload, render_branch_set
 
 cli = Typer(
@@ -37,7 +37,14 @@ def new(
     # -v echoes each command as it runs, and under a fan-out the order it
     # echoes in would belong to the scheduler rather than to the manifest.
     jobs = 1 if verbose else DEFAULT_CHECKOUT_JOBS
-    progress = ConsoleProgress(out.display, fallback=None if dry_run else diagnostics)
+    progress = ConsoleProgress(
+        out.display,
+        fallback=None if dry_run else diagnostics,
+        delay=LIVE_AFTER,
+        # The table below is the report; the display only stands in for it
+        # while the work runs, so it goes when the work does.
+        transient=True,
+    )
     ctx.obj.emit = progress.emit
     ctx.obj.report_step = progress.step
     if not dry_run:
