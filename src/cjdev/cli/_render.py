@@ -30,12 +30,8 @@ OUTCOMES: dict[Action, str] = {
     Action.ADOPT: "adopted",
     Action.PRESENT: "present",
 }
-"""What became of one project, in one word.
-
-One mapping for the table and the document alike: two of them, differing in a
-single phrasing, is one new `Action` away from the table and the document
-disagreeing about the same run.
-"""
+"""What became of one project, in one word. One mapping for the table and the
+document alike, or the two of them drift apart on the next `Action`."""
 
 
 def render_report(
@@ -74,8 +70,7 @@ def render_branch_set(
 ) -> None:
     """The set as one row per project, then whatever the run had to say.
 
-    The path is shown relative to the workspace root, because it is there to
-    be typed after a `cd` rather than read.
+    Paths are relative to the workspace root: they are there to be typed.
     """
     _detail(console, lines(""))
 
@@ -91,8 +86,7 @@ def render_branch_set(
             Text(mark, style=style),
             row.project,
             str(row.worktree.relative_to(root)),
-            # Only a project that got there says how: a failed or cancelled
-            # one did not, and "created" against a `✗` would be a lie.
+            # Only against a `✓`: "created" next to a failure would be a lie.
             OUTCOMES[row.action] if row.outcome is Outcome.DONE else "",
         )
     console.print(table)
@@ -115,11 +109,8 @@ def render_branch_set(
 
 
 def branch_set_payload(report: BranchSetReport) -> dict[str, object]:
-    """The same report, for something that is not a person.
-
-    The four outcomes are one field rather than a flag each: a caller asks
-    what happened to a project, and every answer to that is a value here.
-    """
+    """The same report, for something that is not a person. The outcomes are
+    one field rather than a flag each."""
     return {
         "branch": report.plan.branch,
         "directory": str(report.plan.directory),

@@ -160,11 +160,8 @@ class Git:
         )
 
     def default_branch_ref(self, store: Path, remote: str) -> str | None:
-        """The ref `init` recorded with `remote set-head`, or None.
-
-        A ref rather than a branch name, because it is handed straight to
-        `worktree add` as the point to start from.
-        """
+        """The ref `init` recorded with `remote set-head`, or None. A ref
+        rather than a name, because `worktree add` starts from it."""
         recorded = self._try(
             ("symbolic-ref", f"refs/remotes/{remote}/HEAD"),
             cwd=store,
@@ -177,9 +174,8 @@ class Git:
     ) -> None:
         """One checkout, on a new branch or on one that already exists.
 
-        `--no-track` is not tidiness: the base is a remote-tracking ref of
-        `upstream`, and letting git wire the branch up to it would aim every
-        later push at the repository cjdev only ever reads.
+        `--no-track`: the base is a remote-tracking ref of `upstream`, and
+        tracking it would aim every later push at a read-only remote.
         """
         args = (
             ("worktree", "add", "--no-track", "-b", branch, str(worktree), base)
@@ -189,10 +185,9 @@ class Git:
         self._run(args, cwd=store, what=f"checking out {branch}")
 
     def remove_worktree(self, store: Path, worktree: Path) -> None:
-        # Unchecked, because after a failure there may be no worktree to
-        # remove and that is the normal case rather than an error. `--force`
-        # because a checkout that failed halfway is exactly the one git would
-        # otherwise refuse to remove - and it is one this run created.
+        # Unchecked: after a failure there is often nothing to remove.
+        # `--force` because git refuses a half-written checkout, which is
+        # exactly the one this run has to take back.
         self._run(
             ("worktree", "remove", "--force", str(worktree)),
             cwd=store,
@@ -285,9 +280,8 @@ def remove_object_store(
 def inspect_checkout(executor: Executor, probe: Probe) -> Held:
     """Everything the decision needs from one project's object store.
 
-    Paths are resolved on both sides before they are compared: git reports a
-    worktree physically, so one reached through a symlink would otherwise look
-    like a stranger's directory sitting in the way.
+    Both sides of the comparison are resolved: git reports a worktree
+    physically, so one reached through a symlink would look like a stranger's.
     """
     git = Git(executor)
     store = Path(probe.store)
@@ -323,11 +317,8 @@ def add_checkout(executor: Executor, enrolment: Enrolment) -> None:
 
 
 def drop_checkout(executor: Executor, enrolment: Enrolment) -> None:
-    """Take back one checkout this run created.
-
-    The branch goes only when this run is what created it: an adopted branch
-    outlives the branch set, which is the whole reason adoption exists.
-    """
+    """Take back one checkout this run created. The branch goes only if this
+    run created it too: an adopted one outlives the branch set."""
     git = Git(executor)
     store = Path(enrolment.store)
     git.remove_worktree(store, Path(enrolment.worktree))

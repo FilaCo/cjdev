@@ -1,9 +1,8 @@
 """`cjdev branch new`: the decision, and then the same command against git.
 
-The decision is asserted with no repository in sight. Only what turns on git
-runs against the real binary: `worktree add -b` creating a branch before it
-fails, and `worktree remove` keeping one, are the two facts the undo is built
-on, and a fake would only assert what we believe about them.
+The decision is asserted with no repository in sight. The undo is not: it is
+built on `worktree add -b` creating a branch before it fails and `worktree
+remove` keeping one, which only the real binary can be trusted about.
 """
 
 import subprocess

@@ -26,10 +26,8 @@ from ._console import DETAIL, MARKS, RUNNING, WAITING
 LIVE_AFTER = 0.4
 """How long a run has to last before its display is worth drawing.
 
-A local checkout is often over in a tenth of a second, and a table that
-appears and is taken away again in that time is harder to read than the report
-printed after it. Long enough to skip those, short enough that a run somebody
-is actually waiting on still answers "is it doing anything".
+A display that appears and is taken away inside a tenth of a second is harder
+to read than the report that follows it.
 """
 
 
@@ -61,13 +59,10 @@ class ConsoleProgress:
         animate. Separate from `console` so that a CI log still sees movement
         while stdout stays the ordered report something might be parsing."""
         self._delay = delay
-        """How long to wait before drawing anything. Zero draws at once, for a
-        command whose first unit of work is a fetch and which would otherwise
-        show nothing at all for a minute."""
+        """How long to wait before drawing anything; zero draws at once."""
         self._transient = transient
-        """Whether the display is taken away when the run ends. For a command
-        that prints its own table afterwards it has to be, or the same run is
-        reported twice in two shapes."""
+        """Whether the display goes when the run ends. It has to for a command
+        that prints its own table, or one run is reported twice."""
         self._title = ""
         self._jobs = 1
         self._labels: tuple[str, ...] = ()
@@ -210,9 +205,8 @@ class ConsoleProgress:
         return f"{happened} in {format_duration(self.elapsed())}"
 
     def _report_plainly(self, label: str, outcome: Outcome) -> None:
-        # `_animating` rather than "is the display up": while it is waiting out
-        # its delay it is not, and a unit finishing in that window would
-        # otherwise print a line the display is about to draw over.
+        # `_animating` rather than "is the display up": during the delay it is
+        # not, and these lines would be drawn over a moment later.
         if self._animating or self._fallback is None or not self._labels:
             return
         mark, style = MARKS[outcome]

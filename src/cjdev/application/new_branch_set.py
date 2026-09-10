@@ -1,15 +1,9 @@
 """Creating a branch set: one checkout per project, all on one branch.
 
-gather, decide, apply - and here the split is what makes the command safe
-rather than only testable. Every refusal happens in `decide`, before the first
-worktree exists, because `git worktree add` is not atomic: with `-b` it
-creates the branch and then attempts the checkout, so a failure it could have
-seen coming leaves a branch with no worktree behind.
-
-What it cannot see coming is undone instead. A run that fails takes back the
-checkouts and the branches it created in that run, and touches nothing else,
-so that every later command may assume a branch set covers the whole
-workspace.
+Every refusal happens in `decide`, before the first worktree exists, because
+`git worktree add -b` creates the branch before it attempts the checkout and
+leaves it behind when that fails. What is left is undone: a failed run takes
+back the checkouts and branches it created, and nothing else.
 """
 
 from collections.abc import Callable
@@ -34,20 +28,14 @@ from cjdev.domain.manifest import Manifest
 from cjdev.errors import AbortedError, PreconditionError
 
 DEFAULT_CHECKOUT_JOBS = 4
-"""No network is involved, so the bound is the disk: a checkout writes a whole
-source tree, and four of those at once is already more than one spindle's
-worth."""
+"""Bounded by the disk rather than by a remote: nothing here is online, and a
+checkout writes a whole source tree."""
 
 
 @final
 @unique
 class Action(Enum):
-    """What this run has to do for one project.
-
-    `PRESENT` is not work - it is the answer for a project the set already
-    covers, and it is in the report because a set that half exists must read
-    as one set rather than as a shorter one.
-    """
+    """What this run has to do for one project. `PRESENT` is not work."""
 
     CREATE = auto()
     ADOPT = auto()
@@ -72,15 +60,12 @@ class Held:
 
     project: str
     base: str | None
-    """The ref the project recorded as its upstream default branch. None when
-    it recorded none, which is a workspace `init` never finished."""
+    """The ref recorded as this project's upstream default branch."""
     branch_exists: bool
     checked_out: str | None
-    """The branch of the worktree already registered at this project's place
-    in the set, if there is one there."""
+    """The branch of the worktree already at this project's place in the set."""
     elsewhere: PurePath | None
-    """Where this branch is checked out already, if somewhere else. git allows
-    one worktree per branch, so this run could not have both."""
+    """Where this branch is checked out already, if somewhere else."""
     occupied: bool
     """The target path holds something git does not know about."""
 
@@ -90,8 +75,7 @@ class Held:
 class Observed:
     projects: tuple[Held, ...]
     directory_exists: bool
-    """Whether the branch-set directory was there before this run. Undoing
-    removes it only if it was not."""
+    """Undoing removes the branch-set directory only if this run made it."""
 
 
 @final
@@ -104,7 +88,7 @@ class Enrolment:
     action: Action
     base: str | None = None
     """Where a created branch starts. None for an adopted one, which is taken
-    where it stands rather than reset onto the default branch."""
+    where it stands."""
 
 
 @final
@@ -189,9 +173,7 @@ def _action(held: Held, branch: str, worktree: PurePath) -> tuple[Action, str | 
     if held.checked_out == branch:
         return Action.PRESENT, None
     if held.checked_out is not None:
-        # Flattening is one-way, so `fix/ice` and `fix-ice` want the same
-        # directory. Which branch set holds it is the only thing the user can
-        # act on.
+        # Flattening is one-way, so `fix/ice` and `fix-ice` want one directory.
         raise PreconditionError(
             f"{worktree} already holds branch set {held.checked_out}. "
             f"Two branch sets cannot share a directory.",
@@ -225,8 +207,8 @@ def report_rows(
 ) -> tuple[Enrolled, ...]:
     """One row per project, in the plan's order rather than the finish order.
 
-    Built from the plan because a project the set already covered ran no work
-    and appears in no run report, and a set it is part of has to say so.
+    Built from the plan: a project the set already covered ran no work and
+    appears in no run report.
     """
     results = {result.label: result for result in report.results}
     rows = []
@@ -245,13 +227,8 @@ def report_rows(
 
 
 def _outcome(enrolment: Enrolment, result: UnitResult[Enrolment] | None) -> Outcome:
-    """What the run made of one project.
-
-    Only a project the set already covered is done without having run, so
-    anything else missing from the report is one the run never reached.
-    Reading that as done would put "created" against a checkout that does not
-    exist, which is the one thing this report may not do.
-    """
+    """Only `PRESENT` is done without having run; anything else missing from
+    the report is a project the run never reached."""
     if result is not None:
         return result.outcome
     return Outcome.DONE if enrolment.action is Action.PRESENT else Outcome.CANCELLED
@@ -386,9 +363,8 @@ class NewBranchSet:
     def _undo(self, plan: BranchSetPlan, rows: tuple[Enrolled, ...], jobs: int) -> None:
         """Take back what this run created, and only that.
 
-        A cancelled unit never ran and has nothing to take back. A failed one
-        does: `worktree add -b` creates the branch before it attempts the
-        checkout, so the branch can outlive the failure that stopped it.
+        A failed unit is included because `worktree add -b` can leave the
+        branch behind; a cancelled one never ran.
         """
         attempted = {
             row.project for row in rows if row.outcome in (Outcome.DONE, Outcome.FAILED)
@@ -411,12 +387,8 @@ class NewBranchSet:
         return drop
 
     def _clear_directory(self, plan: BranchSetPlan) -> None:
-        """The branch-set directory, but only if this run is what created it.
-
-        `worktree add` creates the intermediate directory itself, so an undone
-        run would otherwise leave an empty one behind. Anything still inside
-        it belongs to somebody else and keeps the directory alive.
-        """
+        """The empty directory `worktree add` made, if this run is what made
+        it. Anything still inside belongs to somebody else."""
         if plan.directory_existed:
             return
         directory = Path(plan.directory)

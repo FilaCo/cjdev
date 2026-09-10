@@ -29,9 +29,8 @@ def new(
 ) -> None:
     """Create a branch set: one checkout per project, all on NAME."""
     out = begin("branch new", as_json=as_json)
-    # A walk up from wherever the caller is standing, the way git's own
-    # commands work: being inside another branch set is a normal place to
-    # start one from.
+    # A walk up from wherever the caller is standing: being inside another
+    # branch set is a normal place to start one from.
     root = require_root((path or Path.cwd()).resolve())
 
     # -v echoes each command as it runs, and under a fan-out the order it
@@ -51,9 +50,8 @@ def new(
         ctx.obj.journal(root, ["branch", "new", name])
     use_case = ctx.obj.new_branch_set(dry_run=dry_run, verbose=verbose)
 
-    # Nothing is asked between the plan and the work - the whole input is the
-    # name - so the two are kept apart only because the display cannot be
-    # built until it knows which projects it is tracking.
+    # Kept apart only because the display cannot be built until it knows
+    # which projects it is tracking; there is nothing to ask in between.
     plan = use_case.plan(root, name, jobs=jobs)
     progress.track(
         [enrolment.project for enrolment in plan.to_enrol],
@@ -82,8 +80,7 @@ def new(
                 f"\nDry run: {root} was not touched.", style=DETAIL, soft_wrap=True
             )
         elif report.ok:
-            # The point of the command is the directory, so the last line is
-            # the one thing left to type.
+            # The point of the command is the directory to cd into.
             console.print(
                 f"\ncd {plan.directory}", style=OK, soft_wrap=True, highlight=False
             )
