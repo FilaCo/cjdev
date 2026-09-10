@@ -84,6 +84,13 @@ uv run ruff check --fix && uv run ruff format
 `git push --no-verify` bypasses the hook. Use it only when the failure is unrelated to what
 you are pushing.
 
+## Issues and pull requests
+
+Every change starts with an issue - even a follow-up fix to something that just merged. Open
+the issue first, then the pull request, and link the pair with a closing keyword (`Fixes #N`
+in the PR body): the merge closes the issue automatically, and the issue keeps the *why*
+while the PR keeps the *how*. The issue and PR templates take care of the shape.
+
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/), enforced by
