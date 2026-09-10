@@ -12,6 +12,7 @@ from pathlib import Path, PurePath
 from typing import final
 
 import pytest
+
 from cjdev.application.new_branch_set import (
     Action,
     Enrolment,
@@ -21,10 +22,9 @@ from cjdev.application.new_branch_set import (
     decide,
     report_rows,
 )
-from cjdev.domain.branch import check_branch_name
-
 from cjdev.application.ports import Command, Completed, Executor
 from cjdev.application.runner import Outcome, RunReport, UnitResult
+from cjdev.domain.branch import check_branch_name
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.errors import PreconditionError, UsageError
@@ -329,6 +329,19 @@ class TestBranchNames:
 
 
 class TestReportRows:
+    def test_a_project_the_run_never_reached_does_not_read_as_done(self):
+        # Arrange: alpha failed, so beta was cancelled and has no checkout.
+        plan = decide(LAYOUT, "fix/ice", observed(held("alpha"), held("beta")))
+        report: RunReport[Enrolment] = RunReport(
+            (UnitResult("alpha", Outcome.FAILED, error=RuntimeError("no")),)
+        )
+
+        # Act
+        rows = report_rows(plan, report)
+
+        # Assert
+        assert [row.outcome for row in rows] == [Outcome.FAILED, Outcome.CANCELLED]
+
     def test_rows_follow_the_plan_rather_than_the_finish_order(self):
         # Arrange
         plan = decide(LAYOUT, "fix/ice", observed(held("alpha"), held("beta")))
@@ -578,6 +591,46 @@ class TestAFailedRunLeavesNothingBehind:
         assert not report.ok
         assert (worktree / "scratch").read_text() == "uncommitted"
         assert git(store_of(workspace, "beta"), "branch", "--list", "fix/ice") != ""
+
+    def test_a_second_run_cannot_delete_what_the_first_one_created(
+        self, workspace: Path, manifest: Manifest, tmp_path: Path
+    ):
+        # Arrange: the set exists, beta is back to a branch with no worktree,
+        # and a newly held project is about to fail. The branch a run may
+        # delete is only one it decided to create, so beta's - created by the
+        # first run and adopted by the second - is out of reach.
+        branch_set(manifest).perform(workspace, "fix/ice", jobs=2)
+        git(
+            store_of(workspace, "beta"),
+            "worktree",
+            "remove",
+            str(workspace / "fix-ice" / "beta"),
+        )
+        gamma = Project(
+            name="gamma",
+            role=ProjectRole.BUILDABLE,
+            upstream_url=make_upstream(tmp_path / "upstreams" / "gamma"),
+            default_branch="main",
+        )
+        provision_object_store(HostExecutor(), store_of(workspace, "gamma"), gamma)
+        grown = Manifest(
+            schema_version=1, projects=(*manifest.projects, gamma), build_units=()
+        )
+
+        def add(executor: Executor, enrolment: Enrolment) -> None:
+            if enrolment.project == "gamma":
+                raise RuntimeError("disk full")
+            add_checkout(executor, enrolment)
+
+        # Act
+        report = branch_set(grown, add=add).perform(workspace, "fix/ice", jobs=1)
+
+        # Assert
+        assert not report.ok
+        assert git(store_of(workspace, "alpha"), "branch", "--list", "fix/ice") != ""
+        assert git(store_of(workspace, "beta"), "branch", "--list", "fix/ice") != ""
+        assert git(store_of(workspace, "gamma"), "branch", "--list", "fix/ice") == ""
+        assert (workspace / "fix-ice" / "alpha" / "README").is_file()
 
     def test_the_undo_runs_through_the_executor_that_records_it(
         self, workspace: Path, manifest: Manifest

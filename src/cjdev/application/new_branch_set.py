@@ -19,7 +19,14 @@ from pathlib import Path, PurePath
 from typing import final
 
 from cjdev.application.ports import Executor, FileSystem
-from cjdev.application.runner import Outcome, Runner, RunObserver, RunReport, Work
+from cjdev.application.runner import (
+    Outcome,
+    Runner,
+    RunObserver,
+    RunReport,
+    UnitResult,
+    Work,
+)
 from cjdev.application.workspace import held_projects
 from cjdev.domain.branch import check_branch_name
 from cjdev.domain.layout import WorkspaceLayout
@@ -230,11 +237,24 @@ def report_rows(
                 project=enrolment.project,
                 worktree=enrolment.worktree,
                 action=enrolment.action,
-                outcome=Outcome.DONE if result is None else result.outcome,
+                outcome=_outcome(enrolment, result),
                 error=None if result is None else result.error,
             )
         )
     return tuple(rows)
+
+
+def _outcome(enrolment: Enrolment, result: UnitResult[Enrolment] | None) -> Outcome:
+    """What the run made of one project.
+
+    Only a project the set already covered is done without having run, so
+    anything else missing from the report is one the run never reached.
+    Reading that as done would put "created" against a checkout that does not
+    exist, which is the one thing this report may not do.
+    """
+    if result is not None:
+        return result.outcome
+    return Outcome.DONE if enrolment.action is Action.PRESENT else Outcome.CANCELLED
 
 
 @final

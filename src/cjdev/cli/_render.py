@@ -25,20 +25,17 @@ SHORT_SHA = 7
 """A table read many times a day cannot spend forty columns on a hash.
 `--json` carries the full one."""
 
-NOTES: dict[Action, str] = {
-    Action.CREATE: "created",
-    Action.ADOPT: "adopted",
-    Action.PRESENT: "already there",
-}
-"""How each outcome reads in the table."""
-
 OUTCOMES: dict[Action, str] = {
     Action.CREATE: "created",
     Action.ADOPT: "adopted",
     Action.PRESENT: "present",
 }
-"""And in the document. Separate from `NOTES` because one is a phrase and the
-other is a token something matches on."""
+"""What became of one project, in one word.
+
+One mapping for the table and the document alike: two of them, differing in a
+single phrasing, is one new `Action` away from the table and the document
+disagreeing about the same run.
+"""
 
 
 def render_report(
@@ -94,7 +91,9 @@ def render_branch_set(
             Text(mark, style=style),
             row.project,
             str(row.worktree.relative_to(root)),
-            NOTES[row.action] if row.outcome is Outcome.DONE else "",
+            # Only a project that got there says how: a failed or cancelled
+            # one did not, and "created" against a `✗` would be a lie.
+            OUTCOMES[row.action] if row.outcome is Outcome.DONE else "",
         )
     console.print(table)
 
