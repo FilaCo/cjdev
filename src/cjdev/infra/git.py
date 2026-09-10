@@ -12,7 +12,7 @@ from typing import final
 
 from cjdev.application.ports import Command, Executor, FileSystem
 from cjdev.domain.manifest import Project
-from cjdev.domain.state import Checkout, Tracking
+from cjdev.domain.state import Checkout, StoreReading, Tracking
 from cjdev.errors import PreconditionError
 
 UPSTREAM = "upstream"
@@ -36,6 +36,10 @@ class Linked:
     path: str
     head: str
     branch: str | None
+    prunable: bool = False
+    """Git has stopped treating this as a checkout: the worktree directory is
+    gone (usually removed by hand), though the registration is still here.
+    Still reported - `worktree prune` is what clears it - but never entered."""
 
 
 @final
@@ -87,6 +91,8 @@ class Git:
                     path=fields["worktree"],
                     head=fields.get("HEAD", ""),
                     branch=branch.removeprefix("refs/heads/") if branch else None,
+                    # The reason text is git's business; the fact is ours.
+                    prunable="prunable" in fields,
                 )
             )
         return tuple(linked)
@@ -218,33 +224,42 @@ def remove_object_store(
     fs.remove(store)
 
 
-def read_checkouts(
-    executor: Executor, store: Path, project: str
-) -> tuple[Checkout, ...]:
-    """Every worktree of one project, with the state `status` reports.
+def read_store(executor: Executor, store: Path, project: str) -> StoreReading:
+    """Everything `status` reads from one project's object store.
 
     One store's worth of queries, so that the caller's fan-out unit is the
     project and no two of these ever run against the same store at once. The
     queries are serial *within* it: git is being asked about one repository,
     and the win is across the six.
+
+    Prunable entries come back beside the checkouts rather than inside them:
+    git refuses every query that would have to enter such a worktree, so
+    reading it as a checkout would fail the whole project for want of one
+    stale registration - while dropping it silently would leave the report
+    agreeing with a directory that is not there.
     """
     git = Git(executor)
-    return tuple(
-        Checkout(
-            project=project,
-            path=PurePath(linked.path),
-            branch=linked.branch,
-            head=linked.head,
-            dirty=git.is_dirty(Path(linked.path)),
-            # A detached worktree has no branch to compare, and asking about
-            # `refs/heads/None` would be a query with no meaning.
-            tracking=(
-                _drift(git, Path(linked.path), linked.branch)
-                if linked.branch is not None
-                else ()
-            ),
-        )
-        for linked in git.linked_worktrees(store)
+    linked = git.linked_worktrees(store)
+    return StoreReading(
+        checkouts=tuple(
+            Checkout(
+                project=project,
+                path=PurePath(entry.path),
+                branch=entry.branch,
+                head=entry.head,
+                dirty=git.is_dirty(Path(entry.path)),
+                # A detached worktree has no branch to compare, and asking
+                # about `refs/heads/None` would be a query with no meaning.
+                tracking=(
+                    _drift(git, Path(entry.path), entry.branch)
+                    if entry.branch is not None
+                    else ()
+                ),
+            )
+            for entry in linked
+            if not entry.prunable
+        ),
+        stale=tuple(PurePath(entry.path) for entry in linked if entry.prunable),
     )
 
 

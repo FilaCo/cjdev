@@ -5,7 +5,7 @@ from pathlib import PurePath
 
 from rich.console import Console
 
-from cjdev.cli._render import render_status
+from cjdev.cli._render import render_status, status_payload
 from cjdev.domain.state import (
     BranchSet,
     Checkout,
@@ -137,3 +137,45 @@ def test_a_project_the_workspace_does_not_hold_is_not_named_per_branch_set():
     )
 
     assert "not checked out here" not in drawn
+
+
+class TestAStaleRegistration:
+    """A registration for a worktree whose directory is gone is named with
+    its remedy, outside the tables - it belongs to the project, and a row in
+    a branch-set table would describe a directory that is not there."""
+
+    def test_it_is_named_with_the_prune_that_clears_it(self):
+        drawn = render(
+            stores=(
+                Store("alpha", provisioned=True, stale=(PurePath("/ws/main/alpha"),)),
+            ),
+        )
+
+        assert "~ alpha" in drawn
+        assert "git worktree prune" in drawn
+
+    def test_a_workspace_without_one_is_not_touched(self):
+        assert "~" not in render(checkout())
+
+    def test_the_json_payload_carries_the_path_and_the_remedy(self):
+        payload = status_payload(
+            WorkspaceStatus(
+                root=ROOT,
+                active=None,
+                stores=(
+                    Store(
+                        "alpha", provisioned=True, stale=(PurePath("/ws/main/alpha"),)
+                    ),
+                ),
+                branch_sets=(),
+            )
+        )
+
+        projects = payload["projects"]
+        assert isinstance(projects, list) and projects
+        (project,) = projects
+        stale_list = project["stale"]
+        assert isinstance(stale_list, list) and stale_list
+        (stale,) = stale_list
+        assert stale["path"] == "/ws/main/alpha"
+        assert stale["remedy"] == "git worktree prune"

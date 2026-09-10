@@ -64,6 +64,30 @@ class Store:
     error: str | None = None
     """Why this project could not be read. Set on one project rather than
     raised, because five readable projects are still worth printing."""
+    stale: tuple[PurePath, ...] = ()
+    """Registrations git keeps for worktrees whose directory is gone.
+
+    Not an error and not a checkout: the project read fine, nothing is
+    corrupted, and a row in a branch-set table would describe a directory
+    that is not there. Named so that `git worktree prune` has something to
+    run against - a registration the report drops silently is one the reader
+    cannot act on, and one `branch new` cannot recreate over."""
+
+
+@final
+@dataclass(frozen=True)
+class StoreReading:
+    """What one object store yielded: its live checkouts, and the stale
+    registrations it still holds.
+
+    The shape `read_store` returns, one store per fan-out unit. Two tuples
+    rather than one list of variants because the report does different things
+    with them: a checkout is described, a stale registration is named with
+    its remedy and never entered again.
+    """
+
+    checkouts: tuple[Checkout, ...]
+    stale: tuple[PurePath, ...]
 
 
 @final

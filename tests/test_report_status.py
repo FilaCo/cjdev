@@ -15,7 +15,7 @@ from cjdev.application.report_status import ReportStatus
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.infra.executor.host import HostExecutor
-from cjdev.infra.git import provision_object_store, read_checkouts
+from cjdev.infra.git import provision_object_store, read_store
 from conftest import make_upstream
 
 pytestmark = pytest.mark.usefixtures("git_available")
@@ -61,7 +61,7 @@ def report(manifest: Manifest) -> ReportStatus:
     return ReportStatus(
         manifest=manifest,
         executor=HostExecutor(),
-        read_checkouts=read_checkouts,
+        read_store=read_store,
     )
 
 
@@ -284,6 +284,60 @@ class TestOneBrokenProjectDoesNotHideTheRest:
 
         status = report(manifest).perform(broken, cwd=broken)
 
+        assert [c.project for c in status.branch_sets[0].checkouts] == ["alpha"]
+
+
+class TestAStaleRegistration:
+    """A worktree whose directory was removed by hand leaves a registration
+    git still keeps (`prunable`), and one it refuses to enter.
+
+    Reading it as a checkout would fail the project's whole read for want of
+    one stale registration; dropping it silently would leave the report
+    agreeing with a directory that is not there. So it is neither: it is
+    named on its own, with the prune that clears it."""
+
+    @pytest.fixture
+    def stale(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        subprocess.run(["rm", "-rf", str(path.parent)], check=True)
+        return workspace
+
+    def test_the_project_still_reads_as_healthy(self, manifest: Manifest, stale: Path):
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert store.error is None
+        assert store.provisioned
+
+    def test_the_registration_is_reported_where_it_belongs(
+        self, manifest: Manifest, stale: Path
+    ):
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (path,) = store.stale
+        assert path.name == "alpha"  # the branch-set directory removed above
+
+    def test_no_branch_set_is_reported_for_it(self, manifest: Manifest, stale: Path):
+        # A branch-set row would describe a directory that is not there;
+        # the registration belongs to the project, not to the set.
+        status = report(manifest).perform(stale, cwd=stale)
+
+        assert status.branch_sets == ()
+        assert status.active is None
+
+    def test_a_live_sibling_checkout_is_unaffected(
+        self, manifest: Manifest, stale: Path
+    ):
+        # The queries that would enter the stale worktree are skipped, not
+        # the ones for the rest of the store. The sibling sits at another
+        # path: the registration blocks only recreating over the stale one.
+        add_worktree(stale, "alpha", "other", "-b", "other", "upstream/main")
+
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert len(store.stale) == 1
         assert [c.project for c in status.branch_sets[0].checkouts] == ["alpha"]
 
 
