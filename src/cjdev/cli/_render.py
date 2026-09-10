@@ -72,6 +72,36 @@ def render_status(console: Console, status: WorkspaceStatus) -> None:
 
     _render_stores(console, status)
 
+    _render_stale(console, status)
+
+
+def _render_stale(console: Console, status: WorkspaceStatus) -> None:
+    """Registrations git still keeps for worktrees that are gone.
+
+    After the tables rather than inside one: a stale registration belongs to
+    the project, not to any branch set - it has no branch, no HEAD worth
+    reading back and no directory to sit in, so a row in a branch-set table
+    would describe something that is not there. Named with its remedy, because
+    the report is otherwise one the reader cannot act on: git refuses both
+    `worktree add` on that path and every query that would enter it, and only
+    a prune clears the registration.
+    """
+    for store in status.stores:
+        if not store.stale:
+            continue
+        console.print()
+        console.print(Text(f"~ {store.project}", style=CANCELLED))
+        for path in store.stale:
+            console.print(
+                Text(
+                    f"  {path}: a worktree the directory is gone from; "
+                    "`git worktree prune` clears it",
+                    style=DETAIL,
+                ),
+                soft_wrap=True,
+                highlight=False,
+            )
+
 
 def status_payload(status: WorkspaceStatus) -> dict[str, object]:
     """The same report, for something that is not a person.
@@ -90,6 +120,13 @@ def status_payload(status: WorkspaceStatus) -> dict[str, object]:
                 "name": store.project,
                 "provisioned": store.provisioned,
                 "error": store.error,
+                "stale": [
+                    {
+                        "path": str(path),
+                        "remedy": "git worktree prune",
+                    }
+                    for path in store.stale
+                ],
             }
             for store in status.stores
         ],

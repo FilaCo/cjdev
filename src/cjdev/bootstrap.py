@@ -20,7 +20,7 @@ from cjdev.infra.executor import build_executor
 from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
     provision_object_store,
-    read_checkouts,
+    read_store,
     remove_object_store,
 )
 from cjdev.infra.journal import CommandJournal, open_journal
@@ -117,5 +117,5 @@ class Container:
         return ReportStatus(
             manifest=self.manifest,
             executor=self.executor(verbose=verbose),
-            read_checkouts=read_checkouts,
+            read_store=read_store,
         )
