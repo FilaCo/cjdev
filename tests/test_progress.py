@@ -1,5 +1,6 @@
 """The display may be concurrent; the transcript may not be."""
 
+import time
 from io import StringIO
 
 from rich.console import Console
@@ -76,6 +77,39 @@ class TestDisplay:
 
         assert "[1/2] a" in seen.getvalue()
         assert "[2/2] b" in seen.getvalue()
+
+    def test_a_run_shorter_than_the_delay_draws_nothing(self):
+        # Arrange: a display that appears and is taken away in a tenth of a
+        # second is harder to read than the report printed after it.
+        sink = StringIO()
+        console = Console(file=sink, force_terminal=True, width=40)
+        progress = ConsoleProgress(console, delay=30.0)
+        progress.track(["a"])
+
+        # Act
+        with progress:
+            progress.started("a")
+            progress.finished("a", Outcome.DONE)
+
+        # Assert
+        assert sink.getvalue() == ""
+
+    def test_a_run_that_outlasts_the_delay_is_drawn(self):
+        # Arrange
+        sink = StringIO()
+        console = Console(file=sink, force_terminal=True, width=40)
+        progress = ConsoleProgress(console, delay=0.01)
+        progress.track(["slow"])
+
+        # Act
+        with progress:
+            progress.started("slow")
+            deadline = time.monotonic() + 5
+            while not sink.getvalue() and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        # Assert
+        assert "slow" in sink.getvalue()
 
     def test_rows_keep_their_given_order_whatever_finishes_first(self):
         sink = StringIO()

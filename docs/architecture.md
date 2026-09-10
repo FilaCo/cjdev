@@ -21,12 +21,13 @@ src/cjdev/
   domain/                  # pure: no subprocess, no filesystem, no network
     manifest.py            # Project, BuildUnit and the build graph
     layout.py              # workspace path algebra, parameterised by root
+    branch.py              # whether a string may be a git branch name
     state.py               # branch / SHA / dirty / ahead-behind
 
   application/             # orchestration and policy; one module per command
     ports.py               # Executor, FileSystem, Prompt - nothing else
     runner.py              # fan-out, -j, output ordering, cancellation
-    workspace.py           # finding the workspace root by walking up
+    workspace.py           # finding the workspace root, and what it holds
     init_workspace.py      # `cjpm init` use case file
     ...                    # other use case files
 
@@ -107,8 +108,8 @@ use case names. Whether that stays true is an open question, and a use case that
 different answer takes `jobs` as an argument, so the fan-out is real either way - one job
 is strictly sequential in manifest order.
 
-`status` passes one job under `-v`, because a transcript interleaved by the scheduler is
-not a transcript.
+`status` and `branch new` pass one job under `-v`, because a transcript interleaved by
+the scheduler is not a transcript.
 
 ## Ports, and what earns one
 
@@ -170,7 +171,7 @@ Every command that has it prints the same envelope - `schema`, `command`, `ok`, 
 `errors`. Fields are added and never repurposed; anything else bumps the number in
 `cli/_output.py`.
 
-Today that is `status` alone. `init` has no `--json`, because the machine-facing way
+Today that is `status` and `branch new`. `init` has no `--json`, because the machine-facing way
 to answer its wizard is still an open question, and an envelope with no way to supply the
 project set would only look like a working non-interactive path. The envelope is where it
 lands when that is settled; nothing else changes.
@@ -220,6 +221,7 @@ nothing; everything else asks at a terminal or refuses.
 | --- | --- | --- |
 | `init` | a wizard for the project set, then consent if the answer drops one | none; `--dry-run` asks nothing |
 | `status` | nothing | none |
+| `branch new` | nothing - the whole input is the name | none |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two

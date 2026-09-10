@@ -3,6 +3,7 @@ from typer import Typer
 from cjdev.bootstrap import Container
 
 from ._context import CjdevContext, CjdevGroup
+from .branch import cli as branch_cli
 from .init import cli as init_cli
 from .status import cli as status_cli
 
@@ -12,6 +13,7 @@ cli = Typer(
     no_args_is_help=True,
 )
 
+cli.add_typer(branch_cli, cls=CjdevGroup)
 cli.add_typer(init_cli, cls=CjdevGroup)
 cli.add_typer(status_cli, cls=CjdevGroup)
 

@@ -18,6 +18,24 @@ pip install cjdev
 
 ## Features
 
+### Workspaces
+
+- `cjdev init` - create a workspace and fetch the projects it holds.
+- `cjdev status` - what the workspace holds: branch sets, projects and their git state.
+
+### Branch sets
+
+A branch set is one checkout per project, all on a branch of the same name, gathered
+under a single directory named after that branch.
+
+```bash
+cjdev branch new fix/parser-ice
+cd fix-parser-ice/cangjie_compiler
+```
+
+- `cjdev branch new NAME` - create one, adopting a branch that already carries the name
+  and completing a set that covers only some projects.
+
 ### Build
 
 ### Test

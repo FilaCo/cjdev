@@ -23,6 +23,13 @@ from cjdev.application.runner import Outcome
 
 from ._console import DETAIL, MARKS, RUNNING, WAITING
 
+LIVE_AFTER = 0.4
+"""How long a run has to last before its display is worth drawing.
+
+A display that appears and is taken away inside a tenth of a second is harder
+to read than the report that follows it.
+"""
+
 
 def format_duration(seconds: float) -> str:
     """`8.4s` below a minute, `2m 05s` above it.
@@ -38,12 +45,24 @@ def format_duration(seconds: float) -> str:
 
 @final
 class ConsoleProgress:
-    def __init__(self, console: Console, fallback: Console | None = None) -> None:
+    def __init__(
+        self,
+        console: Console,
+        fallback: Console | None = None,
+        *,
+        delay: float = 0.0,
+        transient: bool = False,
+    ) -> None:
         self._console = console
         self._fallback = fallback
         """Where the plain per-unit lines go when there is no terminal to
         animate. Separate from `console` so that a CI log still sees movement
         while stdout stays the ordered report something might be parsing."""
+        self._delay = delay
+        """How long to wait before drawing anything; zero draws at once."""
+        self._transient = transient
+        """Whether the display goes when the run ends. It has to for a command
+        that prints its own table, or one run is reported twice."""
         self._title = ""
         self._jobs = 1
         self._labels: tuple[str, ...] = ()
@@ -54,7 +73,13 @@ class ConsoleProgress:
         self._lines: dict[str, list[str]] = {}
         self._owner = threading.local()
         self._guard = threading.Lock()
+        self._display = threading.Lock()
+        """Held while the live display is started or stopped, and never while
+        it renders: `Live.start()` draws a frame, and a frame reads `_guard`."""
         self._live: Live | None = None
+        self._timer: threading.Timer | None = None
+        self._animating = False
+        self._closed = False
         self._began_at: float | None = None
         self._spinner = Spinner("dots", style=RUNNING)
 
@@ -83,9 +108,17 @@ class ConsoleProgress:
         self._began_at = time.monotonic()
         # A pipe or a CI log gets one line per unit instead: an animation
         # redrawn 8 times a second is control codes once nobody is watching.
-        if self._console.is_terminal and self._labels:
-            self._live = Live(self, console=self._console, refresh_per_second=8)
-            self._live.__enter__()
+        self._animating = self._console.is_terminal and bool(self._labels)
+        if not self._animating:
+            return self
+        if self._delay <= 0:
+            self._draw()
+        else:
+            # A thread rather than a check on the next event: a run with one
+            # long unit produces no events at all to hang the check on.
+            self._timer = threading.Timer(self._delay, self._draw)
+            self._timer.daemon = True
+            self._timer.start()
         return self
 
     def __exit__(
@@ -94,9 +127,27 @@ class ConsoleProgress:
         value: BaseException | None,
         trace: TracebackType | None,
     ) -> None:
-        if self._live is not None:
-            self._live.__exit__(kind, value, trace)
-            self._live = None
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        with self._display:
+            self._closed = True
+            live, self._live = self._live, None
+        if live is not None:
+            live.stop()
+
+    def _draw(self) -> None:
+        """Start the display, unless the run ended while waiting to."""
+        with self._display:
+            if self._closed or self._live is not None:
+                return
+            self._live = Live(
+                self,
+                console=self._console,
+                refresh_per_second=8,
+                transient=self._transient,
+            )
+            self._live.start()
 
     def started(self, label: str) -> None:
         self._owner.label = label
@@ -154,7 +205,9 @@ class ConsoleProgress:
         return f"{happened} in {format_duration(self.elapsed())}"
 
     def _report_plainly(self, label: str, outcome: Outcome) -> None:
-        if self._live is not None or self._fallback is None or not self._labels:
+        # `_animating` rather than "is the display up": during the delay it is
+        # not, and these lines would be drawn over a moment later.
+        if self._animating or self._fallback is None or not self._labels:
             return
         mark, style = MARKS[outcome]
         took = self._took.get(label)
