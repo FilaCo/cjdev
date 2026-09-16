@@ -58,12 +58,57 @@ class BranchSet:
 
 @final
 @dataclass(frozen=True)
+class StaleRegistration:
+    """One registration git keeps for a worktree it can no longer enter.
+
+    Not an error and not a checkout: the project read fine, nothing is
+    corrupted, and a row in a branch-set table would describe a worktree git
+    refuses to query. Named with its fact and its remedy because the report
+    is otherwise one the reader cannot act on: git refuses both `worktree
+    add` on that path and every query that would enter it.
+    """
+
+    path: PurePath
+    fact: str
+    """What is wrong, as a sentence that holds for this registration alone.
+
+    `prunable` - the flag git sets - does not by itself say what is wrong:
+    it fires as readily for a directory that is gone as for a checkout that
+    is still in place under a broken registration, and the remedy differs
+    (`repair` reconnects the latter, a prune under it would destroy a live
+    checkout). The fact says which case this is."""
+    remedy: str
+    """The command that fixes it, runnable as printed - the full
+    `git -C <store>` form (why, see `_stale_registration`)."""
+
+
+@final
+@dataclass(frozen=True)
 class Store:
     project: str
     provisioned: bool
     error: str | None = None
     """Why this project could not be read. Set on one project rather than
     raised, because five readable projects are still worth printing."""
+    stale: tuple[StaleRegistration, ...] = ()
+    """This store's stale registrations; what they are and why they are
+    reported beside the checkouts, see `StaleRegistration`."""
+
+
+@final
+@dataclass(frozen=True)
+class StoreReading:
+    """What one object store yielded: its live checkouts, and the stale
+    registrations it still holds.
+
+    The shape `read_store` returns, one store per fan-out unit. Two tuples
+    rather than one list of variants because the report does different things
+    with them: a checkout is described, a stale registration is named with
+    its fact and remedy and never entered again.
+    """
+
+    checkouts: tuple[Checkout, ...]
+    stale: tuple[StaleRegistration, ...]
 
 
 @final

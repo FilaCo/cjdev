@@ -22,15 +22,15 @@ from cjdev.application.workspace import held_projects, in_manifest_order
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest
 from cjdev.domain.state import (
-    Checkout,
     Store,
+    StoreReading,
     WorkspaceStatus,
     active_branch_set,
     branch_sets_of,
 )
 from cjdev.errors import AbortedError
 
-ReadCheckouts = Callable[[Executor, Path, str], tuple[Checkout, ...]]
+ReadStore = Callable[[Executor, Path, str], StoreReading]
 
 DEFAULT_QUERY_JOBS = 8
 """Read-only local git queries: nothing to rate-limit and nothing to
@@ -44,11 +44,11 @@ class ReportStatus:
         self,
         manifest: Manifest,
         executor: Executor,
-        read_checkouts: ReadCheckouts,
+        read_store: ReadStore,
     ) -> None:
         self._manifest = manifest
         self._executor = executor
-        self._read_checkouts = read_checkouts
+        self._read_store = read_store
 
     def perform(
         self, root: Path, *, cwd: Path, jobs: int = DEFAULT_QUERY_JOBS
@@ -83,12 +83,28 @@ class ReportStatus:
             for result in report.of(Outcome.FAILED)
             if result.error is not None
         }
+        readings = {result.label: result.value for result in report.results}
+        stale_by_project = {
+            label: tuple(
+                stale
+                for stale in reading.stale
+                # The membership rule `branch_sets_of` applies to checkouts
+                # applies to these as well: a worktree linked from outside
+                # the workspace is not one this report describes - stale no
+                # less than live, or it would surface the moment it broke,
+                # with the report recommending a prune over something cjdev
+                # never laid out.
+                if stale.path.parent.parent == root
+            )
+            for label, reading in readings.items()
+            if reading is not None and reading.stale
+        }
         branch_sets = branch_sets_of(
             root,
             [
                 checkout
                 for result in report.results
-                for checkout in (result.value or ())
+                for checkout in (result.value or StoreReading((), ())).checkouts
             ],
         )
         return WorkspaceStatus(
@@ -99,6 +115,7 @@ class ReportStatus:
                     project=project,
                     provisioned=project in provisioned,
                     error=failures.get(project),
+                    stale=stale_by_project.get(project, ()),
                 )
                 for project in in_manifest_order(
                     self._manifest,
@@ -110,10 +127,10 @@ class ReportStatus:
 
     def _reader(
         self, layout: WorkspaceLayout, project: str
-    ) -> Callable[[], tuple[Checkout, ...]]:
+    ) -> Callable[[], StoreReading]:
         store = Path(layout.object_store(project))
 
-        def read() -> tuple[Checkout, ...]:
-            return self._read_checkouts(self._executor, store, project)
+        def read() -> StoreReading:
+            return self._read_store(self._executor, store, project)
 
         return read

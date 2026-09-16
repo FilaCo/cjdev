@@ -24,7 +24,7 @@ from cjdev.infra.git import (
     drop_checkout,
     inspect_checkout,
     provision_object_store,
-    read_checkouts,
+    read_store,
     remove_object_store,
 )
 from cjdev.infra.journal import CommandJournal, open_journal
@@ -136,5 +136,5 @@ class Container:
         return ReportStatus(
             manifest=self.manifest,
             executor=self.executor(verbose=verbose),
-            read_checkouts=read_checkouts,
+            read_store=read_store,
         )

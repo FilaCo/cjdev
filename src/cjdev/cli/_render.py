@@ -151,6 +151,29 @@ def render_status(console: Console, status: WorkspaceStatus) -> None:
 
     _render_stores(console, status)
 
+    _render_stale(console, status)
+
+
+def _render_stale(console: Console, status: WorkspaceStatus) -> None:
+    """The stale registrations, drawn after the tables rather than inside
+    one: what they are and why they carry a remedy is recorded on
+    `StaleRegistration`, and the placement is all the rendering adds.
+    """
+    for store in status.stores:
+        if not store.stale:
+            continue
+        console.print()
+        console.print(Text(f"~ {store.project}", style=CANCELLED))
+        for stale in store.stale:
+            console.print(
+                Text(
+                    f"  {stale.path}: {stale.fact}; `{stale.remedy}`",
+                    style=DETAIL,
+                ),
+                soft_wrap=True,
+                highlight=False,
+            )
+
 
 def status_payload(status: WorkspaceStatus) -> dict[str, object]:
     """The same report, for something that is not a person.
@@ -169,6 +192,14 @@ def status_payload(status: WorkspaceStatus) -> dict[str, object]:
                 "name": store.project,
                 "provisioned": store.provisioned,
                 "error": store.error,
+                "stale": [
+                    {
+                        "path": str(stale.path),
+                        "fact": stale.fact,
+                        "remedy": stale.remedy,
+                    }
+                    for stale in store.stale
+                ],
             }
             for store in status.stores
         ],

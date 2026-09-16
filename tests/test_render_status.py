@@ -5,10 +5,11 @@ from pathlib import PurePath
 
 from rich.console import Console
 
-from cjdev.cli._render import render_status
+from cjdev.cli._render import render_status, status_payload
 from cjdev.domain.state import (
     BranchSet,
     Checkout,
+    StaleRegistration,
     Store,
     Tracking,
     WorkspaceStatus,
@@ -137,3 +138,54 @@ def test_a_project_the_workspace_does_not_hold_is_not_named_per_branch_set():
     )
 
     assert "not checked out here" not in drawn
+
+
+class TestAStaleRegistration:
+    """A registration for a worktree git can no longer enter is named with
+    its fact and its remedy, outside the tables - the why is recorded on
+    `StaleRegistration`; the tests here pin what the report shows."""
+
+    @staticmethod
+    def stale() -> StaleRegistration:
+        return StaleRegistration(
+            path=PurePath("/ws/main/alpha"),
+            fact="the directory is gone from it",
+            remedy="git -C /ws/.cjdev/bare/alpha.git worktree prune",
+        )
+
+    def test_it_is_named_with_its_fact_and_the_command_that_fixes_it(self):
+        drawn = render(
+            stores=(Store("alpha", provisioned=True, stale=(self.stale(),)),),
+        )
+
+        assert "~ alpha" in drawn
+        assert "the directory is gone from it" in drawn
+        # The store path is in the command: `git worktree` operates on the
+        # repository it runs in, and the reader is not standing in the store.
+        assert "git -C /ws/.cjdev/bare/alpha.git worktree prune" in drawn
+
+    def test_a_workspace_without_one_is_not_touched(self):
+        assert "~" not in render(checkout())
+
+    def test_the_json_payload_carries_the_fact_and_a_runnable_remedy(self):
+        payload = status_payload(
+            WorkspaceStatus(
+                root=ROOT,
+                active=None,
+                stores=(Store("alpha", provisioned=True, stale=(self.stale(),)),),
+                branch_sets=(),
+            )
+        )
+
+        projects = payload["projects"]
+        assert isinstance(projects, list) and projects
+        (project,) = projects
+        stale_list = project["stale"]
+        assert isinstance(stale_list, list) and stale_list
+        (stale,) = stale_list
+        assert stale["path"] == "/ws/main/alpha"
+        assert stale["fact"] == "the directory is gone from it"
+        # A `--json` consumer cannot reconstruct
+        # `<root>/.cjdev/bare/<project>.git` from the rest of the payload,
+        # so the command carries the store path itself.
+        assert stale["remedy"] == "git -C /ws/.cjdev/bare/alpha.git worktree prune"

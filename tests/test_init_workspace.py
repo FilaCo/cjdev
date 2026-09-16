@@ -5,6 +5,7 @@ builds rather than from a fake - it catches which refs a bare `init` + `fetch`
 actually produces, and where `remote set-head` puts `HEAD`.
 """
 
+import shutil
 import subprocess
 from pathlib import Path, PurePath
 
@@ -18,7 +19,7 @@ from cjdev.application.init_workspace import (
 from cjdev.application.ports import Command
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
-from cjdev.errors import UsageError
+from cjdev.errors import PreconditionError, UsageError
 from cjdev.infra.config import render_workspace_config
 from cjdev.infra.executor import build_executor
 from cjdev.infra.executor.host import HostExecutor
@@ -251,6 +252,101 @@ class TestProvisioning:
             provision_object_store(HostExecutor(), store, project)
 
         assert "does-not-exist" in str(caught.value)
+
+
+class TestDroppingAProjectWithRegistrationsLeft:
+    """`remove_object_store` refuses while the store still has worktree
+    registrations, stale ones included - the why is recorded on
+    `Git.worktrees`, the guard this behavior reads."""
+
+    @pytest.fixture
+    def registered_worktree(
+        self, tmp_path: Path, manifest: Manifest
+    ) -> tuple[Path, Path, Project]:
+        """A store with one live checkout, before anything breaks it."""
+        root = tmp_path / "ws"
+        layout = WorkspaceLayout(root)
+        Path(layout.bare_dir).mkdir(parents=True)
+        project = manifest.projects[0]
+        store = Path(layout.object_store(project.name))
+        provision_object_store(HostExecutor(), store, project)
+        worktree = root / "main" / project.name
+        subprocess.run(
+            (
+                "git",
+                "-C",
+                str(store),
+                "worktree",
+                "add",
+                "--quiet",
+                str(worktree),
+                "-b",
+                "main",
+                "upstream/main",
+            ),
+            check=True,
+            capture_output=True,
+        )
+        return store, worktree, project
+
+    @pytest.fixture
+    def moved_away(
+        self, registered_worktree: tuple[Path, Path, Project]
+    ) -> tuple[Path, Path, Project]:
+        store, worktree, project = registered_worktree
+        # The checkout is alive at its new path, the registration still
+        # names the old one: exactly the state an on-disk test would call
+        # "nothing left to break".
+        moved = worktree.parent / (worktree.name + "-moved")
+        worktree.rename(moved)
+        return store, worktree, project
+
+    @pytest.fixture
+    def deleted(
+        self, registered_worktree: tuple[Path, Path, Project]
+    ) -> tuple[Path, Path, Project]:
+        store, worktree, project = registered_worktree
+        # The checkout was removed by hand, the registration is all that is
+        # left: the only case where a prune is the right first move - a
+        # moved checkout (above) has to be repaired first.
+        shutil.rmtree(worktree)
+        return store, worktree, project
+
+    def test_a_stale_registration_still_blocks_the_drop(
+        self, moved_away: tuple[Path, Path, Project]
+    ):
+        store, registered_path, project = moved_away
+
+        with pytest.raises(PreconditionError) as caught:
+            remove_object_store(HostExecutor(), HostFileSystem(), store, project)
+
+        assert str(registered_path) in str(caught.value)
+        assert "worktree prune" in str(caught.value)
+        # The moved hint travels with the prune: without it the refusal
+        # names exactly the command that would destroy this checkout's
+        # newest commits two steps later.
+        assert "worktree repair" in str(caught.value)
+        # Nothing dropped while the reader is being asked.
+        assert store.exists()
+
+    def test_pruning_the_registrations_clears_the_refusal(
+        self, deleted: tuple[Path, Path, Project]
+    ):
+        # The refusal names the command that unblocks it; running it - the
+        # reader's decision, not cjdev's - lets the drop go through. The
+        # worktree here was deleted, the case prune exists for; pinning the
+        # prune to the moved fixture instead would assert the very loss the
+        # moved hint stands against.
+        store, _, project = deleted
+
+        subprocess.run(
+            ("git", "-C", str(store), "worktree", "prune"),
+            check=True,
+            capture_output=True,
+        )
+        remove_object_store(HostExecutor(), HostFileSystem(), store, project)
+
+        assert not store.exists()
 
 
 class TestGitIsReadOnlyWhereItClaims:

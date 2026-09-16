@@ -15,7 +15,7 @@ from cjdev.application.report_status import ReportStatus
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.infra.executor.host import HostExecutor
-from cjdev.infra.git import provision_object_store, read_checkouts
+from cjdev.infra.git import provision_object_store, read_store
 from conftest import make_upstream
 
 pytestmark = pytest.mark.usefixtures("git_available")
@@ -61,7 +61,7 @@ def report(manifest: Manifest) -> ReportStatus:
     return ReportStatus(
         manifest=manifest,
         executor=HostExecutor(),
-        read_checkouts=read_checkouts,
+        read_store=read_store,
     )
 
 
@@ -285,6 +285,246 @@ class TestOneBrokenProjectDoesNotHideTheRest:
         status = report(manifest).perform(broken, cwd=broken)
 
         assert [c.project for c in status.branch_sets[0].checkouts] == ["alpha"]
+
+
+class TestAStaleRegistration:
+    """A worktree whose directory was removed by hand leaves a registration
+    git still keeps (`prunable`), and one it refuses to enter.
+
+    Reading it as a checkout would fail the project's whole read for want of
+    one stale registration; dropping it silently would leave the report
+    agreeing with a worktree it cannot see. So it is neither: it is named on
+    its own, with the command that clears it."""
+
+    @pytest.fixture
+    def stale(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        subprocess.run(["rm", "-rf", str(path.parent)], check=True)
+        return workspace
+
+    def test_the_project_still_reads_as_healthy(self, manifest: Manifest, stale: Path):
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert store.error is None
+        assert store.provisioned
+
+    def test_the_registration_is_reported_where_it_belongs(
+        self, manifest: Manifest, stale: Path
+    ):
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.path.name == "alpha"  # the branch-set dir removed above
+
+    def test_the_remedy_is_the_full_command_against_the_store(
+        self, manifest: Manifest, stale: Path
+    ):
+        # Runnable as printed; the why is recorded on `_stale_registration`.
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(stale).object_store('alpha')} worktree prune"
+        )
+
+    def test_the_moved_case_hint_carries_the_store_too(
+        self, manifest: Manifest, stale: Path
+    ):
+        # The repair inside the fact is the same command for the same
+        # reason: a bare `git worktree repair <its new path>` runs on
+        # whatever repository the reader stands in, and does not find a
+        # moved worktree even from the store - the new location must be
+        # passed explicitly, and the store spelled out.
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the directory is gone from it (if the worktree was moved rather "
+            "than deleted, "
+            f"`git -C {WorkspaceLayout(stale).object_store('alpha')} "
+            "worktree repair <its new path>` reconnects it first)"
+        )
+
+    def test_no_branch_set_is_reported_for_it(self, manifest: Manifest, stale: Path):
+        # A branch-set row would describe a directory that is not there;
+        # the registration belongs to the project, not to the set.
+        status = report(manifest).perform(stale, cwd=stale)
+
+        assert status.branch_sets == ()
+        assert status.active is None
+
+    def test_a_live_sibling_checkout_is_unaffected(
+        self, manifest: Manifest, stale: Path
+    ):
+        # The queries that would enter the stale worktree are skipped, not
+        # the ones for the rest of the store. The sibling sits at another
+        # path: the registration blocks only recreating over the stale one.
+        add_worktree(stale, "alpha", "other", "-b", "other", "upstream/main")
+
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert len(store.stale) == 1
+        assert [c.project for c in status.branch_sets[0].checkouts] == ["alpha"]
+
+    def test_a_stranger_worktree_is_not_reported_even_when_stale(
+        self, manifest: Manifest, workspace: Path, tmp_path: Path
+    ):
+        # `branch_sets_of` drops live checkouts that are not one directory
+        # under the root: this report describes the workspace, not everything
+        # git knows. The same rule applies to stale registrations, or a
+        # worktree linked off somewhere else would surface the moment it
+        # broke - with a prune recommended over something cjdev never laid out.
+        store = Path(WorkspaceLayout(workspace).object_store("alpha"))
+        outside = tmp_path / "outside" / "alpha"
+        git(
+            store,
+            "worktree",
+            "add",
+            "--quiet",
+            str(outside),
+            "-b",
+            "ext",
+            "upstream/main",
+        )
+        subprocess.run(["rm", "-rf", str(outside)], check=True)
+
+        status = report(manifest).perform(workspace, cwd=workspace)
+
+        (alpha,) = (s for s in status.stores if s.project == "alpha")
+        assert alpha.stale == ()
+
+
+class TestARegistrationWhoseDirectoryIsStillThere:
+    """`prunable` does not mean the directory is gone: it fires as readily
+    when only the registration broke - the checkout's `.git` file deleted,
+    say - while the directory, the work in it and all, is still there.
+
+    Calling that gone would send the reader to prune a live checkout, and
+    the report would contradict itself about a directory that exists. The
+    fact says what is actually wrong, and the remedy is repair - git's own
+    for a registration that stopped pointing at a checkout that exists."""
+
+    @pytest.fixture
+    def displaced(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        (path / ".git").unlink()
+        return workspace
+
+    def test_it_is_not_called_gone(self, manifest: Manifest, displaced: Path):
+        status = report(manifest).perform(displaced, cwd=displaced)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the checkout is still in the directory, but the registration "
+            "does not point at it"
+        )
+
+    def test_the_remedy_is_repair_not_prune(self, manifest: Manifest, displaced: Path):
+        status = report(manifest).perform(displaced, cwd=displaced)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(displaced).object_store('alpha')} "
+            f"worktree repair {displaced / 'main' / 'alpha'}"
+        )
+
+    @pytest.fixture
+    def displaced_and_locked(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        git(
+            Path(WorkspaceLayout(workspace).object_store("alpha")),
+            "worktree",
+            "lock",
+            str(path),
+        )
+        (path / ".git").unlink()
+        return workspace
+
+    def test_a_locked_one_is_reported_stale_not_entered(
+        self, manifest: Manifest, displaced_and_locked: Path
+    ):
+        # Of the deadness tests in `_dead`, only the `.git` one catches this
+        # entry. Read as live, the project dies inside the checkout with
+        # `not a git repository`.
+        status = report(manifest).perform(
+            displaced_and_locked, cwd=displaced_and_locked
+        )
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert store.error is None
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the checkout is still in the directory, but the registration "
+            "does not point at it, and the registration is locked"
+        )
+
+    def test_a_locked_one_is_repaired_like_the_unlocked_one(
+        self, manifest: Manifest, displaced_and_locked: Path
+    ):
+        # The same brokenness, the same remedy: repair reconnects under a
+        # lock - the lock survives it - where unlock + prune would take the
+        # live checkout with the registration.
+        status = report(manifest).perform(
+            displaced_and_locked, cwd=displaced_and_locked
+        )
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(displaced_and_locked).object_store('alpha')} "
+            f"worktree repair {displaced_and_locked / 'main' / 'alpha'}"
+        )
+
+
+class TestALockedAndMissingWorktree:
+    """A locked worktree whose directory is gone is dead for `_dead` but
+    invisible to `prunable` - the lock suppresses it (the why is recorded
+    on `Linked.locked`), so without the `is_dir` test the crash this fix is
+    about would survive for exactly the entries a user tried to protect.
+
+    It is reported stale with unlock + prune as the remedy; the fact
+    carries the repair the moved case needs first (why, see
+    `_stale_registration`)."""
+
+    @pytest.fixture
+    def locked_and_missing(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        git(
+            Path(WorkspaceLayout(workspace).object_store("alpha")),
+            "worktree",
+            "lock",
+            str(path),
+        )
+        subprocess.run(["rm", "-rf", str(path.parent)], check=True)
+        return workspace
+
+    def test_it_is_reported_stale_not_entered(
+        self, manifest: Manifest, locked_and_missing: Path
+    ):
+        status = report(manifest).perform(locked_and_missing, cwd=locked_and_missing)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert store.error is None
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the directory is gone from it, and the registration is locked "
+            "(if the worktree was moved rather than deleted, "
+            f"`git -C {WorkspaceLayout(locked_and_missing).object_store('alpha')} "
+            "worktree repair <its new path>` reconnects it first)"
+        )
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(locked_and_missing).object_store('alpha')} "
+            f"worktree unlock {locked_and_missing / 'main' / 'alpha'} && "
+            f"git -C {WorkspaceLayout(locked_and_missing).object_store('alpha')} "
+            "worktree prune"
+        )
 
 
 def _only(status):

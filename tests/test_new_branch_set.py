@@ -448,6 +448,30 @@ class TestEndToEnd:
         assert again.ok
         assert [row.action for row in again.rows] == [Action.PRESENT] * 2
 
+    def test_a_stale_registration_is_not_read_as_a_live_checkout(
+        self, workspace: Path, manifest: Manifest
+    ):
+        # A registration whose directory was removed by hand still holds the
+        # branch git checked out into it, and it is the only reader-awareness
+        # test away from a silent skip: reading it as a checkout made
+        # `branch new` report the set as present over a directory that is
+        # not there and never run `worktree add`. It is dead; the add that
+        # recreates over it fails loudly instead - git refuses a missing but
+        # already registered path - and the run reports the failure.
+        use_case = branch_set(manifest)
+        use_case.perform(workspace, "fix/ice", jobs=2)
+        subprocess.run(["rm", "-rf", str(workspace / "fix-ice" / "alpha")], check=True)
+
+        again = use_case.perform(workspace, "fix/ice", jobs=2)
+
+        assert not again.ok
+        (row,) = (row for row in again.rows if row.project == "alpha")
+        assert row.action is Action.ADOPT
+        assert row.outcome is Outcome.FAILED
+        # The live sibling is decided from, as always.
+        (beta,) = (row for row in again.rows if row.project == "beta")
+        assert beta.outcome is Outcome.DONE
+
     def test_a_branch_left_from_an_earlier_set_is_adopted_with_its_commits(
         self, workspace: Path, manifest: Manifest
     ):
