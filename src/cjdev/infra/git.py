@@ -290,16 +290,24 @@ def remove_object_store(
 
     Refuses while worktrees are still registered under the store, stale
     registrations included - why, see `worktrees`. The refusal names the way
-    out: `worktree prune` for the registrations whose directory is gone, run
-    by the reader once satisfied they are really abandoned - nothing is
-    pruned behind their back.
+    out: reconnect a moved checkout first, then `worktree prune` for the
+    registrations whose directory is gone, run by the reader once satisfied
+    they are really abandoned - nothing is pruned behind their back.
     """
     linked = Git(executor).worktrees(store)
     if linked:
+        # The moved hint travels with the prune: the registered path cannot
+        # tell deleted from moved (why, see `worktrees`), and this refusal is
+        # where the reader decides - a bare prune here is the two-step path
+        # to destroying a moved checkout's only copy of its newest commits.
         raise PreconditionError(
             f"{project.name} still has {len(linked)} worktree(s) registered: "
-            f"{', '.join(linked)}. Prune the registrations whose directory is "
-            f"gone with `git -C {store} worktree prune` (a locked one needs "
+            f"{', '.join(linked)}. If one of them was moved rather than "
+            f"deleted, `git -C {store} worktree repair <its new path>` "
+            f"reconnects it first - prune would sever the moved checkout "
+            f"from this store, where its newest commits exist. Then prune "
+            f"the registrations whose directory is gone with "
+            f"`git -C {store} worktree prune` (a locked one needs "
             f"`git -C {store} worktree unlock <path>` first) and remove one "
             f"still on disk with `git -C {store} worktree remove <path>`."
         )

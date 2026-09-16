@@ -5,6 +5,7 @@ builds rather than from a fake - it catches which refs a bare `init` + `fetch`
 actually produces, and where `remote set-head` puts `HEAD`.
 """
 
+import shutil
 import subprocess
 from pathlib import Path, PurePath
 
@@ -259,9 +260,10 @@ class TestDroppingAProjectWithRegistrationsLeft:
     `Git.worktrees`, the guard this behavior reads."""
 
     @pytest.fixture
-    def moved_away(
+    def registered_worktree(
         self, tmp_path: Path, manifest: Manifest
     ) -> tuple[Path, Path, Project]:
+        """A store with one live checkout, before anything breaks it."""
         root = tmp_path / "ws"
         layout = WorkspaceLayout(root)
         Path(layout.bare_dir).mkdir(parents=True)
@@ -285,11 +287,29 @@ class TestDroppingAProjectWithRegistrationsLeft:
             check=True,
             capture_output=True,
         )
+        return store, worktree, project
+
+    @pytest.fixture
+    def moved_away(
+        self, registered_worktree: tuple[Path, Path, Project]
+    ) -> tuple[Path, Path, Project]:
+        store, worktree, project = registered_worktree
         # The checkout is alive at its new path, the registration still
         # names the old one: exactly the state an on-disk test would call
         # "nothing left to break".
         moved = worktree.parent / (worktree.name + "-moved")
         worktree.rename(moved)
+        return store, worktree, project
+
+    @pytest.fixture
+    def deleted(
+        self, registered_worktree: tuple[Path, Path, Project]
+    ) -> tuple[Path, Path, Project]:
+        store, worktree, project = registered_worktree
+        # The checkout was removed by hand, the registration is all that is
+        # left: the only case where a prune is the right first move - a
+        # moved checkout (above) has to be repaired first.
+        shutil.rmtree(worktree)
         return store, worktree, project
 
     def test_a_stale_registration_still_blocks_the_drop(
@@ -302,15 +322,22 @@ class TestDroppingAProjectWithRegistrationsLeft:
 
         assert str(registered_path) in str(caught.value)
         assert "worktree prune" in str(caught.value)
+        # The moved hint travels with the prune: without it the refusal
+        # names exactly the command that would destroy this checkout's
+        # newest commits two steps later.
+        assert "worktree repair" in str(caught.value)
         # Nothing dropped while the reader is being asked.
         assert store.exists()
 
     def test_pruning_the_registrations_clears_the_refusal(
-        self, moved_away: tuple[Path, Path, Project]
+        self, deleted: tuple[Path, Path, Project]
     ):
         # The refusal names the command that unblocks it; running it - the
-        # reader's decision, not cjdev's - lets the drop go through.
-        store, _, project = moved_away
+        # reader's decision, not cjdev's - lets the drop go through. The
+        # worktree here was deleted, the case prune exists for; pinning the
+        # prune to the moved fixture instead would assert the very loss the
+        # moved hint stands against.
+        store, _, project = deleted
 
         subprocess.run(
             ("git", "-C", str(store), "worktree", "prune"),
