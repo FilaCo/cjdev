@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from typing import final
 
+from cjdev.domain.branch import check_branch_name
 from cjdev.errors import UsageError
 
 CJDEV_DIR = ".cjdev"
@@ -58,25 +59,9 @@ def flatten_branch_set(name: str) -> str:
     and why creating a branch set must refuse a name that collides with an
     existing one.
     """
-    return _checked_branch_set(name).replace("/", "-")
-
-
-def _checked_branch_set(name: str) -> str:
-    if not name:
-        raise UsageError("branch set name must not be empty.")
-    if name.startswith("/") or name.endswith("/"):
-        raise UsageError(
-            f"branch set name must not start or end with '/', got {name!r}."
-        )
-    for component in name.split("/"):
-        # git's own rule (`git check-ref-format`), which also happens to
-        # exclude '.', '..' and anything that could escape the workspace root.
-        if not component or component.startswith("."):
-            raise UsageError(
-                f"branch set name components must be non-empty and must not "
-                f"start with '.', got {name!r}."
-            )
-    return name
+    # git's own rules, which also happen to exclude '.', '..' and anything
+    # else that could escape the workspace root.
+    return check_branch_name(name).replace("/", "-")
 
 
 @final

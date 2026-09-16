@@ -9,7 +9,7 @@ from cjdev.errors import InputRequiredError
 from ._console import DETAIL, OK, console, diagnostics
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
 from ._output import begin
-from ._progress import ConsoleProgress
+from ._progress import LIVE_AFTER, ConsoleProgress
 from ._render import render_report
 
 cli = Typer(cls=CjdevGroup)
@@ -41,7 +41,13 @@ def init(
 
     # No per-unit fallback lines under --dry-run: nothing is happening, so
     # there is no progress to keep a pipe informed about.
-    progress = ConsoleProgress(console, fallback=None if dry_run else diagnostics)
+    progress = ConsoleProgress(
+        console,
+        fallback=None if dry_run else diagnostics,
+        # A workspace that already matches the answers finishes at once, and
+        # only a run with fetching to do is worth drawing for.
+        delay=LIVE_AFTER,
+    )
     ctx.obj.emit = progress.emit
     ctx.obj.report_step = progress.step
     if not dry_run:

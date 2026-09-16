@@ -16,11 +16,16 @@ from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
 from cjdev.cli._output import SCHEMA
 from cjdev.domain.layout import WorkspaceLayout
+from cjdev.domain.manifest import Project, ProjectRole
 from cjdev.errors import (
     InputRequiredError,
     PreconditionError,
+    UsageError,
 )
+from cjdev.infra.executor.host import HostExecutor
+from cjdev.infra.git import provision_object_store
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
+from conftest import make_upstream
 
 runner = CliRunner()
 
@@ -43,7 +48,7 @@ def test_help_lists_commands():
     result = runner.invoke(cli, ["-h"])
 
     assert result.exit_code == 0
-    for command in ("init", "status"):
+    for command in ("branch", "init", "status"):
         assert command in result.output
 
 
@@ -297,3 +302,100 @@ class TestTheEnvelope:
             main()
 
         assert "try: run it from a terminal" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("git_available")
+class TestBranchNew:
+    @pytest.fixture
+    def provisioned(self, tmp_path: Path) -> Path:
+        """A workspace holding one project of the bundled manifest.
+
+        Filled from a `file://` upstream: `branch new` uses no network, so the
+        URL a store came from is none of its business.
+        """
+        root = tmp_path / "ws"
+        layout = WorkspaceLayout(root)
+        Path(layout.bare_dir).mkdir(parents=True)
+        provision_object_store(
+            HostExecutor(),
+            Path(layout.object_store("cangjie_compiler")),
+            Project(
+                name="cangjie_compiler",
+                role=ProjectRole.BUILDABLE,
+                upstream_url=make_upstream(tmp_path / "upstream"),
+                default_branch="main",
+            ),
+        )
+        return root
+
+    def test_it_refuses_outside_a_workspace(self, tmp_path: Path):
+        # Act
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(tmp_path)])
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)
+        assert PreconditionError.exit_code == 3  # preconditions unmet
+
+    def test_a_workspace_with_no_projects_names_the_fix(self, empty_workspace: Path):
+        # Act
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(empty_workspace)])
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)
+        assert "cjdev init" in (result.exception.remedy or "")
+
+    def test_a_name_git_would_refuse_creates_nothing(self, provisioned: Path):
+        # Act
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/../escape", str(provisioned)]
+        )
+
+        # Assert
+        assert isinstance(result.exception, UsageError)
+        assert UsageError.exit_code == 2  # the invocation itself is wrong
+        assert sorted(p.name for p in provisioned.iterdir()) == [".cjdev"]
+
+    def test_it_runs_with_no_terminal_to_ask_at(
+        self, provisioned: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Arrange: the whole input is the name, so unlike `init` there is no
+        # question this could fail to ask.
+        monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
+
+        # Act
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert (provisioned / "fix-ice" / "cangjie_compiler" / "README").is_file()
+
+    def test_the_report_is_available_to_something_that_is_not_a_person(
+        self, provisioned: Path
+    ):
+        # Act
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", str(provisioned), "--json"]
+        )
+
+        # Assert
+        document = json.loads(result.stdout)
+        assert document["schema"] == SCHEMA
+        assert document["ok"]
+        assert document["data"]["branch"] == "fix/ice"
+        assert document["data"]["projects"] == [
+            {
+                "name": "cangjie_compiler",
+                "path": str(provisioned / "fix-ice" / "cangjie_compiler"),
+                "outcome": "created",
+                "error": None,
+            }
+        ]
+
+    def test_what_it_ran_is_in_the_workspace_log(self, provisioned: Path):
+        # Act
+        runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+
+        # Assert: the log is always on, because "what did that actually run?"
+        # is only ever asked afterwards.
+        log = Path(WorkspaceLayout(provisioned).command_log).read_text()
+        assert "worktree add" in log

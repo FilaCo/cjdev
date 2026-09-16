@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import final
 
 from cjdev.application.init_workspace import InitWorkspace
+from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.report_status import ReportStatus
 from cjdev.domain.manifest import Manifest
@@ -19,6 +20,9 @@ from cjdev.infra.config import load_bundled_manifest, render_workspace_config
 from cjdev.infra.executor import build_executor
 from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
+    add_checkout,
+    drop_checkout,
+    inspect_checkout,
     provision_object_store,
     read_checkouts,
     remove_object_store,
@@ -109,6 +113,21 @@ class Container:
             provision=provision_object_store,
             remove=remove_object_store,
             render_config=render_workspace_config,
+        )
+
+    def new_branch_set(
+        self, *, dry_run: bool = False, verbose: bool = False
+    ) -> NewBranchSet:
+        """No `Prompt`: the whole input is the name, and nothing of the
+        user's is at stake, so there is no question to ask and nothing to
+        refuse for the lack of a terminal."""
+        return NewBranchSet(
+            manifest=self.manifest,
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            file_system=self.file_system(dry_run=dry_run),
+            inspect=inspect_checkout,
+            add=add_checkout,
+            drop=drop_checkout,
         )
 
     def report_status(self, *, verbose: bool = False) -> ReportStatus:

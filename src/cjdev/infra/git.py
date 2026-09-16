@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import final
 
+from cjdev.application.new_branch_set import Action, Enrolment, Held, Probe
 from cjdev.application.ports import Command, Executor, FileSystem
 from cjdev.domain.manifest import Project
 from cjdev.domain.state import Checkout, Tracking
@@ -148,6 +149,62 @@ class Git:
             what="detecting the default branch",
         )
 
+    def has_branch(self, store: Path, branch: str) -> bool:
+        return (
+            self._try(
+                ("show-ref", "--verify", "--quiet", f"refs/heads/{branch}"),
+                cwd=store,
+                what=f"looking for {branch}",
+            )
+            is not None
+        )
+
+    def default_branch_ref(self, store: Path, remote: str) -> str | None:
+        """The ref `init` recorded with `remote set-head`, or None. A ref
+        rather than a name, because `worktree add` starts from it."""
+        recorded = self._try(
+            ("symbolic-ref", f"refs/remotes/{remote}/HEAD"),
+            cwd=store,
+            what="reading the default branch",
+        )
+        return recorded.strip() if recorded else None
+
+    def add_worktree(
+        self, store: Path, worktree: Path, branch: str, base: str | None
+    ) -> None:
+        """One checkout, on a new branch or on one that already exists.
+
+        `--no-track`: the base is a remote-tracking ref of `upstream`, and
+        tracking it would aim every later push at a read-only remote.
+        """
+        args = (
+            ("worktree", "add", "--no-track", "-b", branch, str(worktree), base)
+            if base is not None
+            else ("worktree", "add", str(worktree), branch)
+        )
+        self._run(args, cwd=store, what=f"checking out {branch}")
+
+    def remove_worktree(self, store: Path, worktree: Path) -> None:
+        # Unchecked: after a failure there is often nothing to remove.
+        # `--force` because git refuses a half-written checkout, which is
+        # exactly the one this run has to take back.
+        self._run(
+            ("worktree", "remove", "--force", str(worktree)),
+            cwd=store,
+            check=False,
+            what="removing the worktree",
+        )
+
+    def delete_branch(self, store: Path, branch: str) -> None:
+        # Unchecked for the same reason: `worktree add -b` may have failed
+        # before the branch existed, or after.
+        self._run(
+            ("branch", "-D", branch),
+            cwd=store,
+            check=False,
+            what=f"deleting {branch}",
+        )
+
     def _run(
         self,
         args: tuple[str, ...],
@@ -155,9 +212,11 @@ class Git:
         cwd: Path,
         mutates: bool = True,
         what: str = "",
+        check: bool = True,
     ) -> str:
         return self._executor.run(
-            Command(argv=("git", *args), cwd=cwd, mutates=mutates, what=what)
+            Command(argv=("git", *args), cwd=cwd, mutates=mutates, what=what),
+            check=check,
         ).stdout
 
     def _try(self, args: tuple[str, ...], *, cwd: Path, what: str = "") -> str | None:
@@ -216,6 +275,63 @@ def remove_object_store(
             f"{', '.join(linked)}. Remove those first."
         )
     fs.remove(store)
+
+
+def inspect_checkout(executor: Executor, probe: Probe) -> Held:
+    """Everything the decision needs from one project's object store.
+
+    Both sides of the comparison are resolved: git reports a worktree
+    physically, so one reached through a symlink would look like a stranger's.
+    """
+    git = Git(executor)
+    store = Path(probe.store)
+    worktree = Path(probe.worktree).resolve()
+    linked = {
+        Path(entry.path).resolve(): entry for entry in git.linked_worktrees(store)
+    }
+    here = linked.get(worktree)
+    return Held(
+        project=probe.project,
+        base=git.default_branch_ref(store, UPSTREAM),
+        branch_exists=git.has_branch(store, probe.branch),
+        checked_out=here.branch if here is not None else None,
+        elsewhere=next(
+            (
+                path
+                for path, entry in linked.items()
+                if entry.branch == probe.branch and path != worktree
+            ),
+            None,
+        ),
+        occupied=here is None and _holds_something(worktree),
+    )
+
+
+def add_checkout(executor: Executor, enrolment: Enrolment) -> None:
+    Git(executor).add_worktree(
+        Path(enrolment.store),
+        Path(enrolment.worktree),
+        enrolment.branch,
+        enrolment.base,
+    )
+
+
+def drop_checkout(executor: Executor, enrolment: Enrolment) -> None:
+    """Take back one checkout this run created. The branch goes only if this
+    run created it too: an adopted one outlives the branch set."""
+    git = Git(executor)
+    store = Path(enrolment.store)
+    git.remove_worktree(store, Path(enrolment.worktree))
+    if enrolment.action is Action.CREATE:
+        git.delete_branch(store, enrolment.branch)
+
+
+def _holds_something(path: Path) -> bool:
+    """git creates the parent directories itself and accepts an existing empty
+    one, so only a path with something in it is in the way."""
+    if not path.exists():
+        return False
+    return not path.is_dir() or any(path.iterdir())
 
 
 def read_checkouts(
