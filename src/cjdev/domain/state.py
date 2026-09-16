@@ -91,8 +91,8 @@ class Store:
     """Why this project could not be read. Set on one project rather than
     raised, because five readable projects are still worth printing."""
     stale: tuple[StaleRegistration, ...] = ()
-    """Registrations git still keeps for worktrees it can no longer enter;
-    why they are reported beside the checkouts, see `StaleRegistration`."""
+    """This store's stale registrations; what they are and why they are
+    reported beside the checkouts, see `StaleRegistration`."""
 
 
 @final

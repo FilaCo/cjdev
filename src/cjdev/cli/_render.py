@@ -155,11 +155,9 @@ def render_status(console: Console, status: WorkspaceStatus) -> None:
 
 
 def _render_stale(console: Console, status: WorkspaceStatus) -> None:
-    """Registrations git still keeps for worktrees it can no longer enter.
-
-    After the tables rather than inside one: the placement is the report's
-    half of the decision recorded on `StaleRegistration` - what it is and
-    why it carries a remedy is said there, not here.
+    """The stale registrations, drawn after the tables rather than inside
+    one: what they are and why they carry a remedy is recorded on
+    `StaleRegistration`, and the placement is all the rendering adds.
     """
     for store in status.stores:
         if not store.stale:

@@ -47,9 +47,8 @@ class Linked:
     readily for a checkout whose `.git` file was clobbered while the
     directory - the work in it and all - is still there."""
     locked: bool = False
-    """Explicitly locked. A locked worktree is never marked `prunable` - not
-    even when its directory is gone; a lock means "never prunable". So
-    `prunable` alone is not a complete deadness predicate; `_dead` is."""
+    """Explicitly locked. How that bears on `prunable`, and why `_dead`
+    needs more than `prunable`, see `_dead`."""
 
 
 @final
@@ -115,10 +114,8 @@ class Git:
         registered path cannot tell deleted from moved: a moved checkout's
         newest commits exist only in this store, its `.git` file still points
         here, and dropping the store destroys them without a word. So the
-        guard counts registrations - the very thing a prune would act on -
-        rather than guessing which ones stopped mattering, and names the
-        prune in its refusal: running it stays with the reader. `cjdev
-        status` reports what each stale registration is and what clears it.
+        guard counts registrations - the very thing a prune would act
+        on - rather than guessing which ones stopped mattering.
         """
         return tuple(linked.path for linked in self.linked_worktrees(store))
 
@@ -292,11 +289,10 @@ def remove_object_store(
     """Drop a project from the workspace, fetched objects and all.
 
     Refuses while worktrees are still registered under the store, stale
-    registrations included: the registered path cannot tell deleted from
-    moved, and deleting the store under a moved checkout destroys the
-    commits that exist only here. The refusal names `worktree prune` - the
-    way the reader clears the registrations once satisfied they are really
-    abandoned - so nothing is pruned behind their back.
+    registrations included - why, see `worktrees`. The refusal names the way
+    out: `worktree prune` for the registrations whose directory is gone, run
+    by the reader once satisfied they are really abandoned - nothing is
+    pruned behind their back.
     """
     linked = Git(executor).worktrees(store)
     if linked:
@@ -445,13 +441,11 @@ def _stale_registration(store: Path, entry: Linked) -> StaleRegistration:
         return " ".join(("git", "-C", str(store), "worktree", *args))
 
     def moved_hint() -> str:
-        # The repair carries the store, like every other command here: a
-        # bare `git worktree repair` runs on whatever repository the reader
-        # stands in - `fatal: not a git repository` from the workspace root -
-        # and does not find a moved worktree even inside the store (verified
-        # against git 2.55: the entry stays prunable; the new location must
-        # be passed explicitly). Only the reader knows the new path, so
-        # `<its new path>` stays theirs to fill in.
+        # The one case the full-form rule does not settle: a bare `git
+        # worktree repair` does not find a moved worktree even inside the
+        # store (verified against git 2.55 - the entry stays prunable), so
+        # the new location must be passed explicitly. Only the reader knows
+        # that path; `<its new path>` stays theirs to fill in.
         return f"`{command('repair', '<its new path>')}` reconnects it first"
 
     moved = f"if the worktree was moved rather than deleted, {moved_hint()}"
