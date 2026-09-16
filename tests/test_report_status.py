@@ -321,12 +321,7 @@ class TestAStaleRegistration:
     def test_the_remedy_is_the_full_command_against_the_store(
         self, manifest: Manifest, stale: Path
     ):
-        # `git worktree prune` operates on the repository it runs in, and the
-        # store lives at `<root>/.cjdev/bare/<project>.git`: from nowhere the
-        # reader stands does a bare `git worktree prune` reach it. The
-        # workspace root is marked by `.cjdev/`, not `.git`, so a branch-set
-        # directory is not a repository either - and a sibling project's
-        # store prunes the wrong thing, exit 0.
+        # Runnable as printed; the why is recorded on `_stale_registration`.
         status = report(manifest).perform(stale, cwd=stale)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
@@ -455,10 +450,9 @@ class TestARegistrationWhoseDirectoryIsStillThere:
     def test_a_locked_one_is_reported_stale_not_entered(
         self, manifest: Manifest, displaced_and_locked: Path
     ):
-        # git does not mark it `prunable` - a lock means "never prunable" -
-        # and the directory is there, so of the deadness tests only the
-        # `.git` one catches it. Read as live, the project dies inside the
-        # checkout with `not a git repository`.
+        # Of the deadness tests in `_dead`, only the `.git` one catches this
+        # entry. Read as live, the project dies inside the checkout with
+        # `not a git repository`.
         status = report(manifest).perform(
             displaced_and_locked, cwd=displaced_and_locked
         )
@@ -490,16 +484,14 @@ class TestARegistrationWhoseDirectoryIsStillThere:
 
 
 class TestALockedAndMissingWorktree:
-    """A lock means "never prunable": git does not mark a locked worktree
-    `prunable` even when its directory is gone, so a `prunable`-only test
-    would enter it as a checkout and the crash this fix is about would
-    survive for exactly the entries a user tried to protect.
+    """A locked worktree whose directory is gone is dead for `_dead` but
+    invisible to `prunable` - the lock suppresses it (the why is recorded
+    on `Linked.locked`), so without the `is_dir` test the crash this fix is
+    about would survive for exactly the entries a user tried to protect.
 
-    It is reported stale like any other, with unlock + prune as the remedy -
-    `unlock` accepts a missing directory, so the pair runs as printed. The
-    fact carries the repair the moved case needs first: `unlock && prune`
-    severs a checkout that was moved rather than deleted, and a missing
-    registered path cannot tell the two apart."""
+    It is reported stale with unlock + prune as the remedy; the fact
+    carries the repair the moved case needs first (why, see
+    `_stale_registration`)."""
 
     @pytest.fixture
     def locked_and_missing(self, workspace: Path) -> Path:

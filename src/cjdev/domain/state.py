@@ -78,12 +78,8 @@ class StaleRegistration:
     (`repair` reconnects the latter, a prune under it would destroy a live
     checkout). The fact says which case this is."""
     remedy: str
-    """The command that fixes it, runnable as printed.
-
-    `git worktree` operates on the repository it runs in, and the store is
-    `<root>/.cjdev/bare/<project>.git` - reachable from nowhere the reader
-    stands, and reconstructible by a `--json` consumer only if the command
-    carries it. So the remedy is the full `git -C <store> ...` form."""
+    """The command that fixes it, runnable as printed - the full
+    `git -C <store>` form (why, see `_stale_registration`)."""
 
 
 @final
@@ -95,14 +91,8 @@ class Store:
     """Why this project could not be read. Set on one project rather than
     raised, because five readable projects are still worth printing."""
     stale: tuple[StaleRegistration, ...] = ()
-    """Registrations git still keeps for worktrees it can no longer enter.
-
-    Not an error and not a checkout: the project read fine, nothing is
-    corrupted, and a row in a branch-set table would describe a worktree git
-    refuses to query. Each is named with its fact and a runnable remedy -
-    and no reader enters one again, `branch new` included: reading a dead
-    registration as a checkout would either skip the project or refuse over
-    a path that is not there."""
+    """Registrations git still keeps for worktrees it can no longer enter;
+    why they are reported beside the checkouts, see `StaleRegistration`."""
 
 
 @final

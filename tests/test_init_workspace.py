@@ -255,12 +255,8 @@ class TestProvisioning:
 
 class TestDroppingAProjectWithRegistrationsLeft:
     """`remove_object_store` refuses while the store still has worktree
-    registrations, stale ones included.
-
-    A missing registered path cannot tell deleted from moved: a moved
-    checkout's newest commits exist only in the store its `.git` file
-    points at, so the guard counts registrations - the thing a prune acts
-    on - and names the prune, instead of deciding for the reader."""
+    registrations, stale ones included - the why is recorded on
+    `Git.worktrees`, the guard this behavior reads."""
 
     @pytest.fixture
     def moved_away(

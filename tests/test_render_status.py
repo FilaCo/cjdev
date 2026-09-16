@@ -142,9 +142,8 @@ def test_a_project_the_workspace_does_not_hold_is_not_named_per_branch_set():
 
 class TestAStaleRegistration:
     """A registration for a worktree git can no longer enter is named with
-    its fact and its remedy, outside the tables - it belongs to the project,
-    and a row in a branch-set table would describe a worktree git refuses to
-    query."""
+    its fact and its remedy, outside the tables - the why is recorded on
+    `StaleRegistration`; the tests here pin what the report shows."""
 
     @staticmethod
     def stale() -> StaleRegistration:

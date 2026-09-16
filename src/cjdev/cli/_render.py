@@ -157,13 +157,9 @@ def render_status(console: Console, status: WorkspaceStatus) -> None:
 def _render_stale(console: Console, status: WorkspaceStatus) -> None:
     """Registrations git still keeps for worktrees it can no longer enter.
 
-    After the tables rather than inside one: a stale registration belongs to
-    the project, not to any branch set - it has no branch, no HEAD worth
-    reading back, and a row in a branch-set table would describe a worktree
-    git refuses to query. Named with its fact and its remedy, because the
-    report is otherwise one the reader cannot act on - and the remedy is
-    runnable as printed: `git worktree` operates on the repository it runs
-    in, and the store it must run against is nowhere the reader stands.
+    After the tables rather than inside one: the placement is the report's
+    half of the decision recorded on `StaleRegistration` - what it is and
+    why it carries a remedy is said there, not here.
     """
     for store in status.stores:
         if not store.stale:
