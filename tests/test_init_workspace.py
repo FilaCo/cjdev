@@ -18,7 +18,7 @@ from cjdev.application.init_workspace import (
 from cjdev.application.ports import Command
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
-from cjdev.errors import UsageError
+from cjdev.errors import PreconditionError, UsageError
 from cjdev.infra.config import render_workspace_config
 from cjdev.infra.executor import build_executor
 from cjdev.infra.executor.host import HostExecutor
@@ -251,6 +251,79 @@ class TestProvisioning:
             provision_object_store(HostExecutor(), store, project)
 
         assert "does-not-exist" in str(caught.value)
+
+
+class TestDroppingAProjectWithRegistrationsLeft:
+    """`remove_object_store` refuses while the store still has worktree
+    registrations, stale ones included.
+
+    A missing registered path cannot tell deleted from moved: a moved
+    checkout's newest commits exist only in the store its `.git` file
+    points at, so the guard counts registrations - the thing a prune acts
+    on - and names the prune, instead of deciding for the reader."""
+
+    @pytest.fixture
+    def moved_away(
+        self, tmp_path: Path, manifest: Manifest
+    ) -> tuple[Path, Path, Project]:
+        root = tmp_path / "ws"
+        layout = WorkspaceLayout(root)
+        Path(layout.bare_dir).mkdir(parents=True)
+        project = manifest.projects[0]
+        store = Path(layout.object_store(project.name))
+        provision_object_store(HostExecutor(), store, project)
+        worktree = root / "main" / project.name
+        subprocess.run(
+            (
+                "git",
+                "-C",
+                str(store),
+                "worktree",
+                "add",
+                "--quiet",
+                str(worktree),
+                "-b",
+                "main",
+                "upstream/main",
+            ),
+            check=True,
+            capture_output=True,
+        )
+        # The checkout is alive at its new path, the registration still
+        # names the old one: exactly the state an on-disk test would call
+        # "nothing left to break".
+        moved = worktree.parent / (worktree.name + "-moved")
+        worktree.rename(moved)
+        return store, worktree, project
+
+    def test_a_stale_registration_still_blocks_the_drop(
+        self, moved_away: tuple[Path, Path, Project]
+    ):
+        store, registered_path, project = moved_away
+
+        with pytest.raises(PreconditionError) as caught:
+            remove_object_store(HostExecutor(), HostFileSystem(), store, project)
+
+        assert str(registered_path) in str(caught.value)
+        assert "worktree prune" in str(caught.value)
+        # Nothing dropped while the reader is being asked.
+        assert store.exists()
+
+    def test_pruning_the_registrations_clears_the_refusal(
+        self, moved_away: tuple[Path, Path, Project]
+    ):
+        # The refusal names the command that unblocks it; running it - the
+        # reader's decision, not cjdev's - lets the drop go through.
+        store, _, project = moved_away
+
+        subprocess.run(
+            ("git", "-C", str(store), "worktree", "prune"),
+            check=True,
+            capture_output=True,
+        )
+        remove_object_store(HostExecutor(), HostFileSystem(), store, project)
+
+        assert not store.exists()
 
 
 class TestGitIsReadOnlyWhereItClaims:

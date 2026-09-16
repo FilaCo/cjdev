@@ -335,6 +335,25 @@ class TestAStaleRegistration:
             f"git -C {WorkspaceLayout(stale).object_store('alpha')} worktree prune"
         )
 
+    def test_the_moved_case_hint_carries_the_store_too(
+        self, manifest: Manifest, stale: Path
+    ):
+        # The repair inside the fact is the same command for the same
+        # reason: a bare `git worktree repair <its new path>` runs on
+        # whatever repository the reader stands in, and does not find a
+        # moved worktree even from the store - the new location must be
+        # passed explicitly, and the store spelled out.
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the directory is gone from it (if the worktree was moved rather "
+            "than deleted, "
+            f"`git -C {WorkspaceLayout(stale).object_store('alpha')} "
+            "worktree repair <its new path>` reconnects it first)"
+        )
+
     def test_no_branch_set_is_reported_for_it(self, manifest: Manifest, stale: Path):
         # A branch-set row would describe a directory that is not there;
         # the registration belongs to the project, not to the set.
@@ -421,6 +440,54 @@ class TestARegistrationWhoseDirectoryIsStillThere:
             f"worktree repair {displaced / 'main' / 'alpha'}"
         )
 
+    @pytest.fixture
+    def displaced_and_locked(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        git(
+            Path(WorkspaceLayout(workspace).object_store("alpha")),
+            "worktree",
+            "lock",
+            str(path),
+        )
+        (path / ".git").unlink()
+        return workspace
+
+    def test_a_locked_one_is_reported_stale_not_entered(
+        self, manifest: Manifest, displaced_and_locked: Path
+    ):
+        # git does not mark it `prunable` - a lock means "never prunable" -
+        # and the directory is there, so of the deadness tests only the
+        # `.git` one catches it. Read as live, the project dies inside the
+        # checkout with `not a git repository`.
+        status = report(manifest).perform(
+            displaced_and_locked, cwd=displaced_and_locked
+        )
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert store.error is None
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the checkout is still in the directory, but the registration "
+            "does not point at it, and the registration is locked"
+        )
+
+    def test_a_locked_one_is_repaired_like_the_unlocked_one(
+        self, manifest: Manifest, displaced_and_locked: Path
+    ):
+        # The same brokenness, the same remedy: repair reconnects under a
+        # lock - the lock survives it - where unlock + prune would take the
+        # live checkout with the registration.
+        status = report(manifest).perform(
+            displaced_and_locked, cwd=displaced_and_locked
+        )
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(displaced_and_locked).object_store('alpha')} "
+            f"worktree repair {displaced_and_locked / 'main' / 'alpha'}"
+        )
+
 
 class TestALockedAndMissingWorktree:
     """A lock means "never prunable": git does not mark a locked worktree
@@ -429,7 +496,10 @@ class TestALockedAndMissingWorktree:
     survive for exactly the entries a user tried to protect.
 
     It is reported stale like any other, with unlock + prune as the remedy -
-    `unlock` accepts a missing directory, so the pair runs as printed."""
+    `unlock` accepts a missing directory, so the pair runs as printed. The
+    fact carries the repair the moved case needs first: `unlock && prune`
+    severs a checkout that was moved rather than deleted, and a missing
+    registered path cannot tell the two apart."""
 
     @pytest.fixture
     def locked_and_missing(self, workspace: Path) -> Path:
@@ -452,7 +522,10 @@ class TestALockedAndMissingWorktree:
         assert store.error is None
         (registration,) = store.stale
         assert registration.fact == (
-            "the directory is gone from it, and the registration is locked"
+            "the directory is gone from it, and the registration is locked "
+            "(if the worktree was moved rather than deleted, "
+            f"`git -C {WorkspaceLayout(locked_and_missing).object_store('alpha')} "
+            "worktree repair <its new path>` reconnects it first)"
         )
         assert registration.remedy == (
             f"git -C {WorkspaceLayout(locked_and_missing).object_store('alpha')} "

@@ -109,21 +109,18 @@ class Git:
         return tuple(linked)
 
     def worktrees(self, store: Path) -> tuple[str, ...]:
-        """The linked worktrees that are still on disk.
+        """The worktrees registered under this store.
 
-        This is the guard `remove_object_store` reads, so the question it
-        answers is not "what does git still have a registration for" but "is
-        there a directory left that deleting this store would break": a
-        registration whose directory is gone leaves nothing to remove, and
-        dropping the store clears it the way a prune would - while a
-        directory still standing may hold a checkout with work in it, broken
-        registration or not.
+        This is the guard `remove_object_store` reads, and a missing
+        registered path cannot tell deleted from moved: a moved checkout's
+        newest commits exist only in this store, its `.git` file still points
+        here, and dropping the store destroys them without a word. So the
+        guard counts registrations - the very thing a prune would act on -
+        rather than guessing which ones stopped mattering, and names the
+        prune in its refusal: running it stays with the reader. `cjdev
+        status` reports what each stale registration is and what clears it.
         """
-        return tuple(
-            linked.path
-            for linked in self.linked_worktrees(store)
-            if Path(linked.path).is_dir()
-        )
+        return tuple(linked.path for linked in self.linked_worktrees(store))
 
     def is_dirty(self, worktree: Path) -> bool:
         """Tracked changes only.
@@ -294,19 +291,21 @@ def remove_object_store(
 ) -> None:
     """Drop a project from the workspace, fetched objects and all.
 
-    Refuses while worktrees are still on disk under the store: deleting it
-    under them leaves checkouts whose git metadata points at nothing, which
-    is worse than the state the user was trying to leave. Registrations
-    whose directory is gone are not an obstacle - there is nothing left to
-    break, and dropping the store clears them the way a prune would, so
-    `init` no longer asks the user to remove a worktree they already
-    removed.
+    Refuses while worktrees are still registered under the store, stale
+    registrations included: the registered path cannot tell deleted from
+    moved, and deleting the store under a moved checkout destroys the
+    commits that exist only here. The refusal names `worktree prune` - the
+    way the reader clears the registrations once satisfied they are really
+    abandoned - so nothing is pruned behind their back.
     """
     linked = Git(executor).worktrees(store)
     if linked:
         raise PreconditionError(
-            f"{project.name} still has {len(linked)} worktree(s): "
-            f"{', '.join(linked)}. Remove those first."
+            f"{project.name} still has {len(linked)} worktree(s) registered: "
+            f"{', '.join(linked)}. Prune the registrations whose directory is "
+            f"gone with `git -C {store} worktree prune` (a locked one needs "
+            f"`git -C {store} worktree unlock <path>` first) and remove one "
+            f"still on disk with `git -C {store} worktree remove <path>`."
         )
     fs.remove(store)
 
@@ -420,14 +419,20 @@ def read_store(executor: Executor, store: Path, project: str) -> StoreReading:
 def _dead(entry: Linked) -> bool:
     """Whether git will refuse to enter this worktree.
 
-    Two facts, either of which is enough. `prunable`: the registration is
+    Three facts, any of which is enough. `prunable`: the registration is
     broken - the directory may be gone, or may still hold the checkout with
     the work in it. Not a directory: a locked worktree is never marked
     `prunable` (a lock means "never prunable"), so a locked registration
-    whose directory was removed arrives here only through the `is_dir` test.
-    Either half alone misses entries.
+    whose directory was removed arrives here only through this test. No
+    `.git` file: the same lock also hides a checkout whose link file was
+    clobbered while the directory still stands - git calls that one live,
+    and entering it fails every query with `not a git repository`. Any one
+    test alone misses an entry the others catch.
     """
-    return entry.prunable is not None or not Path(entry.path).is_dir()
+    path = Path(entry.path)
+    return (
+        entry.prunable is not None or not path.is_dir() or not (path / ".git").is_file()
+    )
 
 
 def _stale_registration(store: Path, entry: Linked) -> StaleRegistration:
@@ -439,23 +444,47 @@ def _stale_registration(store: Path, entry: Linked) -> StaleRegistration:
     def command(*args: str) -> str:
         return " ".join(("git", "-C", str(store), "worktree", *args))
 
-    if entry.prunable is not None and Path(entry.path).is_dir():
-        # `prunable` also fires while the checkout - the work in it and all -
-        # is still in place and only the registration broke (its `.git` file
-        # clobbered, say). Calling that gone would send the reader to prune
-        # a live checkout; git's remedy here is repair.
+    def moved_hint() -> str:
+        # The repair carries the store, like every other command here: a
+        # bare `git worktree repair` runs on whatever repository the reader
+        # stands in - `fatal: not a git repository` from the workspace root -
+        # and does not find a moved worktree even inside the store (verified
+        # against git 2.55: the entry stays prunable; the new location must
+        # be passed explicitly). Only the reader knows the new path, so
+        # `<its new path>` stays theirs to fill in.
+        return f"`{command('repair', '<its new path>')}` reconnects it first"
+
+    moved = f"if the worktree was moved rather than deleted, {moved_hint()}"
+
+    if Path(entry.path).is_dir():
+        # The work in the directory is alive; only the registration broke -
+        # the `.git` link file clobbered, say. `prunable` marks that unless
+        # a lock suppresses it, so this branch takes the locked flavor too.
+        # Calling it gone would send the reader to prune a live checkout;
+        # git's remedy is repair, which reconnects just as well under a
+        # lock - the lock survives the repair.
+        fact = (
+            "the checkout is still in the directory, but the registration "
+            "does not point at it"
+        )
+        if entry.locked:
+            fact += ", and the registration is locked"
         return StaleRegistration(
             path=PurePath(entry.path),
-            fact=(
-                "the checkout is still in the directory, but the registration "
-                "does not point at it"
-            ),
+            fact=fact,
             remedy=command("repair", entry.path),
         )
     if entry.locked:
         return StaleRegistration(
             path=PurePath(entry.path),
-            fact="the directory is gone from it, and the registration is locked",
+            # A lock plus a missing directory is still ambiguous - deleted
+            # or moved - and `unlock && prune` would sever a moved checkout
+            # before it could be repaired, so the fact says what to
+            # reconnect first.
+            fact=(
+                "the directory is gone from it, and the registration is "
+                f"locked ({moved})"
+            ),
             # `unlock` accepts a missing directory, so the pair runs as is.
             remedy=f"{command('unlock', entry.path)} && {command('prune')}",
         )
@@ -464,8 +493,7 @@ def _stale_registration(store: Path, entry: Linked) -> StaleRegistration:
         # The registered path is gone. If the worktree was moved rather than
         # deleted, plain prune would sever it: repair at the new location
         # reconnects the checkout first, and prune then finds nothing broken.
-        fact="the directory is gone from it (if the worktree was moved rather "
-        "than deleted, `git worktree repair <its new path>` reconnects it first)",
+        fact=f"the directory is gone from it ({moved})",
         remedy=command("prune"),
     )
 
