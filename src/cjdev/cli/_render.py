@@ -155,26 +155,25 @@ def render_status(console: Console, status: WorkspaceStatus) -> None:
 
 
 def _render_stale(console: Console, status: WorkspaceStatus) -> None:
-    """Registrations git still keeps for worktrees that are gone.
+    """Registrations git still keeps for worktrees it can no longer enter.
 
     After the tables rather than inside one: a stale registration belongs to
     the project, not to any branch set - it has no branch, no HEAD worth
-    reading back and no directory to sit in, so a row in a branch-set table
-    would describe something that is not there. Named with its remedy, because
-    the report is otherwise one the reader cannot act on: git refuses both
-    `worktree add` on that path and every query that would enter it, and only
-    a prune clears the registration.
+    reading back, and a row in a branch-set table would describe a worktree
+    git refuses to query. Named with its fact and its remedy, because the
+    report is otherwise one the reader cannot act on - and the remedy is
+    runnable as printed: `git worktree` operates on the repository it runs
+    in, and the store it must run against is nowhere the reader stands.
     """
     for store in status.stores:
         if not store.stale:
             continue
         console.print()
         console.print(Text(f"~ {store.project}", style=CANCELLED))
-        for path in store.stale:
+        for stale in store.stale:
             console.print(
                 Text(
-                    f"  {path}: a worktree the directory is gone from; "
-                    "`git worktree prune` clears it",
+                    f"  {stale.path}: {stale.fact}; `{stale.remedy}`",
                     style=DETAIL,
                 ),
                 soft_wrap=True,
@@ -201,10 +200,11 @@ def status_payload(status: WorkspaceStatus) -> dict[str, object]:
                 "error": store.error,
                 "stale": [
                     {
-                        "path": str(path),
-                        "remedy": "git worktree prune",
+                        "path": str(stale.path),
+                        "fact": stale.fact,
+                        "remedy": stale.remedy,
                     }
-                    for path in store.stale
+                    for stale in store.stale
                 ],
             }
             for store in status.stores

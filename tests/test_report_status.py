@@ -293,8 +293,8 @@ class TestAStaleRegistration:
 
     Reading it as a checkout would fail the project's whole read for want of
     one stale registration; dropping it silently would leave the report
-    agreeing with a directory that is not there. So it is neither: it is
-    named on its own, with the prune that clears it."""
+    agreeing with a worktree it cannot see. So it is neither: it is named on
+    its own, with the command that clears it."""
 
     @pytest.fixture
     def stale(self, workspace: Path) -> Path:
@@ -315,8 +315,25 @@ class TestAStaleRegistration:
         status = report(manifest).perform(stale, cwd=stale)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
-        (path,) = store.stale
-        assert path.name == "alpha"  # the branch-set directory removed above
+        (registration,) = store.stale
+        assert registration.path.name == "alpha"  # the branch-set dir removed above
+
+    def test_the_remedy_is_the_full_command_against_the_store(
+        self, manifest: Manifest, stale: Path
+    ):
+        # `git worktree prune` operates on the repository it runs in, and the
+        # store lives at `<root>/.cjdev/bare/<project>.git`: from nowhere the
+        # reader stands does a bare `git worktree prune` reach it. The
+        # workspace root is marked by `.cjdev/`, not `.git`, so a branch-set
+        # directory is not a repository either - and a sibling project's
+        # store prunes the wrong thing, exit 0.
+        status = report(manifest).perform(stale, cwd=stale)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(stale).object_store('alpha')} worktree prune"
+        )
 
     def test_no_branch_set_is_reported_for_it(self, manifest: Manifest, stale: Path):
         # A branch-set row would describe a directory that is not there;
@@ -339,6 +356,110 @@ class TestAStaleRegistration:
         (store,) = (s for s in status.stores if s.project == "alpha")
         assert len(store.stale) == 1
         assert [c.project for c in status.branch_sets[0].checkouts] == ["alpha"]
+
+    def test_a_stranger_worktree_is_not_reported_even_when_stale(
+        self, manifest: Manifest, workspace: Path, tmp_path: Path
+    ):
+        # `branch_sets_of` drops live checkouts that are not one directory
+        # under the root: this report describes the workspace, not everything
+        # git knows. The same rule applies to stale registrations, or a
+        # worktree linked off somewhere else would surface the moment it
+        # broke - with a prune recommended over something cjdev never laid out.
+        store = Path(WorkspaceLayout(workspace).object_store("alpha"))
+        outside = tmp_path / "outside" / "alpha"
+        git(
+            store,
+            "worktree",
+            "add",
+            "--quiet",
+            str(outside),
+            "-b",
+            "ext",
+            "upstream/main",
+        )
+        subprocess.run(["rm", "-rf", str(outside)], check=True)
+
+        status = report(manifest).perform(workspace, cwd=workspace)
+
+        (alpha,) = (s for s in status.stores if s.project == "alpha")
+        assert alpha.stale == ()
+
+
+class TestARegistrationWhoseDirectoryIsStillThere:
+    """`prunable` does not mean the directory is gone: it fires as readily
+    when only the registration broke - the checkout's `.git` file deleted,
+    say - while the directory, the work in it and all, is still there.
+
+    Calling that gone would send the reader to prune a live checkout, and
+    the report would contradict itself about a directory that exists. The
+    fact says what is actually wrong, and the remedy is repair - git's own
+    for a registration that stopped pointing at a checkout that exists."""
+
+    @pytest.fixture
+    def displaced(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        (path / ".git").unlink()
+        return workspace
+
+    def test_it_is_not_called_gone(self, manifest: Manifest, displaced: Path):
+        status = report(manifest).perform(displaced, cwd=displaced)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the checkout is still in the directory, but the registration "
+            "does not point at it"
+        )
+
+    def test_the_remedy_is_repair_not_prune(self, manifest: Manifest, displaced: Path):
+        status = report(manifest).perform(displaced, cwd=displaced)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        (registration,) = store.stale
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(displaced).object_store('alpha')} "
+            f"worktree repair {displaced / 'main' / 'alpha'}"
+        )
+
+
+class TestALockedAndMissingWorktree:
+    """A lock means "never prunable": git does not mark a locked worktree
+    `prunable` even when its directory is gone, so a `prunable`-only test
+    would enter it as a checkout and the crash this fix is about would
+    survive for exactly the entries a user tried to protect.
+
+    It is reported stale like any other, with unlock + prune as the remedy -
+    `unlock` accepts a missing directory, so the pair runs as printed."""
+
+    @pytest.fixture
+    def locked_and_missing(self, workspace: Path) -> Path:
+        path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
+        git(
+            Path(WorkspaceLayout(workspace).object_store("alpha")),
+            "worktree",
+            "lock",
+            str(path),
+        )
+        subprocess.run(["rm", "-rf", str(path.parent)], check=True)
+        return workspace
+
+    def test_it_is_reported_stale_not_entered(
+        self, manifest: Manifest, locked_and_missing: Path
+    ):
+        status = report(manifest).perform(locked_and_missing, cwd=locked_and_missing)
+
+        (store,) = (s for s in status.stores if s.project == "alpha")
+        assert store.error is None
+        (registration,) = store.stale
+        assert registration.fact == (
+            "the directory is gone from it, and the registration is locked"
+        )
+        assert registration.remedy == (
+            f"git -C {WorkspaceLayout(locked_and_missing).object_store('alpha')} "
+            f"worktree unlock {locked_and_missing / 'main' / 'alpha'} && "
+            f"git -C {WorkspaceLayout(locked_and_missing).object_store('alpha')} "
+            "worktree prune"
+        )
 
 
 def _only(status):

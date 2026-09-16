@@ -58,20 +58,51 @@ class BranchSet:
 
 @final
 @dataclass(frozen=True)
+class StaleRegistration:
+    """One registration git keeps for a worktree it can no longer enter.
+
+    Not an error and not a checkout: the project read fine, nothing is
+    corrupted, and a row in a branch-set table would describe a worktree git
+    refuses to query. Named with its fact and its remedy because the report
+    is otherwise one the reader cannot act on: git refuses both `worktree
+    add` on that path and every query that would enter it.
+    """
+
+    path: PurePath
+    fact: str
+    """What is wrong, as a sentence that holds for this registration alone.
+
+    `prunable` - the flag git sets - does not by itself say what is wrong:
+    it fires as readily for a directory that is gone as for a checkout that
+    is still in place under a broken registration, and the remedy differs
+    (`repair` reconnects the latter, a prune under it would destroy a live
+    checkout). The fact says which case this is."""
+    remedy: str
+    """The command that fixes it, runnable as printed.
+
+    `git worktree` operates on the repository it runs in, and the store is
+    `<root>/.cjdev/bare/<project>.git` - reachable from nowhere the reader
+    stands, and reconstructible by a `--json` consumer only if the command
+    carries it. So the remedy is the full `git -C <store> ...` form."""
+
+
+@final
+@dataclass(frozen=True)
 class Store:
     project: str
     provisioned: bool
     error: str | None = None
     """Why this project could not be read. Set on one project rather than
     raised, because five readable projects are still worth printing."""
-    stale: tuple[PurePath, ...] = ()
-    """Registrations git keeps for worktrees whose directory is gone.
+    stale: tuple[StaleRegistration, ...] = ()
+    """Registrations git still keeps for worktrees it can no longer enter.
 
     Not an error and not a checkout: the project read fine, nothing is
-    corrupted, and a row in a branch-set table would describe a directory
-    that is not there. Named so that `git worktree prune` has something to
-    run against - a registration the report drops silently is one the reader
-    cannot act on, and one `branch new` cannot recreate over."""
+    corrupted, and a row in a branch-set table would describe a worktree git
+    refuses to query. Each is named with its fact and a runnable remedy -
+    and no reader enters one again, `branch new` included: reading a dead
+    registration as a checkout would either skip the project or refuse over
+    a path that is not there."""
 
 
 @final
@@ -83,11 +114,11 @@ class StoreReading:
     The shape `read_store` returns, one store per fan-out unit. Two tuples
     rather than one list of variants because the report does different things
     with them: a checkout is described, a stale registration is named with
-    its remedy and never entered again.
+    its fact and remedy and never entered again.
     """
 
     checkouts: tuple[Checkout, ...]
-    stale: tuple[PurePath, ...]
+    stale: tuple[StaleRegistration, ...]
 
 
 @final

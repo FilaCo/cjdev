@@ -85,7 +85,17 @@ class ReportStatus:
         }
         readings = {result.label: result.value for result in report.results}
         stale_by_project = {
-            label: reading.stale
+            label: tuple(
+                stale
+                for stale in reading.stale
+                # The membership rule `branch_sets_of` applies to checkouts
+                # applies to these as well: a worktree linked from outside
+                # the workspace is not one this report describes - stale no
+                # less than live, or it would surface the moment it broke,
+                # with the report recommending a prune over something cjdev
+                # never laid out.
+                if stale.path.parent.parent == root
+            )
             for label, reading in readings.items()
             if reading is not None and reading.stale
         }
