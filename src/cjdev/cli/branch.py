@@ -52,7 +52,7 @@ def new(
 
     # Kept apart only because the display cannot be built until it knows
     # which projects it is tracking; there is nothing to ask in between.
-    plan = use_case.plan(root, name, jobs=jobs)
+    plan = use_case.plan(root, name, jobs=jobs, observer=progress.transcript)
     progress.track(
         [enrolment.project for enrolment in plan.to_enrol],
         title=f"Checking out {name}",
@@ -62,7 +62,9 @@ def new(
     )
 
     with progress:
-        report = use_case.apply(plan, jobs=jobs, dry_run=dry_run, observer=progress)
+        report = use_case.apply(
+            plan, jobs=jobs, dry_run=dry_run, observer=progress.transcript
+        )
 
     if as_json:
         out.document(
