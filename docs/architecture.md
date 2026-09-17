@@ -114,6 +114,14 @@ command's help - command echo for the mutating ones, per-store detail for `statu
 The transcript a fan-out produces is ordered by rule 2 of Terminal output, not by
 slowing the fan-out to one job.
 
+Every fan-out a command runs takes an observer, and which one is load-bearing. The
+fan-out whose units are the tracked rows - the checkouts of `branch new` - takes the
+display, because its `finished` is what moves those rows and writes the closing
+summary. A probe or a rollback is not progress: its `finished` would tick rows that
+have not started, or rewrite a failed checkout into a success once the rollback of
+that very checkout is done. Those fan-outs take the transcript face, which attributes
+their lines to a project without ticking anything.
+
 ## Ports, and what earns one
 
 A port is earned by a second implementation that will actually exist. There are three:

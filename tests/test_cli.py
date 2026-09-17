@@ -11,6 +11,8 @@ from typer.main import get_command
 from typer.testing import CliRunner
 
 from cjdev import bootstrap, main
+from cjdev.application.new_branch_set import Enrolment, NewBranchSet
+from cjdev.application.ports import Executor
 from cjdev.application.report_status import DEFAULT_QUERY_JOBS
 from cjdev.bootstrap import Container
 from cjdev.cli import cli, cli_cb
@@ -438,6 +440,36 @@ class TestBranchNew:
                 "error": None,
             }
         ]
+
+    def test_a_failed_checkout_is_counted_in_the_summary(
+        self, provisioned: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # The closing line is what a pipe has instead of the table, so the
+        # checkout itself has to drive it: its observer is the display, and
+        # only the rollback takes the transcript, whose finished counts
+        # nothing. With the transcript as the checkout's observer a failed
+        # run closed as "nothing to do".
+        real = Container.new_branch_set
+
+        def failing(self: Container, **kwargs: Any) -> NewBranchSet:
+            use_case = real(self, **kwargs)
+
+            def add(executor: Executor, enrolment: Enrolment) -> None:
+                raise RuntimeError("disk full")
+
+            monkeypatch.setattr(use_case, "_add", add)
+            return use_case
+
+        monkeypatch.setattr(Container, "new_branch_set", failing)
+
+        # Act
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "1 failed" in result.output
+        assert "nothing to do" not in result.output
+        assert "[1/1] cangjie_compiler" in result.stderr
 
     def test_what_it_ran_is_in_the_workspace_log(self, provisioned: Path):
         # Act

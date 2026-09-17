@@ -63,7 +63,11 @@ def new(
 
     with progress:
         report = use_case.apply(
-            plan, jobs=jobs, dry_run=dry_run, observer=progress.transcript
+            plan,
+            jobs=jobs,
+            dry_run=dry_run,
+            observer=progress,
+            undo_observer=progress.transcript,
         )
 
     if as_json:
