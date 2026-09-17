@@ -31,6 +31,10 @@ from cjdev.domain.state import (
 from cjdev.errors import AbortedError
 
 ReadStore = Callable[[Executor, Path, str], StoreReading]
+ManifestProvider = Callable[[], Manifest]
+"""The project set, resolved when the command runs rather than when the
+composition root was built - so a workspace's config layer counts from wherever
+the caller stands."""
 
 DEFAULT_QUERY_JOBS = 8
 """Read-only local git queries: nothing to rate-limit and nothing to
@@ -42,13 +46,20 @@ above the project count so the fan-out is one wave."""
 class ReportStatus:
     def __init__(
         self,
-        manifest: Manifest,
+        manifest: ManifestProvider,
         executor: Executor,
         read_store: ReadStore,
     ) -> None:
+        # A provider rather than a Manifest: the workspace layer is resolved
+        # when the command runs, from where the caller stands - not when the
+        # composition root was built.
         self._manifest = manifest
         self._executor = executor
         self._read_store = read_store
+
+    @property
+    def _manifest_now(self) -> Manifest:
+        return self._manifest()
 
     def perform(
         self,
@@ -59,7 +70,8 @@ class ReportStatus:
         observer: RunObserver | None = None,
     ) -> WorkspaceStatus:
         layout = WorkspaceLayout(root)
-        provisioned = held_projects(layout, self._manifest)
+        manifest = self._manifest_now
+        provisioned = held_projects(layout, manifest)
 
         # fail_fast=False: one unreadable store must not hide the five that
         # read fine. A report is the one thing worth finishing partially, so
@@ -124,8 +136,8 @@ class ReportStatus:
                     stale=stale_by_project.get(project, ()),
                 )
                 for project in in_manifest_order(
-                    self._manifest,
-                    {p.name for p in self._manifest.projects} | set(provisioned),
+                    manifest,
+                    {p.name for p in manifest.projects} | set(provisioned),
                 )
             ),
             branch_sets=branch_sets,

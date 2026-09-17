@@ -18,6 +18,7 @@ from pathlib import Path, PurePath
 from typing import final
 
 from cjdev.application.ports import Executor, FileSystem, Prompt
+from cjdev.application.report_status import ManifestProvider
 from cjdev.application.runner import Runner, RunObserver, RunReport, Work
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project
@@ -107,7 +108,7 @@ def decide(layout: WorkspaceLayout, manifest: Manifest, observed: Observed) -> I
 class InitWorkspace:
     def __init__(
         self,
-        manifest: Manifest,
+        manifest: ManifestProvider,
         executor: Executor,
         file_system: FileSystem,
         prompt: Prompt,
@@ -115,6 +116,9 @@ class InitWorkspace:
         remove: Remove,
         render_config: Callable[[], str],
     ) -> None:
+        # A provider rather than a Manifest: the workspace layer is resolved
+        # when the command runs, from where the caller stands - not when the
+        # composition root was built.
         self._manifest = manifest
         self._executor = executor
         self._fs = file_system
@@ -126,7 +130,7 @@ class InitWorkspace:
     def plan(self, root: Path) -> InitPlan:
         """Everything `perform` would do, decided without doing any of it."""
         layout = WorkspaceLayout(root)
-        return decide(layout, self._manifest, observe(layout, self._manifest))
+        return decide(layout, self._manifest(), observe(layout, self._manifest()))
 
     def perform(
         self,
