@@ -22,9 +22,11 @@ from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Project, ProjectRole
 from cjdev.errors import (
     InputRequiredError,
+    ManifestError,
     PreconditionError,
     UsageError,
 )
+from cjdev.infra.config import render_workspace_config
 from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.git import provision_object_store
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
@@ -51,8 +53,125 @@ def test_help_lists_commands():
     result = runner.invoke(cli, ["-h"])
 
     assert result.exit_code == 0
-    for command in ("branch", "init", "status"):
+    for command in ("branch", "init", "status", "config"):
         assert command in result.output
+
+
+class TestConfigShow:
+    """`cjdev config show`: the effective config, in both renderings."""
+
+    def test_outside_any_workspace_the_bundled_manifest_is_shown_as_such(
+        self, tmp_path: Path
+    ):
+        # FR-9: the same answer `init` will act on, with no workspace in play.
+        result = runner.invoke(cli, ["config", "show", str(tmp_path)])
+
+        assert result.exit_code == 0
+        assert "cangjie_compiler" in result.output
+
+    def test_the_json_payload_carries_the_layer_of_every_value(self, tmp_path: Path):
+        # FR-8: the machine surface hides nothing - provenance is always in
+        # the document, whatever the verbosity flag said.
+        result = runner.invoke(cli, ["config", "show", str(tmp_path), "--json"])
+
+        document = json.loads(result.stdout)
+        assert document["command"] == "config show"
+        assert document["ok"]
+        assert document["data"]["schema_version"] == {
+            "value": 1,
+            "layer": "bundled",
+        }
+        upstream = next(
+            p["upstream"]
+            for p in document["data"]["projects"]
+            if p["name"] == "cangjie_compiler"
+        )
+        assert upstream == {
+            "value": "https://gitcode.com/Cangjie/cangjie_compiler.git",
+            "layer": "bundled",
+        }
+
+    def test_a_workspace_override_changes_the_effective_config(
+        self, empty_workspace: Path
+    ):
+        # FR-1/FR-2: the nearest workspace's file layers over the bundled
+        # manifest, one field of one project at a time.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text(
+            "[projects.cangjie_compiler]\n"
+            'upstream = "https://gitcode.com/FilaCo/cangjie_compiler.git"\n'
+        )
+
+        result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
+
+        document = json.loads(result.stdout)
+        upstream = next(
+            p["upstream"]
+            for p in document["data"]["projects"]
+            if p["name"] == "cangjie_compiler"
+        )
+        assert upstream["value"] == "https://gitcode.com/FilaCo/cangjie_compiler.git"
+        assert upstream["layer"] == "workspace"
+
+    def test_verbose_names_the_layer_of_every_value(self, empty_workspace: Path):
+        # FR-8: -v changes what is shown. The layers are in the table now -
+        # and in the JSON payload they were there regardless.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text('[projects.cangjie_compiler]\nupstream = "https://x/a.git"\n')
+
+        plain = runner.invoke(cli, ["config", "show", str(empty_workspace)])
+        verbose = runner.invoke(cli, ["config", "show", str(empty_workspace), "-v"])
+
+        assert plain.exit_code == verbose.exit_code == 0
+        assert "workspace" not in plain.output
+        assert "workspace" in verbose.output
+        assert "bundled" in verbose.output
+
+    def test_a_broken_workspace_config_fails_with_the_file_named(
+        self, empty_workspace: Path
+    ):
+        # FR-6: with two files in play, the refusal says which one refused.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text("schema_version = 99\n")
+
+        result = runner.invoke(cli, ["config", "show", str(empty_workspace)])
+
+        assert isinstance(result.exception, ManifestError)
+        assert "config.toml" in str(result.exception)
+
+    def test_the_comment_only_template_layers_to_an_unchanged_manifest(
+        self, empty_workspace: Path
+    ):
+        # FR-4, end to end: the file `init` writes must be a no-op layer.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text(render_workspace_config())
+
+        result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
+
+        document = json.loads(result.stdout)
+        assert document["data"]["schema_version"]["layer"] == "bundled"
+        assert len(document["data"]["projects"]) == len(Container().manifest().projects)
+
+
+def test_a_workspace_override_changes_what_status_reports(
+    empty_workspace: Path,
+):
+    # FR-1: the layering is not a `config show` toy - every command resolves
+    # its set through the same composition root, so an added project is
+    # reported as held-or-absent by `status` too.
+    config = Path(WorkspaceLayout(empty_workspace).config_file)
+    config.write_text(
+        "[projects.mirror]\n"
+        'role = "test_data"\n'
+        'upstream = "https://example.invalid/mirror.git"\n'
+        'default_branch = "main"\n'
+    )
+
+    result = runner.invoke(cli, ["status", str(empty_workspace), "--json"])
+
+    document = json.loads(result.stdout)
+    names = {p["name"] for p in document["data"]["projects"]}
+    assert "mirror" in names
 
 
 class TestStatus:
@@ -106,7 +225,7 @@ def test_the_root_callback_puts_a_container_on_the_context():
 
 
 def test_the_container_loads_the_bundled_manifest():
-    assert Container().manifest.projects
+    assert Container().manifest().projects
 
 
 def test_no_terminal_means_no_question_rather_than_a_wait_for_one():
@@ -222,7 +341,7 @@ class TestTheEnvelope:
         assert document["errors"] == []
         assert document["data"]["branch_sets"] == []
         assert {p["name"] for p in document["data"]["projects"]} == {
-            p.name for p in Container().manifest.projects
+            p.name for p in Container().manifest().projects
         }
 
     def test_stdout_carries_the_document_and_the_transcript_goes_to_stderr(
@@ -287,8 +406,8 @@ class TestTheEnvelope:
         real = Container.report_status
         default = DEFAULT_QUERY_JOBS
 
-        def spy(self: Container, *, verbose: bool = False) -> object:
-            use_case = real(self, verbose=verbose)
+        def spy(self: Container, *, verbose: bool = False, start: Path) -> object:
+            use_case = real(self, verbose=verbose, start=start)
             perform = use_case.perform
 
             def watched(*args: Any, **kwargs: Any):

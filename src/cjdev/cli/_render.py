@@ -15,6 +15,7 @@ from rich.text import Text
 
 from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
 from cjdev.application.runner import Outcome, RunReport
+from cjdev.domain.config import LayeredManifest
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
 from ._console import CANCELLED, DETAIL, MARKS, WAITING
@@ -239,6 +240,122 @@ def _detail(
     # mid-word by rich's own word wrapping.
     for line in lines:
         console.print(f"{indent}{line}", style=DETAIL, highlight=False, soft_wrap=True)
+
+
+def config_payload(layered: LayeredManifest) -> dict[str, object]:
+    """The effective config, with the layer each value came from.
+
+    The layers are always carried - the machine surface hides nothing, which
+    is exactly what the table under plain `-` is allowed to do. Every value is
+    a `{"value": ..., "layer": ...}` pair so a parser never has to know which
+    fields can carry provenance: all of them do.
+    """
+
+    def sourced(value: object, layer: str) -> dict[str, object]:
+        return {"value": value, "layer": layer}
+
+    return {
+        "schema_version": sourced(
+            layered.schema_version.value, layered.schema_version.layer
+        ),
+        "default_group": sourced(
+            layered.default_group.value, layered.default_group.layer
+        ),
+        "projects": [
+            {
+                "name": project.name,
+                "role": sourced(project.role.value.name.lower(), project.role.layer),
+                "upstream": sourced(
+                    project.upstream_url.value, project.upstream_url.layer
+                ),
+                "default_branch": sourced(
+                    project.default_branch.value, project.default_branch.layer
+                ),
+            }
+            for project in layered.projects
+        ],
+        "build_units": [
+            {
+                "name": unit.name,
+                "project": sourced(unit.project.value, unit.project.layer),
+                "path": sourced(str(unit.path.value), unit.path.layer),
+                "depends_on": sourced(
+                    list(unit.depends_on.value), unit.depends_on.layer
+                ),
+            }
+            for unit in layered.build_units
+        ],
+        "groups": [
+            {
+                "name": group.name,
+                "members": sourced(list(group.members.value), group.members.layer),
+            }
+            for group in layered.groups
+        ],
+    }
+
+
+def render_config_show(
+    console: Console, layered: LayeredManifest, *, verbose: bool
+) -> None:
+    """The effective config as text. The layer column exists only under `-v`.
+
+    The `--json` payload always carries the layers; the table hides them by
+    default the way the status table hides zeros - what a reader skims past.
+    """
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style=DETAIL)
+    table.add_column()
+    if verbose:
+        table.add_column(style=DETAIL)
+
+    def add_row(name: str, value: object, layer: object = None) -> None:
+        # The layer rides along as a third cell only when the table has a
+        # column for it; a section row carries neither a value nor a layer.
+        if verbose:
+            table.add_row(name, str(value), "" if layer is None else str(layer))
+        else:
+            table.add_row(name, str(value))
+
+    add_row(
+        "schema_version", layered.schema_version.value, layered.schema_version.layer
+    )
+    add_row(
+        "default_group",
+        layered.default_group.value if layered.default_group.value is not None else "-",
+        layered.default_group.layer,
+    )
+
+    add_row("", "")
+    add_row("Projects", "")
+    for project in layered.projects:
+        add_row(f"  {project.name}", "")
+        add_row("    role", project.role.value.name.lower(), project.role.layer)
+        add_row("    upstream", project.upstream_url.value, project.upstream_url.layer)
+        add_row(
+            "    default_branch",
+            project.default_branch.value,
+            project.default_branch.layer,
+        )
+
+    add_row("", "")
+    add_row("Build units", "")
+    for unit in layered.build_units:
+        add_row(f"  {unit.name}", "")
+        add_row("    project", unit.project.value, unit.project.layer)
+        add_row("    path", str(unit.path.value), unit.path.layer)
+        add_row(
+            "    depends_on",
+            ", ".join(unit.depends_on.value) or "-",
+            unit.depends_on.layer,
+        )
+
+    add_row("", "")
+    add_row("Groups", "")
+    for group in layered.groups:
+        add_row(f"  {group.name}", ", ".join(group.members.value), group.members.layer)
+
+    console.print(table)
 
 
 def _absent(branch_set: BranchSet, held: tuple[str, ...]) -> tuple[str, ...]:

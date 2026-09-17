@@ -35,14 +35,17 @@ def status(
 
     # The labels come from the layout, not from the report: the flush has to
     # survive the run failing, when there is no report to name them.
-    projects = list(held_projects(WorkspaceLayout(root), ctx.obj.manifest))
+    # Resolved before the use case is built, so an unreadable workspace config
+    # fails here with the file named, before anything runs.
+    manifest = ctx.obj.manifest(root)
+    projects = list(held_projects(WorkspaceLayout(root), manifest))
 
     # The cwd is resolved for the same reason the root is: git reports
     # worktree paths physically, so one reached through a symlink would match
     # no branch set and `status` would quietly say you are standing outside
     # all of them.
     try:
-        report = ctx.obj.report_status(verbose=verbose).perform(
+        report = ctx.obj.report_status(verbose=verbose, start=root).perform(
             root,
             cwd=Path.cwd().resolve(),
             observer=transcript,
