@@ -1,4 +1,4 @@
-"""Reading the manifest, and the schema-version gate.
+"""Reading the manifest, the workspace's overrides, and the schema-version gate.
 
 This is the boundary the TOML rule in docs/architecture.md names: `tomlkit` types
 stop here. Everything above receives `domain/` dataclasses.
@@ -10,18 +10,19 @@ from typing import Any
 
 import tomlkit
 
-from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole
+from cjdev.domain.config import (
+    BUNDLED_MANIFEST,
+    ROLE_NAMES,
+    ProjectOverride,
+    UnitOverride,
+    WorkspaceConfig,
+)
+from cjdev.domain.manifest import BuildUnit, Manifest, Project
 from cjdev.errors import ManifestError
 
 SUPPORTED_SCHEMA_VERSION = 1
 
-BUNDLED_MANIFEST = "default_manifest.toml"
-
-_ROLES = {
-    "buildable": ProjectRole.BUILDABLE,
-    "test_runner": ProjectRole.TEST_RUNNER,
-    "test_data": ProjectRole.TEST_DATA,
-}
+WORKSPACE_CONFIG = "config.toml"
 
 
 def load_bundled_manifest() -> Manifest:
@@ -32,6 +33,26 @@ def load_bundled_manifest() -> Manifest:
     """
     resource = files("cjdev.infra") / "data" / BUNDLED_MANIFEST
     return parse_manifest(resource.read_text(encoding="utf-8"), source=BUNDLED_MANIFEST)
+
+
+def load_workspace_config(root: Any) -> WorkspaceConfig | None:
+    """The workspace's own layer, read from `.cjdev/config.toml`.
+
+    `Any` for the root rather than `Path`: this module has no business caring
+    that the layout is more than a path, and the file lives under a marker the
+    layout algebra derives. `None` when there is no workspace file - which is
+    also what every non-workspace invocation gets, so the bundled manifest
+    alone applies (FR-9's reading side).
+
+    A file that `init` has not written yet but the user has created is real
+    configuration all the same: existence is the gate, not provenance.
+    """
+    path = root / ".cjdev" / WORKSPACE_CONFIG
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    return parse_workspace_config(text, source=WORKSPACE_CONFIG)
 
 
 def parse_manifest(text: str, *, source: str) -> Manifest:
@@ -73,18 +94,70 @@ def parse_manifest(text: str, *, source: str) -> Manifest:
     )
 
 
+def parse_workspace_config(text: str, *, source: str) -> WorkspaceConfig:
+    """The workspace layer: everything optional, the gate still absolute.
+
+    `schema_version` in the workspace file gets the same refusal as the
+    bundled manifest's (FR-5) - a version this cjdev does not understand is
+    refused with the upgrade message naming the workspace file. An absent one
+    inherits the bundled version: today's template writes comments only, and
+    the workspace layer is partial by design.
+    """
+    try:
+        document: Any = tomlkit.parse(text)
+    except Exception as exc:  # tomlkit raises a family of parse errors
+        raise ManifestError(f"{source} is not valid TOML: {exc}") from exc
+
+    _reject_unknown_keys(
+        document,
+        {"schema_version", "default_group", "groups", "projects", "build_units"},
+        source,
+    )
+    version: int | None = None
+    if "schema_version" in document:
+        if document["schema_version"] != SUPPORTED_SCHEMA_VERSION:
+            raise ManifestError(
+                f"{source} declares schema_version {document['schema_version']}, "
+                f"but this cjdev understands {SUPPORTED_SCHEMA_VERSION}. "
+                f"Upgrade cjdev, or remove the key to inherit the bundled "
+                f"manifest's version."
+            )
+        version = int(document["schema_version"])
+
+    return WorkspaceConfig(
+        source=source,
+        schema_version=version,
+        projects={
+            name: _project_override(name, body, source)
+            for name, body in document.get("projects", {}).items()
+        },
+        build_units={
+            name: _unit_override(name, body, source)
+            for name, body in document.get("build_units", {}).items()
+        },
+        groups={
+            name: tuple(str(member) for member in members)
+            for name, members in document.get("groups", {}).items()
+        },
+        default_group=(
+            str(document["default_group"]) if "default_group" in document else None
+        ),
+    )
+
+
 def _project(name: str, body: Any, source: str) -> Project:
+    """A bundled-manifest project: total, not partial."""
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
     role = str(_require(body, "role", where))
-    if role not in _ROLES:
+    if role not in ROLE_NAMES:
         raise ManifestError(
             f"{source}: project {name} has unknown role {role!r}. "
-            f"Known roles: {', '.join(sorted(_ROLES))}."
+            f"Known roles: {', '.join(sorted(ROLE_NAMES))}."
         )
     return Project(
         name=name,
-        role=_ROLES[role],
+        role=ROLE_NAMES[role],
         upstream_url=str(_require(body, "upstream", where)),
         default_branch=str(_require(body, "default_branch", where)),
     )
@@ -98,6 +171,48 @@ def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
         project=str(_require(body, "project", where)),
         path=PurePosixPath(str(_require(body, "path", where))),
         depends_on=tuple(str(dep) for dep in body.get("depends_on", [])),
+    )
+
+
+def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
+    where = f"{source}: project {name}"
+    _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    role = body.get("role")
+    if role is not None and str(role) not in ROLE_NAMES:
+        raise ManifestError(
+            f"{where} has unknown role {str(role)!r}. "
+            f"Known roles: {', '.join(sorted(ROLE_NAMES))}."
+        )
+    return ProjectOverride(
+        role=ROLE_NAMES[str(role)] if role is not None else None,
+        upstream=str(body["upstream"]) if "upstream" in body else None,
+        default_branch=(
+            str(body["default_branch"]) if "default_branch" in body else None
+        ),
+    )
+
+
+def _unit_override(name: str, body: Any, source: str) -> UnitOverride:
+    where = f"{source}: build unit {name}"
+    _reject_unknown_keys(body, {"project", "path", "depends_on"}, where)
+    if not body:
+        # A bare table header overrides nothing, so honouring it would read as
+        # success while saying nothing - almost always a key the user meant to
+        # write and forgot. Refusing beats a silent shrug.
+        raise ManifestError(
+            f"{where} names no keys. Write what to override "
+            f"(project, path, depends_on), or remove the table."
+        )
+    return UnitOverride(
+        project=str(body["project"]) if "project" in body else None,
+        path=PurePosixPath(str(body["path"])) if "path" in body else None,
+        # `None` when the key is absent: an omitted `depends_on` inherits and
+        # an explicit `[]` detaches, so the two must not read the same here.
+        depends_on=(
+            tuple(str(dep) for dep in body["depends_on"])
+            if "depends_on" in body
+            else None
+        ),
     )
 
 
@@ -122,9 +237,9 @@ def _require(body: Any, key: str, where: str) -> Any:
 WORKSPACE_CONFIG_TEMPLATE = """\
 # cjdev workspace configuration.
 #
-# Everything here overrides a built-in default, so an empty file is a valid
-# workspace. `cjdev config show --origin` prints the effective values and the
-# layer each one came from.
+# Everything here overrides the bundled manifest, so an empty file is a valid
+# workspace: missing keys inherit the default. `cjdev config show` prints the
+# effective result, and `-v` adds which layer every value came from.
 """
 
 
