@@ -32,6 +32,18 @@ MARKS: dict[Outcome, tuple[str, str]] = {
 WAITING = ("·", DETAIL)
 
 
+def print_detail(
+    console: Console, lines: tuple[str, ...] | list[str], indent: str = ""
+) -> None:
+    """One line at a time, dim, unwrapped by rich.
+
+    `soft_wrap` so a long path is left to the terminal instead of being
+    broken mid-word by rich's own word wrapping.
+    """
+    for line in lines:
+        console.print(f"{indent}{line}", style=DETAIL, highlight=False, soft_wrap=True)
+
+
 def print_error(message: str) -> None:
     """`error:` in red, the message plain.
 

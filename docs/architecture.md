@@ -108,8 +108,19 @@ use case names. Whether that stays true is an open question, and a use case that
 different answer takes `jobs` as an argument, so the fan-out is real either way - one job
 is strictly sequential in manifest order.
 
-`status` and `branch new` pass one job under `-v`, because a transcript interleaved by
-the scheduler is not a transcript.
+`-v` changes what is shown, never what is done: no command may derive scheduling,
+ordering or cancellation from it. What it adds is defined per command and said in that
+command's help - command echo for the mutating ones, per-store detail for `status`.
+The transcript a fan-out produces is ordered by rule 2 of Terminal output, not by
+slowing the fan-out to one job.
+
+Every fan-out a command runs takes an observer, and which one is load-bearing. The
+fan-out whose units are the tracked rows - the checkouts of `branch new` - takes the
+display, because its `finished` is what moves those rows and writes the closing
+summary. A probe or a rollback is not progress: its `finished` would tick rows that
+have not started, or rewrite a failed checkout into a success once the rollback of
+that very checkout is done. Those fan-outs take the transcript face, which attributes
+their lines to a project without ticking anything.
 
 ## Ports, and what earns one
 

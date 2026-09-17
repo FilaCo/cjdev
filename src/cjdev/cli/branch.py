@@ -25,7 +25,7 @@ def new(
     path: Path | None = Argument(None, help="The workspace. Defaults to the cwd."),
     as_json: bool = Option(False, "--json", help="Print the report as JSON."),
     dry_run: bool = Option(False, "--dry-run", help="Print commands, run none."),
-    verbose: bool = Option(False, "-v", "--verbose", help="Echo every command."),
+    verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
 ) -> None:
     """Create a branch set: one checkout per project, all on NAME."""
     out = begin("branch new", as_json=as_json)
@@ -33,9 +33,9 @@ def new(
     # branch set is a normal place to start one from.
     root = require_root((path or Path.cwd()).resolve())
 
-    # -v echoes each command as it runs, and under a fan-out the order it
-    # echoes in would belong to the scheduler rather than to the manifest.
-    jobs = 1 if verbose else DEFAULT_CHECKOUT_JOBS
+    # The fan-out is not slowed for -v: the transcript is buffered per unit
+    # and rendered in manifest order by `render_branch_set` afterwards.
+    jobs = DEFAULT_CHECKOUT_JOBS
     progress = ConsoleProgress(
         out.display,
         fallback=None if dry_run else diagnostics,
@@ -52,15 +52,23 @@ def new(
 
     # Kept apart only because the display cannot be built until it knows
     # which projects it is tracking; there is nothing to ask in between.
-    plan = use_case.plan(root, name, jobs=jobs)
+    plan = use_case.plan(root, name, jobs=jobs, observer=progress.transcript)
     progress.track(
         [enrolment.project for enrolment in plan.to_enrol],
         title=f"Checking out {name}",
+        # The estimate divides by what apply will use; a dry run is sequential
+        # by its own rule - nothing to overlap.
         jobs=1 if dry_run else jobs,
     )
 
     with progress:
-        report = use_case.apply(plan, jobs=jobs, dry_run=dry_run, observer=progress)
+        report = use_case.apply(
+            plan,
+            jobs=jobs,
+            dry_run=dry_run,
+            observer=progress,
+            transcript=progress.transcript,
+        )
 
     if as_json:
         out.document(

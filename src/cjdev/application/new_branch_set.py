@@ -253,7 +253,12 @@ class NewBranchSet:
         self._drop = drop
 
     def plan(
-        self, root: Path, branch: str, *, jobs: int = DEFAULT_CHECKOUT_JOBS
+        self,
+        root: Path,
+        branch: str,
+        *,
+        jobs: int = DEFAULT_CHECKOUT_JOBS,
+        observer: RunObserver | None = None,
     ) -> BranchSetPlan:
         """Everything `apply` would do, decided without doing any of it."""
         # Checked here as well as in `decide`, so that a name git would refuse
@@ -266,7 +271,8 @@ class NewBranchSet:
                 f"{root} holds no projects, so there is nothing to branch.",
                 remedy="cjdev init",
             )
-        return decide(layout, branch, self._observe(layout, branch, projects, jobs))
+        observed = self._observe(layout, branch, projects, jobs, observer)
+        return decide(layout, branch, observed)
 
     def perform(
         self,
@@ -276,12 +282,16 @@ class NewBranchSet:
         jobs: int = DEFAULT_CHECKOUT_JOBS,
         dry_run: bool = False,
         observer: RunObserver | None = None,
+        transcript: RunObserver | None = None,
     ) -> BranchSetReport:
         return self.apply(
-            self.plan(root, branch, jobs=jobs),
+            # The probe is not progress either: it rides the transcript, like
+            # the rollback does.
+            self.plan(root, branch, jobs=jobs, observer=transcript),
             jobs=jobs,
             dry_run=dry_run,
             observer=observer,
+            transcript=transcript,
         )
 
     def apply(
@@ -291,9 +301,14 @@ class NewBranchSet:
         jobs: int = DEFAULT_CHECKOUT_JOBS,
         dry_run: bool = False,
         observer: RunObserver | None = None,
+        transcript: RunObserver | None = None,
     ) -> BranchSetReport:
         # A dry run prints in sequential order: there is no work to overlap,
         # and its output would otherwise be at the mercy of the scheduler.
+        # The checkout is the tracked fan-out: its `finished` moves the rows
+        # the display shows. The rollback is not progress - a row it could
+        # tick is either not started or already failed - so it takes the
+        # transcript, whose `finished` records nothing.
         report = Runner(1 if dry_run else jobs).run(
             [
                 # Keyed by project: git does not serialise worktree and branch
@@ -306,7 +321,7 @@ class NewBranchSet:
         rows = report_rows(plan, report)
         # Nothing ran under a dry run, so there is nothing to take back.
         if not dry_run and not (report.ok and not report.interrupted):
-            self._undo(plan, rows, jobs)
+            self._undo(plan, rows, jobs, transcript)
         return BranchSetReport(plan=plan, rows=rows, interrupted=report.interrupted)
 
     def _observe(
@@ -315,6 +330,7 @@ class NewBranchSet:
         branch: str,
         projects: tuple[str, ...],
         jobs: int,
+        observer: RunObserver | None = None,
     ) -> Observed:
         report = Runner(jobs).run(
             [
@@ -324,7 +340,8 @@ class NewBranchSet:
                     action=self._prober(layout, branch, project),
                 )
                 for project in projects
-            ]
+            ],
+            observer=observer,
         )
         if report.interrupted:
             raise AbortedError("branch new")
@@ -360,7 +377,13 @@ class NewBranchSet:
 
         return add
 
-    def _undo(self, plan: BranchSetPlan, rows: tuple[Enrolled, ...], jobs: int) -> None:
+    def _undo(
+        self,
+        plan: BranchSetPlan,
+        rows: tuple[Enrolled, ...],
+        jobs: int,
+        observer: RunObserver | None = None,
+    ) -> None:
         """Take back what this run created, and only that.
 
         A failed unit is included because `worktree add -b` can leave the
@@ -376,7 +399,8 @@ class NewBranchSet:
                 Work(key=e.project, label=e.project, action=self._dropper(e))
                 for e in plan.to_enrol
                 if e.project in attempted
-            ]
+            ],
+            observer=observer,
         )
         self._clear_directory(plan)
 

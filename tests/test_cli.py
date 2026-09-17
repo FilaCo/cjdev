@@ -3,7 +3,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest import mock
 
 import pytest
@@ -11,6 +11,9 @@ from typer.main import get_command
 from typer.testing import CliRunner
 
 from cjdev import bootstrap, main
+from cjdev.application.new_branch_set import Enrolment, NewBranchSet
+from cjdev.application.ports import Executor
+from cjdev.application.report_status import DEFAULT_QUERY_JOBS
 from cjdev.bootstrap import Container
 from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
@@ -254,6 +257,53 @@ class TestTheEnvelope:
         assert failure["code"] == "project_unreadable"
         assert failure["subject"] == "cangjie_compiler"
 
+    def test_the_transcript_arrives_in_manifest_order_under_verbose(
+        self, empty_workspace: Path
+    ):
+        # Every project of the manifest is probed, one git invocation each;
+        # the fan-out decides when they run, not in what order they print.
+        # The whole manifest is more labels than this test needs, so the
+        # assertion is on the relative order of two of them.
+        for name in ("cangjie_compiler", "cangjie_runtime"):
+            Path(WorkspaceLayout(empty_workspace).object_store(name)).mkdir(
+                parents=True
+            )
+
+        result = runner.invoke(cli, ["status", str(empty_workspace), "-v"])
+
+        stderr = result.stderr
+        compiler = stderr.index("$ git")
+        runtime = stderr.index("cangjie_runtime", compiler)
+        assert stderr.index("cangjie_compiler", compiler) < runtime
+
+    def test_verbose_does_not_slow_the_fan_out(
+        self, monkeypatch: pytest.MonkeyPatch, empty_workspace: Path
+    ):
+        # The contract the help text now states: -v changes what is shown,
+        # never what is done. Pinned at the seam rather than by timing, so it
+        # cannot flake: `report_status` is built through the container, and
+        # the job count it performs with is visible there.
+        seen: dict[str, int] = {}
+        real = Container.report_status
+        default = DEFAULT_QUERY_JOBS
+
+        def spy(self: Container, *, verbose: bool = False) -> object:
+            use_case = real(self, verbose=verbose)
+            perform = use_case.perform
+
+            def watched(*args: Any, **kwargs: Any):
+                jobs = kwargs.get("jobs")
+                seen["jobs"] = default if jobs is None else jobs
+                return perform(*args, **kwargs)
+
+            monkeypatch.setattr(use_case, "perform", watched)
+            return use_case
+
+        monkeypatch.setattr(Container, "report_status", spy)
+        runner.invoke(cli, ["status", str(empty_workspace), "-v"])
+
+        assert seen["jobs"] == DEFAULT_QUERY_JOBS
+
     def test_a_failure_travels_inside_the_document_rather_than_beside_it(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):
@@ -390,6 +440,34 @@ class TestBranchNew:
                 "error": None,
             }
         ]
+
+    def test_a_failed_checkout_is_counted_in_the_summary(
+        self, provisioned: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Arrange: the closing line is what a pipe has instead of the table,
+        # so the checkout itself has to drive it - only the rollback takes
+        # the transcript.
+        real = Container.new_branch_set
+
+        def failing(self: Container, **kwargs: Any) -> NewBranchSet:
+            use_case = real(self, **kwargs)
+
+            def add(executor: Executor, enrolment: Enrolment) -> None:
+                raise RuntimeError("disk full")
+
+            monkeypatch.setattr(use_case, "_add", add)
+            return use_case
+
+        monkeypatch.setattr(Container, "new_branch_set", failing)
+
+        # Act
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "1 failed" in result.output
+        assert "nothing to do" not in result.output
+        assert "[1/1] cangjie_compiler" in result.stderr
 
     def test_what_it_ran_is_in_the_workspace_log(self, provisioned: Path):
         # Act

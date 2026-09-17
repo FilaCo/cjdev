@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import final
 
 from cjdev.application.ports import Executor
-from cjdev.application.runner import Outcome, Runner, Work
+from cjdev.application.runner import Outcome, Runner, RunObserver, Work
 from cjdev.application.workspace import held_projects, in_manifest_order
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest
@@ -51,7 +51,12 @@ class ReportStatus:
         self._read_store = read_store
 
     def perform(
-        self, root: Path, *, cwd: Path, jobs: int = DEFAULT_QUERY_JOBS
+        self,
+        root: Path,
+        *,
+        cwd: Path,
+        jobs: int = DEFAULT_QUERY_JOBS,
+        observer: RunObserver | None = None,
     ) -> WorkspaceStatus:
         layout = WorkspaceLayout(root)
         provisioned = held_projects(layout, self._manifest)
@@ -68,7 +73,8 @@ class ReportStatus:
                     action=self._reader(layout, project),
                 )
                 for project in provisioned
-            ]
+            ],
+            observer=observer,
         )
 
         # A half-read workspace printed as if it were the whole one is a
