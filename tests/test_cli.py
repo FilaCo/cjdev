@@ -444,11 +444,9 @@ class TestBranchNew:
     def test_a_failed_checkout_is_counted_in_the_summary(
         self, provisioned: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # The closing line is what a pipe has instead of the table, so the
-        # checkout itself has to drive it: its observer is the display, and
-        # only the rollback takes the transcript, whose finished counts
-        # nothing. With the transcript as the checkout's observer a failed
-        # run closed as "nothing to do".
+        # Arrange: the closing line is what a pipe has instead of the table,
+        # so the checkout itself has to drive it - only the rollback takes
+        # the transcript.
         real = Container.new_branch_set
 
         def failing(self: Container, **kwargs: Any) -> NewBranchSet:

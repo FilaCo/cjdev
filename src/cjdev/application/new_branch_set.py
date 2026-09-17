@@ -282,15 +282,16 @@ class NewBranchSet:
         jobs: int = DEFAULT_CHECKOUT_JOBS,
         dry_run: bool = False,
         observer: RunObserver | None = None,
-        undo_observer: RunObserver | None = None,
+        transcript: RunObserver | None = None,
     ) -> BranchSetReport:
         return self.apply(
-            # The probe is not progress either: it shares the rollback's face.
-            self.plan(root, branch, jobs=jobs, observer=undo_observer),
+            # The probe is not progress either: it rides the transcript, like
+            # the rollback does.
+            self.plan(root, branch, jobs=jobs, observer=transcript),
             jobs=jobs,
             dry_run=dry_run,
             observer=observer,
-            undo_observer=undo_observer,
+            transcript=transcript,
         )
 
     def apply(
@@ -300,14 +301,14 @@ class NewBranchSet:
         jobs: int = DEFAULT_CHECKOUT_JOBS,
         dry_run: bool = False,
         observer: RunObserver | None = None,
-        undo_observer: RunObserver | None = None,
+        transcript: RunObserver | None = None,
     ) -> BranchSetReport:
         # A dry run prints in sequential order: there is no work to overlap,
         # and its output would otherwise be at the mercy of the scheduler.
         # The checkout is the tracked fan-out: its `finished` moves the rows
         # the display shows. The rollback is not progress - a row it could
-        # tick is either not started or already failed - so it takes its own
-        # observer, one whose `finished` records nothing.
+        # tick is either not started or already failed - so it takes the
+        # transcript, whose `finished` records nothing.
         report = Runner(1 if dry_run else jobs).run(
             [
                 # Keyed by project: git does not serialise worktree and branch
@@ -320,7 +321,7 @@ class NewBranchSet:
         rows = report_rows(plan, report)
         # Nothing ran under a dry run, so there is nothing to take back.
         if not dry_run and not (report.ok and not report.interrupted):
-            self._undo(plan, rows, jobs, undo_observer)
+            self._undo(plan, rows, jobs, transcript)
         return BranchSetReport(plan=plan, rows=rows, interrupted=report.interrupted)
 
     def _observe(

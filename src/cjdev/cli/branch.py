@@ -67,7 +67,7 @@ def new(
             jobs=jobs,
             dry_run=dry_run,
             observer=progress,
-            undo_observer=progress.transcript,
+            transcript=progress.transcript,
         )
 
     if as_json:
