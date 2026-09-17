@@ -21,7 +21,7 @@ from rich.text import Text
 
 from cjdev.application.runner import Outcome
 
-from ._console import DETAIL, MARKS, RUNNING, WAITING
+from ._console import DETAIL, MARKS, RUNNING, WAITING, print_detail
 
 LIVE_AFTER = 0.4
 """How long a run has to last before its display is worth drawing.
@@ -29,6 +29,69 @@ LIVE_AFTER = 0.4
 A display that appears and is taken away inside a tenth of a second is harder
 to read than the report that follows it.
 """
+
+
+@final
+class Transcript:
+    """What the commands printed, kept until the run is over.
+
+    Buffered, never printed as it happens: a worker writing straight to the
+    terminal would corrupt the live display, and a transcript interleaved by
+    the scheduler is not a transcript. Attribution survives concurrency the
+    way `ConsoleProgress` gets it: `started` arrives on the worker's own
+    thread, which is what binds the buffer to it.
+    """
+
+    def __init__(self) -> None:
+        self._lines: dict[str, list[str]] = {}
+        self._owner = threading.local()
+        self._guard = threading.Lock()
+
+    def bind(self, label: str) -> None:
+        """Attribute everything `emit` prints from now on to `label`.
+
+        The thread-local, set on the worker's thread before the unit's work
+        begins - the same arrival `RunObserver.started` promises.
+        """
+        self._owner.label = label
+
+    def started(self, label: str) -> None:
+        """`RunObserver` face: a unit beginning is what binds its output."""
+        self.bind(label)
+
+    def finished(self, label: str, outcome: Outcome) -> None:
+        """Nothing to record: the outcome reaches the renderer by other ways."""
+
+    def current(self) -> str | None:
+        """The unit running on the calling thread, if it is inside one."""
+        return getattr(self._owner, "label", None)
+
+    def emit(self, line: str) -> None:
+        label = getattr(self._owner, "label", None)
+        with self._guard:
+            self._lines.setdefault(label or "", []).append(line)
+
+    def lines(self, label: str = "") -> tuple[str, ...]:
+        """What one unit printed. The empty label is the command itself -
+        whatever was emitted before any unit of work started."""
+        with self._guard:
+            return tuple(self._lines.get(label, ()))
+
+    def flush(self, console: Console, labels: Sequence[str]) -> None:
+        """The whole transcript, in the order the work was submitted.
+
+        `labels` is every unit the run covers, whether or not it produced
+        output - and it names the order, because under a fan-out the order
+        things happened in belongs to the scheduler, and this one is not
+        allowed to.
+        """
+        print_detail(console, self.lines(""))
+        for label in labels:
+            captured = self.lines(label)
+            if not captured:
+                continue
+            console.print(label)
+            print_detail(console, captured, indent="  ")
 
 
 def format_duration(seconds: float) -> str:
@@ -70,8 +133,10 @@ class ConsoleProgress:
         self._started_at: dict[str, float] = {}
         self._took: dict[str, float] = {}
         self._step: dict[str, str] = {}
-        self._lines: dict[str, list[str]] = {}
-        self._owner = threading.local()
+        self.transcript = Transcript()
+        """Where everything the commands print is buffered until the run is
+        over; `emit` and `lines` are its face, kept as methods so callers do
+        not have to know the display owns it."""
         self._guard = threading.Lock()
         self._display = threading.Lock()
         """Held while the live display is started or stopped, and never while
@@ -150,7 +215,7 @@ class ConsoleProgress:
             self._live.start()
 
     def started(self, label: str) -> None:
-        self._owner.label = label
+        self.transcript.bind(label)
         with self._guard:
             self._started_at[label] = time.monotonic()
             self._step[label] = "starting"
@@ -162,7 +227,7 @@ class ConsoleProgress:
         from deep inside `infra/` by code that knows the command it is about
         to run and nothing about the fan-out around it.
         """
-        label = getattr(self._owner, "label", None)
+        label = self.transcript.current()
         if label is None:
             return
         with self._guard:
@@ -180,14 +245,12 @@ class ConsoleProgress:
         """Buffered, never printed: a worker writing straight to the terminal
         would both corrupt the live display and let scheduling decide the
         order of the transcript."""
-        label = getattr(self._owner, "label", None)
-        with self._guard:
-            self._lines.setdefault(label or "", []).append(line)
+        self.transcript.emit(line)
 
     def lines(self, label: str = "") -> tuple[str, ...]:
         """What one unit printed. The empty label is the command itself -
         whatever was emitted before any unit of work started."""
-        return tuple(self._lines.get(label, ()))
+        return self.transcript.lines(label)
 
     def elapsed(self) -> float:
         return 0.0 if self._began_at is None else time.monotonic() - self._began_at

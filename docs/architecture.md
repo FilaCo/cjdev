@@ -108,8 +108,11 @@ use case names. Whether that stays true is an open question, and a use case that
 different answer takes `jobs` as an argument, so the fan-out is real either way - one job
 is strictly sequential in manifest order.
 
-`status` and `branch new` pass one job under `-v`, because a transcript interleaved by
-the scheduler is not a transcript.
+`-v` changes what is shown, never what is done: no command may derive scheduling,
+ordering or cancellation from it. What it adds is defined per command and said in that
+command's help - command echo for the mutating ones, per-store detail for `status`.
+The transcript a fan-out produces is ordered by rule 2 of Terminal output, not by
+slowing the fan-out to one job.
 
 ## Ports, and what earns one
 

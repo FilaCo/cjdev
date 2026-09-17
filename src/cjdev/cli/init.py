@@ -20,7 +20,7 @@ def init(
     ctx: CjdevContext,
     path: Path = Argument(Path(), help="Where to create the workspace."),
     dry_run: bool = Option(False, "--dry-run", help="Print commands, run none."),
-    verbose: bool = Option(False, "-v", "--verbose", help="Echo every command."),
+    verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
 ) -> None:
     """Create a cjdev workspace."""
     # Resets the reporting mode as much as it names the command: the mode is
@@ -61,6 +61,8 @@ def init(
         title=f"Fetching {len(plan.to_provision)} project(s)"
         if plan.to_provision
         else "Updating the workspace",
+        # The estimate has to divide by what apply will actually use, and a
+        # dry run is sequential by its own rule - nothing to overlap.
         jobs=1 if dry_run else DEFAULT_NETWORK_JOBS,
     )
 
