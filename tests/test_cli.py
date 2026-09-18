@@ -1,7 +1,7 @@
 import json
 import sys
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest import mock
@@ -18,6 +18,7 @@ from cjdev.bootstrap import Container
 from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
 from cjdev.cli._output import SCHEMA
+from cjdev.cli.build import split_passthrough
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.errors import (
@@ -26,7 +27,7 @@ from cjdev.errors import (
     PreconditionError,
     UsageError,
 )
-from cjdev.infra.config import render_workspace_config
+from cjdev.infra.config import SUPPORTED_SCHEMA_VERSION, render_workspace_config
 from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.git import provision_object_store
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
@@ -70,15 +71,15 @@ class TestConfigShow:
         assert "cangjie_compiler" in result.output
 
     def test_the_json_payload_carries_the_layer_of_every_value(self, tmp_path: Path):
-        # FR-8: the machine surface hides nothing - provenance is always in
-        # the document, whatever the verbosity flag said.
+        # The machine surface hides nothing: provenance is always in the
+        # document, whatever the verbosity flag said.
         result = runner.invoke(cli, ["config", "show", str(tmp_path), "--json"])
 
         document = json.loads(result.stdout)
         assert document["command"] == "config show"
         assert document["ok"]
         assert document["data"]["schema_version"] == {
-            "value": 1,
+            "value": SUPPORTED_SCHEMA_VERSION,
             "layer": "bundled",
         }
         upstream = next(
@@ -748,3 +749,150 @@ class TestBranchNew:
         # is only ever asked afterwards.
         log = Path(WorkspaceLayout(provisioned).command_log).read_text()
         assert "worktree add" in log
+
+
+SCRATCH_SCRIPT = """\
+import os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(os.path.join(here, "build"), exist_ok=True)
+open(os.path.join(here, "build", sys.argv[1]), "w").write(" ".join(sys.argv[1:]))
+print("ran", *sys.argv[1:])
+"""
+
+BUILD_CONFIG = """\
+[build_units.compiler]
+scratch = ["build"]
+build = ["python3", "build.py", "build", "{profile}"]
+install = ["python3", "build.py", "install", "{dist}"]
+"""
+
+
+class TestBuild:
+    """`cjdev build`: the branch set is where you stand, not a flag."""
+
+    @pytest.fixture
+    def branch_set(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        # Arrange: a worktree with a stand-in build script, and a workspace
+        # config pointing the compiler unit at it.
+        layout = WorkspaceLayout(tmp_path)
+        Path(layout.object_store("cangjie_compiler") / "info").mkdir(parents=True)
+        Path(layout.config_file).write_text(BUILD_CONFIG, encoding="utf-8")
+        worktree = Path(layout.worktree("main", "cangjie_compiler"))
+        worktree.mkdir(parents=True)
+        (worktree / "build.py").write_text(SCRATCH_SCRIPT, encoding="utf-8")
+        monkeypatch.chdir(worktree)
+        return tmp_path
+
+    def test_it_refuses_outside_a_branch_set(
+        self, empty_workspace: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Arrange
+        monkeypatch.chdir(empty_workspace)
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)
+        assert result.exception.remedy == "cd into a branch set"
+
+    def test_it_builds_the_named_unit_from_inside_the_worktree(self, branch_set: Path):
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        layout = WorkspaceLayout(branch_set)
+        artefacts = Path(
+            layout.scratch_dir("main", "release", "compiler", PurePosixPath("build"))
+        )
+        assert sorted(p.name for p in artefacts.iterdir()) == ["build", "install"]
+
+    def test_the_profile_reaches_the_script_and_keys_the_directory(
+        self, branch_set: Path
+    ):
+        # Act
+        runner.invoke(cli, ["build", "compiler", "--profile", "debug"])
+
+        # Assert
+        layout = WorkspaceLayout(branch_set)
+        scratch = layout.scratch_dir(
+            "main", "debug", "compiler", PurePosixPath("build")
+        )
+        built = Path(scratch / "build")
+        assert built.read_text() == "build debug"
+
+    def test_the_report_is_available_to_something_that_is_not_a_person(
+        self, branch_set: Path
+    ):
+        # Act
+        result = runner.invoke(cli, ["build", "compiler", "--json"])
+
+        # Assert
+        document = json.loads(result.stdout)
+        assert document["schema"] == SCHEMA
+        assert document["command"] == "build"
+        assert document["ok"]
+        assert document["data"]["profile"] == "release"
+        unit = document["data"]["units"][0]
+        assert unit["name"] == "compiler"
+        assert unit["outcome"] == "done"
+        assert unit["log"].endswith("log/main/compiler.log")
+        assert unit["seconds"] is not None
+
+    def test_arguments_after_a_double_dash_reach_the_script(self, branch_set: Path):
+        # Act
+        result = runner.invoke(cli, ["build", "compiler", "--", "--no-tests"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        log = Path(WorkspaceLayout(branch_set).unit_log("main", "compiler"))
+        assert "--no-tests" in log.read_text()
+
+    def test_a_passthrough_needs_the_selection_to_be_one_unit(self, branch_set: Path):
+        # Act: no unit named, so the selection is the whole SDK.
+        result = runner.invoke(cli, ["build", "--", "--no-tests"])
+
+        # Assert
+        assert isinstance(result.exception, UsageError)
+
+    def test_a_dry_run_changes_nothing(self, branch_set: Path):
+        # Act
+        result = runner.invoke(cli, ["build", "compiler", "--dry-run", "-v"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert not Path(WorkspaceLayout(branch_set).marker / "build").exists()
+        assert "build.py build release" in result.stdout
+        assert "was not touched" in result.stdout
+
+    def test_what_it_ran_is_in_the_workspace_log(self, branch_set: Path):
+        # Act
+        runner.invoke(cli, ["build", "compiler"])
+
+        # Assert
+        log = Path(WorkspaceLayout(branch_set).command_log).read_text()
+        assert "build.py build release" in log
+
+
+class TestPassthroughSplit:
+    def test_the_first_flag_starts_the_passthrough(self):
+        # Act / Assert: click drops the `--` before the command sees it.
+        assert split_passthrough(["compiler", "--no-tests"]) == (
+            ["compiler"],
+            ["--no-tests"],
+        )
+
+    def test_a_value_after_a_flag_belongs_to_it(self):
+        # Act / Assert
+        assert split_passthrough(["stdlib", "--target", "native"]) == (
+            ["stdlib"],
+            ["--target", "native"],
+        )
+
+    def test_units_alone_pass_nothing_through(self):
+        # Act / Assert
+        assert split_passthrough(["compiler", "stdlib"]) == (
+            ["compiler", "stdlib"],
+            [],
+        )

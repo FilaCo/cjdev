@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Generic, TypeVar, cast, final
 
+from cjdev.domain.build import InstallStep
 from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole
 from cjdev.errors import ManifestError
 
@@ -78,6 +79,12 @@ class UnitOverride:
     depends_on: tuple[str, ...] | None = None
     """`None` inherits from the layer below; an explicit `[]` is a real answer
     (it detaches the unit from everything it inherited)."""
+    scratch: tuple[PurePosixPath, ...] | None = None
+    build: tuple[str, ...] | None = None
+    install: tuple[InstallStep, ...] | None = None
+    extra_args: tuple[str, ...] | None = None
+    """Where a flag somebody passes every day is written down once. Replaces
+    rather than appends, like every other override here."""
 
 
 @final
@@ -114,6 +121,10 @@ class UnitLayers:
     project: Sourced[str]
     path: Sourced[PurePosixPath]
     depends_on: Sourced[tuple[str, ...]]
+    scratch: Sourced[tuple[PurePosixPath, ...]]
+    build: Sourced[tuple[str, ...]]
+    install: Sourced[tuple[InstallStep, ...]]
+    extra_args: Sourced[tuple[str, ...]]
 
 
 @final
@@ -175,6 +186,10 @@ def layer(base: Manifest, override: WorkspaceConfig) -> LayeredManifest:
                 project=unit.project.value,
                 path=unit.path.value,
                 depends_on=unit.depends_on.value,
+                scratch=unit.scratch.value,
+                build=unit.build.value,
+                install=unit.install.value,
+                extra_args=unit.extra_args.value,
             )
             for unit in units
         ),
@@ -271,6 +286,24 @@ def _layer_units(base: Manifest, override: WorkspaceConfig) -> tuple[UnitLayers,
                 o is not None and o.depends_on is not None,
                 o and o.depends_on,
             ),
+            scratch=_field(
+                unit.scratch,
+                o is not None and o.scratch is not None,
+                o and o.scratch,
+            ),
+            build=_field(
+                unit.build, o is not None and o.build is not None, o and o.build
+            ),
+            install=_field(
+                unit.install,
+                o is not None and o.install is not None,
+                o and o.install,
+            ),
+            extra_args=_field(
+                unit.extra_args,
+                o is not None and o.extra_args is not None,
+                o and o.extra_args,
+            ),
         )
         for unit in base.build_units
         for o in (override.build_units.get(unit.name),)
@@ -299,6 +332,10 @@ def _layer_units(base: Manifest, override: WorkspaceConfig) -> tuple[UnitLayers,
                 project=Sourced(o.project, WORKSPACE),
                 path=Sourced(o.path, WORKSPACE),
                 depends_on=Sourced(o.depends_on or (), WORKSPACE),
+                scratch=Sourced(o.scratch or (), WORKSPACE),
+                build=Sourced(o.build or (), WORKSPACE),
+                install=Sourced(o.install or (), WORKSPACE),
+                extra_args=Sourced(o.extra_args or (), WORKSPACE),
             )
         )
     return tuple(layered)

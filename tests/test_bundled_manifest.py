@@ -4,8 +4,11 @@ Loaded through `importlib.resources`, not from the working tree, so that a
 packaging regression fails here rather than only for users who pip-installed.
 """
 
+from pathlib import PurePosixPath
+
 import pytest
 
+from cjdev.domain.build import CopyStep, RunStep
 from cjdev.domain.manifest import Manifest, ProjectRole
 from cjdev.errors import ManifestError
 from cjdev.infra.config import (
@@ -14,14 +17,17 @@ from cjdev.infra.config import (
     parse_manifest,
 )
 
-SIX_PROJECTS = [
+PROJECTS = [
     "cangjie_compiler",
     "cangjie_runtime",
+    "cangjie_stdx",
     "cangjie_tools",
     "cangjie_test_framework",
     "cangjie_test",
     "cangjie_multiplatform_interop",
 ]
+
+UNITS = ["compiler", "runtime", "stdlib", "stdx", "cjpm"]
 
 
 @pytest.fixture
@@ -29,8 +35,8 @@ def bundled() -> Manifest:
     return load_bundled_manifest()
 
 
-def test_ships_the_six_projects_of_section_43(bundled: Manifest):
-    assert [str(p.name) for p in bundled.projects] == SIX_PROJECTS
+def test_ships_every_project_of_the_set(bundled: Manifest):
+    assert [str(p.name) for p in bundled.projects] == PROJECTS
 
 
 def test_every_project_records_its_own_default_branch(bundled: Manifest):
@@ -44,19 +50,14 @@ def test_the_test_projects_build_nothing(bundled: Manifest):
     assert bundled.units_of("cangjie_test") == ()
 
 
-def test_ships_only_the_four_confirmed_build_units(bundled: Manifest):
-    # R11: unverified edges are absent, not guessed. `cjdev build` offers nine
-    # more names; they land here when question A says where they live.
-    assert [u.name for u in bundled.build_units] == [
-        "compiler",
-        "runtime",
-        "stdlib",
-        "cjpm",
-    ]
+def test_ships_only_the_units_whose_edges_are_settled(bundled: Manifest):
+    # Unverified edges are absent, not guessed: cangjie_tools holds nine more
+    # tools, and they land here when their build scripts have been read.
+    assert [u.name for u in bundled.build_units] == UNITS
 
 
 def test_the_interop_project_contributes_no_edges_yet(bundled: Manifest):
-    # Question A. It is still cloned and branched like any other project.
+    # It is still cloned and branched like any other project.
     assert bundled.units_of("cangjie_multiplatform_interop") == ()
 
 
@@ -67,13 +68,8 @@ def test_one_project_can_hold_several_build_units(bundled: Manifest):
     ]
 
 
-def test_the_whole_sdk_builds_in_the_order_section_43_states(bundled: Manifest):
-    assert [u.name for u in bundled.build_order()] == [
-        "compiler",
-        "runtime",
-        "stdlib",
-        "cjpm",
-    ]
+def test_the_whole_sdk_builds_in_dependency_order(bundled: Manifest):
+    assert [u.name for u in bundled.build_order()] == UNITS
 
 
 def test_build_unit_paths_locate_their_build_script(bundled: Manifest):
@@ -94,7 +90,7 @@ class TestSchemaVersion:
 class TestParseErrors:
     def test_a_missing_key_names_the_key_and_where(self):
         toml = """
-        schema_version = 1
+        schema_version = 2
         [projects.a]
         role = "buildable"
         upstream = "https://example.invalid/a.git"
@@ -107,7 +103,7 @@ class TestParseErrors:
 
     def test_an_unknown_role_lists_the_known_ones(self):
         toml = """
-        schema_version = 1
+        schema_version = 2
         [projects.a]
         role = "wat"
         upstream = "https://example.invalid/a.git"
@@ -123,7 +119,7 @@ class TestParseErrors:
         with pytest.raises(ManifestError, match=r"projects must be a table"):
             parse_manifest(
                 """
-                schema_version = 1
+                schema_version = 2
                 projects = "x"
                 """,
                 source="test",
@@ -138,7 +134,7 @@ class TestParseErrors:
         # time, "compiler" would surface as unknown one-letter build units,
         # far from the line that caused it.
         toml = """
-        schema_version = 1
+        schema_version = 2
         [projects.compiler]
         role = "buildable"
         upstream = "https://example.invalid/compiler.git"
@@ -158,9 +154,12 @@ class TestParseErrors:
 
 class TestGroups:
     def test_the_default_group_is_the_minimal_sdk(self, bundled: Manifest):
+        # stdx is in it because `cjpm` refuses to build without
+        # CANGJIE_STDX_PATH, so a set with cjpm and no stdx cannot be built.
         assert [p.name for p in bundled.default_projects()] == [
             "cangjie_compiler",
             "cangjie_runtime",
+            "cangjie_stdx",
             "cangjie_tools",
         ]
 
@@ -184,3 +183,47 @@ def test_unit_names_are_the_flat_token_the_cli_takes(bundled: Manifest):
     # project holds a unit is recorded separately, so the name stays typeable.
     assert all("/" not in unit.name for unit in bundled.build_units)
     assert len({unit.name for unit in bundled.build_units}) == len(bundled.build_units)
+
+
+class TestBuildData:
+    def test_every_shipped_unit_can_be_built(self, bundled: Manifest):
+        # Arrange / Act / Assert: a unit with no argv is a name `cjdev build`
+        # can only refuse.
+        assert all(unit.build for unit in bundled.build_units)
+        assert all(unit.scratch for unit in bundled.build_units)
+
+    def test_the_projects_that_track_build_do_not_redirect_it(self, bundled: Manifest):
+        # `cangjie_runtime/runtime/build` and `cangjie_stdx/build` hold cmake
+        # toolchain files, so a uniform `build` entry would delete them.
+        for name in ("runtime", "stdx"):
+            assert PurePosixPath("build") not in bundled.unit(name).scratch
+
+    def test_the_compiler_is_told_the_profile_and_the_job_count(
+        self, bundled: Manifest
+    ):
+        assert "{profile}" in bundled.unit("compiler").build
+        assert "{jobs}" in bundled.unit("compiler").build
+
+    def test_cjpm_installs_by_copying_into_two_directories(self, bundled: Manifest):
+        # Its binary belongs in tools/bin and its repo config in tools/config;
+        # sharing a directory makes cjpm fall back to an empty config silently.
+        steps = bundled.unit("cjpm").install
+
+        assert [step.into for step in steps if isinstance(step, CopyStep)] == [
+            "{dist}/tools/bin",
+            "{dist}/tools/config",
+        ]
+
+    def test_the_cmake_units_run_their_own_install(self, bundled: Manifest):
+        for name in ("compiler", "stdlib", "stdx"):
+            assert all(isinstance(step, RunStep) for step in bundled.unit(name).install)
+
+    def test_cjpm_cannot_be_scheduled_before_stdx(self, bundled: Manifest):
+        # It refuses to build without CANGJIE_STDX_PATH.
+        order = [unit.name for unit in bundled.build_order(["cjpm"])]
+
+        assert order.index("stdx") < order.index("cjpm")
+
+    def test_nothing_ships_an_extra_arg(self, bundled: Manifest):
+        # Machine-specific flags belong to a workspace, not to the wheel.
+        assert all(unit.extra_args == () for unit in bundled.build_units)

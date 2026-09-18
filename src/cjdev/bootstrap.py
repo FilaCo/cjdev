@@ -11,6 +11,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import final
 
+from cjdev.application.build_units import BuildUnits
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Prompt
@@ -33,7 +34,9 @@ from cjdev.infra.git import (
     read_store,
     remove_object_store,
 )
+from cjdev.infra.host import detect_host
 from cjdev.infra.journal import CommandJournal, open_journal
+from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
 
 
@@ -189,6 +192,21 @@ class Container:
             inspect=inspect_checkout,
             add=add_checkout,
             drop=drop_checkout,
+        )
+
+    def build_units(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> BuildUnits:
+        """No `Prompt`: a build creates and overwrites only what cjdev owns,
+        so there is nothing to ask consent for."""
+        return BuildUnits(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            file_system=self.file_system(dry_run=dry_run),
+            host=detect_host(),
+            # A dry run leaves no lock file behind: it starts no build, so
+            # there is nothing for a second one to collide with.
+            lock=no_lock if dry_run else file_lock,
         )
 
     def report_status(

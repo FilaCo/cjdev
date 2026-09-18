@@ -28,6 +28,14 @@ class Command:
     It defaults to `True` so that forgetting to classify a command makes the
     dry run too cautious rather than destructive.
     """
+    log: PurePath | None = None
+    """Where this command's output is written while it runs.
+
+    A build is forty minutes of output, so it is teed to a file line by line
+    and only its tail comes back: a `Completed` holding all of it would be a
+    command nobody can follow while it runs and a lot of memory once it is
+    over. Unset for everything short, whose output the caller renders whole.
+    """
     what: str = ""
     """A short phrase for the progress display: "fetching from upstream".
 
@@ -92,4 +100,17 @@ class FileSystem(Protocol):
     def remove(self, path: PurePath) -> None:
         """A file or a whole directory: callers delete what is there, and the
         distinction is the filesystem's business rather than theirs."""
+        ...
+
+    def symlink(self, link: PurePath, target: PurePath) -> None:
+        """Point `link` at `target`, replacing whatever link is there.
+
+        Atomic, because a build directory is repointed between profiles while
+        another build may be reading it: a link that briefly does not exist is
+        a build that briefly writes into the worktree.
+        """
+        ...
+
+    def copy(self, source: PurePath, into: PurePath) -> None:
+        """One file into one directory, which is created if it is missing."""
         ...

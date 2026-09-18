@@ -70,3 +70,8 @@ already resolves from the cwd, exactly as git resolves a repository. The same sp
 leaves `status PATH` and `config show PATH` positional: there the workspace *is* the
 subject - "show me this workspace". A path that only names where the subject lives is an
 option; a path that names what to act on is the argument.
+
+`build UNITS...` takes neither: the build units are the subject, and the workspace
+arrives with the branch set, which is the directory the caller is standing in. An option
+for one without the other would name half the context, so the rule for a command whose
+context is not one path is that it takes the cwd and says so in its help.

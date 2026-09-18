@@ -20,6 +20,7 @@ src/cjdev/
 
   domain/                  # pure: no subprocess, no filesystem, no network
     manifest.py            # Project, BuildUnit and the build graph
+    build.py               # profiles, argv templates and the four tokens
     layout.py              # workspace path algebra, parameterised by root
     branch.py              # whether a string may be a git branch name
     state.py               # branch / SHA / dirty / ahead-behind
@@ -29,6 +30,7 @@ src/cjdev/
     runner.py              # fan-out, -j, output ordering, cancellation
     workspace.py           # finding the workspace root, and what it holds
     init_workspace.py      # `cjpm init` use case file
+    build_units.py         # scratch redirects, the chain, and the build env
     ...                    # other use case files
 
   infra/                   # the only layer that touches the outside world
@@ -36,6 +38,8 @@ src/cjdev/
       host.py  trace.py  dry_run.py
     git.py                 # argv for git, and parsing its output
     filesystem.py          # the real tree, or the one that only describes itself
+    locks.py               # flock, one build per (branch set, build unit)
+    host.py                # cores, PATH and ccache on this machine
     prompt.py              # questionary, or the refusal to ask
     journal.py             # the workspace log, .cjdev/log/cjdev.log
     config.py              # manifest loading and the schema-version gate
@@ -48,6 +52,7 @@ src/cjdev/
     _output.py             # the --json envelope, and which mode a run is in
     _render.py             # the terminal report, and the payload --json carries
     init.py                # `cjpm init` command entrypoint
+    build.py               # `cjdev build` command entrypoint
     ...                    # other command entrypoints
 ```
 
@@ -122,6 +127,31 @@ have not started, or rewrite a failed checkout into a success once the rollback 
 that very checkout is done. Those fan-outs take the transcript face, which attributes
 their lines to a project without ticking anything.
 
+## Builds happen out of tree, and the worktree is what carries the state
+
+Every upstream `build.py` derives its output directory from `__file__` and takes no flag
+for it, so the only way out of the worktree is a symlink from the worktree into
+`.cjdev/build/<set>/<profile>/<unit>/`. Five consequences, and they are the whole design:
+
+- **Which paths are scratch is manifest data.** `build/` is tracked source in
+  `cangjie_runtime/runtime` and in `cangjie_stdx`, so a uniform `build` redirect would
+  delete those projects' cmake toolchains.
+- **The links are relative.** An absolute target breaks the moment the workspace is
+  mounted at a different path, which is exactly what the container executor will do.
+- **A worktree therefore has a profile.** The links are verified before every build,
+  repointed atomically (`symlink` stages beside the link and replaces it) and all of a
+  unit's links together, under an flock per (branch set, build unit). A real directory
+  where a link belongs is a refusal, not a silent delete of somebody's artefacts.
+- **The links have to be excluded, and the project's own `.gitignore` will not do it.**
+  A symlink is not a directory to git, so a pattern written `output/` does not match one -
+  `runtime`, `stdx` and `cjpm` all leave their scratch paths visible that way, and
+  `status` would call the worktree dirty while `git worktree remove` refused. cjdev writes
+  the paths into the object store's `info/exclude`, which every worktree of that store
+  shares, so one write covers every branch set and no tracked file is touched.
+- **cjdev owns removing them.** Upstream `clean` calls `rmtree` on what is now a symlink
+  and raises; the real directory under `.cjdev/build/` is ours to remove. There is no
+  command for it yet, for the naming reason under Questions, answers and consent.
+
 ## Ports, and what earns one
 
 A port is earned by a second implementation that will actually exist. There are three:
@@ -139,6 +169,12 @@ supposed to only describe, because the executor covers subprocesses and `Path.mk
 not one. Anything that changes the tree goes through the port; anything that only reads it
 does not, since a probe has to be real or the plan is built on guesses.
 
+That rule is also why `symlink` and `copy` are on the port rather than done with
+`shutil`: the build redirects scratch directories out of the worktree and cjpm installs
+by copying two files, and both are tree mutations a dry run has to decline. The build
+lock is **not** a port by the same test - its second implementation is a dry run's no-op,
+so it travels as a callable argument the way `jobs` travels as a default.
+
 Git in particular is **not** a port. Driving the real `git` binary is a commitment made
 once - worktrees, `rerere`, `--force-with-lease` and the credential helpers all behave as
 documented only there - and that binary is reached through `Executor` already; a second
@@ -155,6 +191,13 @@ be turned on in advance. A dry run records nothing; read-only commands do not op
 
 Writing to it is best-effort: a full or read-only disk must never be the reason a command
 fails, so `CommandJournal` swallows its own errors.
+
+A build needs the other half of that: one line per command answers "what ran", and
+nothing answers "why did it fail forty minutes in". So a `Command` may name a `log`, and
+`HostExecutor` then tees that command's output into it line by line and brings back only
+the tail. Streamed rather than written at the end, because the file exists to be tailed
+while the build runs - and bounded, because a `Completed` holding hundreds of megabytes
+is the same problem in memory.
 
 ## Terminal output
 
@@ -182,7 +225,7 @@ Every command that has it prints the same envelope - `schema`, `command`, `ok`, 
 `errors`. Fields are added and never repurposed; anything else bumps the number in
 `cli/_output.py`.
 
-Today that is `status` and `branch new`. `init` has no `--json`, because the machine-facing way
+Today that is `status`, `branch new` and `build`. `init` has no `--json`, because the machine-facing way
 to answer its wizard is still an open question, and an envelope with no way to supply the
 project set would only look like a working non-interactive path. The envelope is where it
 lands when that is settled; nothing else changes.
@@ -233,6 +276,7 @@ nothing; everything else asks at a terminal or refuses.
 | `init` | a wizard for the project set, then consent if the answer drops one | none; `--dry-run` asks nothing |
 | `status` | nothing | none |
 | `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
+| `build` | nothing - it creates and overwrites only what cjdev owns | none; `--dry-run` asks nothing |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two
@@ -268,9 +312,9 @@ A related smell, and one this project actually grew: a command file with one sub
 manifest entry. An early `build.py` was thirteen near-identical stubs against a manifest of
 four units, and the two had already drifted. One command that takes its names *from* the
 manifest cannot drift, and gets completion for free. **If you are about to write the same
-command shape N times, the N belongs in data.** (That command is gone for now: a command
-that always fails is worse than an absent one, because it fills `--help` and shell
-completion with something nobody can use. It comes back when there is a builder behind it.)
+command shape N times, the N belongs in data.** `cjdev build` is now that command, and the
+rule went further than the names: the argv, the install shape and the scratch directories
+are manifest data too, because all three genuinely differ per unit.
 
 ## TOML
 

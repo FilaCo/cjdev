@@ -110,8 +110,8 @@ class TestDecide:
         assert [p.name for p in plan.to_provision] == ["alpha", "beta"]
         assert plan.write_config
         assert layout.bare_dir in plan.directories
-        # No cache/ until something reads it; that lands with the builds.
-        assert layout.ccache_dir not in plan.directories
+        # ccache reads CCACHE_DIR before anything of ours could create it.
+        assert layout.ccache_dir in plan.directories
 
     def test_re_running_tops_up_only_what_is_missing(self, manifest: Manifest):
         # Idempotence is the point: `init` on a half-built workspace should
@@ -175,6 +175,7 @@ class TestDecide:
         assert [p.name for p in plan.to_provision] == [
             "cangjie_compiler",
             "cangjie_runtime",
+            "cangjie_stdx",
             "cangjie_tools",
         ]
 
@@ -212,9 +213,7 @@ class TestEndToEnd:
         assert sorted(p.name for p in root.iterdir()) == [".cjdev"]
         assert Path(initialised.config_file).is_file()
         assert Path(initialised.bare_dir).is_dir()
-        # No cache/ until something reads it: an empty directory is a promise
-        # the tool is not keeping.
-        assert not Path(initialised.cache_dir).exists()
+        assert Path(initialised.ccache_dir).is_dir()
 
     def test_each_project_gets_a_bare_store(self, initialised: WorkspaceLayout):
         for name in ("alpha", "beta"):
@@ -423,7 +422,8 @@ class TestDryRun:
 
         # The workspace skeleton first, then each project whole and in
         # manifest order, never interleaved.
-        assert [line.split()[0] for line in printed[:3]] == [
+        assert [line.split()[0] for line in printed[:4]] == [
+            "mkdir",
             "mkdir",
             "mkdir",
             "write",

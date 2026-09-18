@@ -16,6 +16,7 @@ from enum import Enum, auto, unique
 from pathlib import PurePosixPath
 from typing import final
 
+from cjdev.domain.build import InstallStep, RunStep, check_inside, check_template
 from cjdev.errors import ManifestError
 
 
@@ -60,6 +61,21 @@ class BuildUnit:
     """Where the unit's own `build.py` lives, relative to the project
     worktree. `.` when the unit sits at the project root."""
     depends_on: tuple[str, ...]
+    scratch: tuple[PurePosixPath, ...] = ()
+    """The directories this unit's build writes into, relative to `path`.
+
+    Per unit rather than a constant, because `build/` is *tracked source* in
+    `cangjie_runtime/runtime` and in `cangjie_stdx`: a uniform `build/`
+    redirect would delete those projects' toolchain files.
+    """
+    build: tuple[str, ...] = ()
+    """The argv that builds it, `{token}`s and all. Empty for a unit whose
+    invocation is not established yet, which `cjdev build` refuses rather than
+    guesses at."""
+    install: tuple[InstallStep, ...] = ()
+    extra_args: tuple[str, ...] = ()
+    """Appended to `build` - the workspace layer's way to write down a flag
+    that would otherwise be retyped every day."""
 
 
 @final
@@ -86,6 +102,7 @@ class Manifest:
         self._reject_duplicates()
         self._reject_dangling_references()
         self._reject_unknown_group_members()
+        self._reject_bad_build_data()
 
     def group(self, name: str) -> tuple[Project, ...]:
         if name not in self.groups:
@@ -200,6 +217,37 @@ class Manifest:
                     )
                 if dep == unit.name:
                     raise ManifestError(f"build unit {unit.name} depends on itself.")
+
+    def _reject_bad_build_data(self) -> None:
+        """Checked on the composed manifest rather than per file, so that a
+        workspace override gets the same refusals the bundled manifest does."""
+        for unit in self.build_units:
+            where = f"build unit {unit.name}"
+            for scratch in unit.scratch:
+                check_inside(scratch, where)
+            self._reject_nested_scratch(unit)
+            for word in (*unit.build, *unit.extra_args):
+                check_template(word, where)
+            for step in unit.install:
+                if isinstance(step, RunStep):
+                    for word in step.argv:
+                        check_template(word, where)
+                else:
+                    check_inside(step.source, where, "install from")
+                    check_template(step.into, where)
+
+    @staticmethod
+    def _reject_nested_scratch(unit: BuildUnit) -> None:
+        """One scratch path inside another cannot both be redirected: the
+        outer one is a symlink, so the inner one is not a path in the worktree
+        at all."""
+        for outer in unit.scratch:
+            for inner in unit.scratch:
+                if inner != outer and outer in inner.parents:
+                    raise ManifestError(
+                        f"build unit {unit.name} has scratch path {inner} "
+                        f"inside scratch path {outer}."
+                    )
 
     def _reject_unknown_group_members(self) -> None:
         known = {project.name for project in self.projects}

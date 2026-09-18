@@ -16,11 +16,13 @@
 # not. Upstream moves - new tools, new edges, a renamed build script - land here
 # and nowhere else.
 
-schema_version = 1
+schema_version = 2
 
 # Named subsets, for `--only` and for what `cjdev init` offers by default.
 # `minimal` is the smallest set that produces a usable SDK: the
-# compiler, the runtime and stdlib it needs, and the tooling built on top.
+# compiler, the runtime and stdlib it needs, stdx, and the tooling built on top.
+# cangjie_stdx is in it because `cjpm` refuses to build without
+# `CANGJIE_STDX_PATH`, so a set holding cjpm and not stdx cannot be built.
 #
 # `testing` is `minimal` plus the two test repositories, and it has to be,
 # because neither of them is any use alone: cangjie_test_framework builds
@@ -35,16 +37,22 @@ schema_version = 1
 default_group = "minimal"
 
 [groups]
-minimal = ["cangjie_compiler", "cangjie_runtime", "cangjie_tools"]
+minimal = [
+    "cangjie_compiler",
+    "cangjie_runtime",
+    "cangjie_stdx",
+    "cangjie_tools",
+]
 testing = [
     "cangjie_compiler",
     "cangjie_runtime",
+    "cangjie_stdx",
     "cangjie_tools",
     "cangjie_test_framework",
     "cangjie_test",
 ]
 
-# Six repositories, all under https://gitcode.com/Cangjie, all on `main` today.
+# Seven repositories, all under https://gitcode.com/Cangjie, all on `main` today.
 # `default_branch` is recorded per project rather than assumed: hardcoding a
 # branch name is wrong even when they currently agree.
 
@@ -56,6 +64,11 @@ default_branch = "main"
 [projects.cangjie_runtime]
 role = "buildable"
 upstream = "https://gitcode.com/Cangjie/cangjie_runtime.git"
+default_branch = "main"
+
+[projects.cangjie_stdx]
+role = "buildable"
+upstream = "https://gitcode.com/Cangjie/cangjie_stdx.git"
 default_branch = "main"
 
 [projects.cangjie_tools]
@@ -82,23 +95,113 @@ upstream = "https://gitcode.com/Cangjie/cangjie_multiplatform_interop.git"
 default_branch = "main"
 
 # A "buildable" project may contain 1 to N build units.
+#
+# THREE KEYS DESCRIBE THE BUILD, and all three differ per unit, which is why
+# they are data:
+#
+# `scratch` - the directories the build writes into, relative to `path`. cjdev
+# replaces each one in the worktree with a relative symlink into
+# `.cjdev/build/<set>/<profile>/<unit>/`, because every upstream script derives
+# its own output location from `__file__` and takes no flag for it. The lists
+# are per unit and not guessable: `build/` is *tracked source* in
+# cangjie_runtime/runtime and in cangjie_stdx, so a uniform `build` entry would
+# delete those projects' toolchain files.
+#
+# `build` and `install` - the argv, with `{profile}`, `{jobs}`, `{dist}` and
+# `{build_dir}` replaced literally. No conditionals: a template that wants an
+# `if` belongs in code.
+#
+# `install` has a second shape, a list of `[[...install]]` tables with `from`
+# and `to`, for a unit whose artefacts go to two different places. Only cjpm
+# needs it.
+#
+# A SCRATCH PATH IS ALSO AN IGNORE PROBLEM. A symlink is not a directory to
+# git, so an upstream pattern written `output/` does not match the link cjdev
+# puts there - and `runtime`, `stdx` and `cjpm` all leave their scratch paths
+# visible for that reason (compiler and stdlib write `output` and `build`
+# without the slash, and those do match). cjdev therefore writes every scratch
+# path into the object store's own `info/exclude`, which is shared by every
+# worktree of that store.
+#
+# WHAT IS NOT HERE: cross-unit flags such as stdlib's `--target-lib <runtime
+# output>` and machine-specific ones such as `--target-lib $OPENSSL_PATH`.
+# Those paths carry a target triple that no token spells, so they belong in a
+# workspace's own `extra_args` until there is a verified shape for them.
 
 [build_units.compiler]
 project = "cangjie_compiler"
 path = "."
 depends_on = []
+scratch = ["build", "output"]
+build = ["python3", "build.py", "build", "-t", "{profile}", "-j", "{jobs}"]
+install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 
+# `install` passes no prefix on purpose: `build --prefix` is what bakes
+# CMAKE_INSTALL_PREFIX in, and the install step would otherwise overwrite it
+# with a path missing the `linux_<profile>_<arch>` segment the next unit looks
+# for. The `common/` segment is ours - upstream appends the rest to whatever we
+# pass.
 [build_units.runtime]
 project = "cangjie_runtime"
 path = "runtime"
 depends_on = []
+scratch = ["output", "CMakebuild", "build/cjthread_build"]
+build = ["python3", "build.py", "build", "-t", "{profile}", "--prefix", "{dist}/common"]
+install = ["python3", "build.py", "install"]
 
 [build_units.stdlib]
 project = "cangjie_runtime"
 path = "stdlib"
 depends_on = ["compiler", "runtime"]
+scratch = ["build", "output"]
+build = ["python3", "build.py", "build", "-t", "{profile}", "-j", "{jobs}"]
+install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 
+# `build/` is deliberately absent: stdx tracks `build/common/*.cmake` the way
+# cangjie_runtime/runtime does. Its own scratch is `build_temp` and `target`
+# (`build.py:28-30`, and its `.gitignore` lists exactly those two).
+#
+# `--jobs` has no short form here, unlike the compiler's and stdlib's `-j`.
+# The script uses `parse_known_args`, so `-j` would be silently dropped rather
+# than refused.
+#
+# The edges are wider than the flags the official build flow passes (compiler
+# includes and OpenSSL only): stdx is Cangjie source compiled by `cjc`, so it
+# needs stdlib's `.cjo` and the runtime to link, and those arrive through
+# CANGJIE_HOME rather than as an argument. A superfluous edge costs an ordering
+# the chain imposes anyway; a missing one lets stdx be scheduled first.
+#
+# OpenSSL: its cmake finds the system OpenSSL 3.x on its own, and
+# `--target-lib <openssl lib>` only adds a search path. Machine-specific, so it
+# belongs in a workspace's `extra_args`.
+[build_units.stdx]
+project = "cangjie_stdx"
+path = "."
+depends_on = ["compiler", "runtime", "stdlib"]
+scratch = ["build_temp", "target"]
+build = ["python3", "build.py", "build", "-t", "{profile}", "--jobs", "{jobs}"]
+install = ["python3", "build.py", "install", "--prefix", "{dist}/third_party/stdx"]
+
+# cjpm is the only cangjie_tools unit for now. The other ~9 tools each carry
+# their own build script and their own ignore set; that is a separate manifest
+# pass.
+#
+# Its scratch paths are not gitignored at all - `cangjie_tools/.gitignore`
+# covers cjlint only - which is the plainest case of the ignore problem above.
 [build_units.cjpm]
 project = "cangjie_tools"
 path = "cjpm"
-depends_on = ["compiler", "runtime", "stdlib"]
+depends_on = ["compiler", "runtime", "stdlib", "stdx"]
+scratch = ["build/bin", "cpp/build", "cpp/out", "dist"]
+build = ["python3", "build/build.py", "build", "-t", "{profile}"]
+
+# Two destinations, because cjpm resolves `cangjie-repo.toml` from
+# `$CANGJIE_HOME/tools/config` while the binary belongs in `tools/bin`. Put
+# both in one directory and cjpm falls back to an empty config with no error.
+[[build_units.cjpm.install]]
+from = "dist/cjpm"
+to = "{dist}/tools/bin"
+
+[[build_units.cjpm.install]]
+from = "dist/cangjie-repo.toml"
+to = "{dist}/tools/config"

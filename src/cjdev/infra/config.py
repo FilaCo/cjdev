@@ -10,6 +10,7 @@ from typing import Any
 
 import tomlkit
 
+from cjdev.domain.build import CopyStep, InstallStep, RunStep
 from cjdev.domain.config import (
     BUNDLED_MANIFEST,
     ROLE_NAMES,
@@ -20,7 +21,22 @@ from cjdev.domain.config import (
 from cjdev.domain.manifest import BuildUnit, Manifest, Project
 from cjdev.errors import ManifestError
 
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSION = 2
+"""2 added the per-unit build data: `scratch`, `build`, `install` and
+`extra_args`. Nothing needs migrating - `init` writes a comment-only config and
+an absent `schema_version` inherits this one - so only a hand-written
+`schema_version = 1` has to be touched, and that already gets a refusal naming
+the file."""
+
+UNIT_KEYS = {
+    "project",
+    "path",
+    "depends_on",
+    "scratch",
+    "build",
+    "install",
+    "extra_args",
+}
 
 WORKSPACE_CONFIG = "config.toml"
 
@@ -172,15 +188,59 @@ def _project(name: str, body: Any, source: str) -> Project:
 
 def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
     where = f"{source}: build unit {name}"
-    _reject_unknown_keys(body, {"project", "path", "depends_on"}, where)
-    _reject_mistyped(body, "project", where, str, "a string")
-    _reject_mistyped(body, "path", where, str, "a string")
-    _reject_mistyped(body, "depends_on", where, list, "an array of build-unit names")
+    _check_unit_keys(body, where)
     return BuildUnit(
         name=name,
         project=str(_require(body, "project", where)),
         path=PurePosixPath(str(_require(body, "path", where))),
         depends_on=tuple(str(dep) for dep in body.get("depends_on", [])),
+        scratch=tuple(PurePosixPath(str(p)) for p in body.get("scratch", [])),
+        build=tuple(str(word) for word in body.get("build", [])),
+        install=_install(body, where) or (),
+        extra_args=tuple(str(word) for word in body.get("extra_args", [])),
+    )
+
+
+def _check_unit_keys(body: Any, where: str) -> None:
+    _reject_unknown_keys(body, UNIT_KEYS, where)
+    _reject_mistyped(body, "project", where, str, "a string")
+    _reject_mistyped(body, "path", where, str, "a string")
+    _reject_mistyped(body, "depends_on", where, list, "an array of build-unit names")
+    _reject_mistyped(body, "scratch", where, list, "an array of paths")
+    _reject_mistyped(body, "build", where, list, "an argv array")
+    _reject_mistyped(body, "install", where, list, "an argv array or copy tables")
+    _reject_mistyped(body, "extra_args", where, list, "an array of arguments")
+
+
+def _install(body: Any, where: str) -> tuple[InstallStep, ...] | None:
+    """One argv, or a list of copies. `None` when the key is absent.
+
+    The two shapes are told apart by what the array holds rather than by a
+    discriminator key, because TOML already spells them differently: an array
+    of strings is one command, and `[[unit.install]]` tables are copies. A
+    mixed array is refused - there is no order in which it would mean
+    something.
+    """
+    if "install" not in body:
+        return None
+    entries = list(body["install"])
+    if not entries:
+        return ()
+    if all(isinstance(entry, str) for entry in entries):
+        return (RunStep(tuple(str(entry) for entry in entries)),)
+    if all(isinstance(entry, dict) for entry in entries):
+        return tuple(_copy_step(entry, where) for entry in entries)
+    raise ManifestError(
+        f"{where} install must be either an argv array or tables of "
+        f"from/to, not a mixture of both."
+    )
+
+
+def _copy_step(entry: Any, where: str) -> CopyStep:
+    _reject_unknown_keys(entry, {"from", "to"}, f"{where} install")
+    return CopyStep(
+        source=PurePosixPath(str(_require(entry, "from", f"{where} install"))),
+        into=str(_require(entry, "to", f"{where} install")),
     )
 
 
@@ -214,17 +274,14 @@ def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
 
 def _unit_override(name: str, body: Any, source: str) -> UnitOverride:
     where = f"{source}: build unit {name}"
-    _reject_unknown_keys(body, {"project", "path", "depends_on"}, where)
-    _reject_mistyped(body, "project", where, str, "a string")
-    _reject_mistyped(body, "path", where, str, "a string")
-    _reject_mistyped(body, "depends_on", where, list, "an array of build-unit names")
+    _check_unit_keys(body, where)
     if not body:
         # A bare table header overrides nothing, so honouring it would read as
         # success while saying nothing - almost always a key the user meant to
         # write and forgot. Refusing beats a silent shrug.
         raise ManifestError(
             f"{where} names no keys. Write what to override "
-            f"(project, path, depends_on), or remove the table."
+            f"({', '.join(sorted(UNIT_KEYS))}), or remove the table."
         )
     return UnitOverride(
         project=str(body["project"]) if "project" in body else None,
@@ -234,6 +291,18 @@ def _unit_override(name: str, body: Any, source: str) -> UnitOverride:
         depends_on=(
             tuple(str(dep) for dep in body["depends_on"])
             if "depends_on" in body
+            else None
+        ),
+        scratch=(
+            tuple(PurePosixPath(str(p)) for p in body["scratch"])
+            if "scratch" in body
+            else None
+        ),
+        build=(tuple(str(word) for word in body["build"]) if "build" in body else None),
+        install=_install(body, where),
+        extra_args=(
+            tuple(str(word) for word in body["extra_args"])
+            if "extra_args" in body
             else None
         ),
     )

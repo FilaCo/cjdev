@@ -316,3 +316,57 @@ class TestSchemaVersion:
 
         assert result.schema_version == Sourced(1, WORKSPACE)
         assert result.effective.schema_version == 1
+
+
+class TestBuildData:
+    def test_an_extra_arg_lands_without_restating_the_argv(self, base: Manifest):
+        # Arrange / Act: writing down a flag passed every day must not require
+        # copying the build command out of the wheel.
+        result = layer(
+            base, override(build_units={"u": UnitOverride(extra_args=("--no-tests",))})
+        )
+
+        # Assert
+        assert result.effective.unit("u").extra_args == ("--no-tests",)
+        assert result.effective.unit("u").build == base.unit("u").build
+        assert result.build_units[0].extra_args.layer == WORKSPACE
+        assert result.build_units[0].build.layer == BUNDLED
+
+    def test_a_replaced_argv_replaces_and_does_not_append(self, base: Manifest):
+        # Arrange
+        replaced = ("make", "-C", "src")
+
+        # Act
+        result = layer(base, override(build_units={"u": UnitOverride(build=replaced)}))
+
+        # Assert
+        assert result.effective.unit("u").build == replaced
+
+    def test_an_added_unit_may_carry_no_build_data_at_all(self, base: Manifest):
+        # Arrange / Act: a project can land in a workspace before its build
+        # command is known.
+        result = layer(
+            base,
+            override(
+                build_units={
+                    "extra": UnitOverride(project="a", path=PurePosixPath("extra"))
+                }
+            ),
+        )
+
+        # Assert
+        added = result.effective.unit("extra")
+        assert added.build == ()
+        assert added.scratch == ()
+        assert added.install == ()
+
+    def test_a_bad_override_is_refused_on_the_effective_manifest(self, base: Manifest):
+        # Arrange / Act / Assert: the workspace layer gets the same checks the
+        # bundled manifest does, because both end up in one `Manifest`.
+        with pytest.raises(ManifestError, match="Known tokens"):
+            layer(
+                base,
+                override(
+                    build_units={"u": UnitOverride(build=("build.py", "{prefix}"))}
+                ),
+            )
