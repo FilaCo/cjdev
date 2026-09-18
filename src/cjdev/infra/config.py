@@ -51,7 +51,16 @@ def load_workspace_config(root: Any) -> WorkspaceConfig | None:
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
+        # No workspace file is the ordinary shape here: every non-workspace
+        # invocation lands on this arm, as does a fresh `init`.
         return None
+    except (OSError, UnicodeDecodeError) as exc:
+        # Everything else a read can raise - wrong permissions, a directory
+        # where the file should be, bytes that are not UTF-8 - is a file a
+        # human wrote by hand and wrote wrong. `main()` catches only
+        # `CjdevError`, so these would reach the user as a traceback, and the
+        # `--json` path would lose its envelope with them.
+        raise ManifestError(f"cannot read {path}: {exc}") from exc
     return parse_workspace_config(text, source=WORKSPACE_CONFIG)
 
 
@@ -78,16 +87,15 @@ def parse_manifest(text: str, *, source: str) -> Manifest:
         schema_version=int(version),
         projects=tuple(
             _project(name, body, source)
-            for name, body in _require(document, "projects", source).items()
+            for name, body in _require_table(
+                document, "projects", source, required=True
+            ).items()
         ),
         build_units=tuple(
             _build_unit(name, body, source)
-            for name, body in document.get("build_units", {}).items()
+            for name, body in _require_table(document, "build_units", source).items()
         ),
-        groups={
-            name: tuple(str(member) for member in members)
-            for name, members in document.get("groups", {}).items()
-        },
+        groups=_groups(document, source),
         default_group=(
             str(document["default_group"]) if "default_group" in document else None
         ),
@@ -129,16 +137,13 @@ def parse_workspace_config(text: str, *, source: str) -> WorkspaceConfig:
         schema_version=version,
         projects={
             name: _project_override(name, body, source)
-            for name, body in document.get("projects", {}).items()
+            for name, body in _require_table(document, "projects", source).items()
         },
         build_units={
             name: _unit_override(name, body, source)
-            for name, body in document.get("build_units", {}).items()
+            for name, body in _require_table(document, "build_units", source).items()
         },
-        groups={
-            name: tuple(str(member) for member in members)
-            for name, members in document.get("groups", {}).items()
-        },
+        groups=_groups(document, source),
         default_group=(
             str(document["default_group"]) if "default_group" in document else None
         ),
@@ -177,6 +182,14 @@ def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
 def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    if not body:
+        # Same refusal as `_unit_override`: a bare table header overrides
+        # nothing, so honouring it would read as success while saying nothing
+        # - almost always a key the user meant to write and forgot.
+        raise ManifestError(
+            f"{where} names no keys. Write what to override "
+            f"(role, upstream, default_branch), or remove the table."
+        )
     role = body.get("role")
     if role is not None and str(role) not in ROLE_NAMES:
         raise ManifestError(
@@ -232,6 +245,43 @@ def _require(body: Any, key: str, where: str) -> Any:
     if key not in body:
         raise ManifestError(f"{where} is missing required key {key!r}.")
     return body[key]
+
+
+def _require_table(
+    document: Any, key: str, source: str, *, required: bool = False
+) -> Any:
+    """The table `key` names, or an empty one when it is absent.
+
+    The type is checked here, where `tomlkit` types still flow: a string or
+    an array in a table's place is otherwise an `AttributeError` at the first
+    `.items()` - not a `CjdevError`, so it would reach the user as a
+    traceback instead of a refusal naming the key.
+    """
+    if key not in document:
+        if required:
+            raise ManifestError(f"{source} is missing required key {key!r}.")
+        return {}
+    table = document[key]
+    if not isinstance(table, dict):
+        raise ManifestError(
+            f"{source}: {key} must be a table, not {type(table).__name__}."
+        )
+    return table
+
+
+def _groups(document: Any, source: str) -> dict[str, tuple[str, ...]]:
+    """Group members, with the array checked where the file is read: a string
+    instead of an array would be iterated one character at a time, and the
+    one-letter "projects" it yields fail far from the line that caused them."""
+    groups: dict[str, tuple[str, ...]] = {}
+    for name, members in _require_table(document, "groups", source).items():
+        if not isinstance(members, list):
+            raise ManifestError(
+                f"{source}: group {name} must be an array of project names, "
+                f"not {type(members).__name__}."
+            )
+        groups[name] = tuple(str(member) for member in members)
+    return groups
 
 
 WORKSPACE_CONFIG_TEMPLATE = """\

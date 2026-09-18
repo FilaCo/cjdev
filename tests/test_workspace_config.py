@@ -6,11 +6,14 @@ naming the file it came from (FR-6), and the same schema gate as the bundled
 manifest (FR-5).
 """
 
+from pathlib import Path
+
 import pytest
 
 from cjdev.errors import ManifestError
 from cjdev.infra.config import (
     SUPPORTED_SCHEMA_VERSION,
+    load_workspace_config,
     parse_workspace_config,
 )
 
@@ -81,6 +84,57 @@ class TestRefusalsNameTheFile:
             ManifestError, match=r"config.toml: build unit u names no keys"
         ):
             parse_workspace_config("[build_units.u]\n", source="config.toml")
+
+    def test_an_empty_project_table_is_refused_like_an_empty_unit_table(self):
+        # The project table is the one people write most, so a forgotten
+        # `upstream =` line under a *known* project must be as loud as the
+        # same shape under a build unit.
+        with pytest.raises(
+            ManifestError, match=r"config.toml: project a names no keys"
+        ):
+            parse_workspace_config("[projects.a]\n", source="config.toml")
+
+
+class TestWrongTypes:
+    def test_a_top_level_key_of_the_wrong_type_is_refused_naming_the_key(self):
+        # A string where a table belongs is otherwise an AttributeError at
+        # the first `.items()` - a traceback, not a refusal.
+        with pytest.raises(ManifestError, match=r"^config.toml: projects must be"):
+            parse_workspace_config('projects = "x"\n', source="config.toml")
+
+    def test_a_group_written_as_a_string_is_refused_at_parse_time(self):
+        # Iterated one character at a time it would surface as sixteen
+        # unknown one-letter projects, far from the line that caused them.
+        with pytest.raises(
+            ManifestError, match=r"group minimal must be an array of project names"
+        ):
+            parse_workspace_config(
+                '[groups]\nminimal = "cangjie_compiler"\n', source="config.toml"
+            )
+
+
+class TestUnreadableFiles:
+    def test_bytes_that_are_not_utf8_are_a_refusal_naming_the_file(
+        self, tmp_path: Path
+    ):
+        # The one file users are told to write by hand is the one that
+        # arrives unreadable; a traceback is not the answer to that.
+        config = tmp_path / ".cjdev" / "config.toml"
+        config.parent.mkdir()
+        config.write_bytes(b"schema_version = 1\n# \xff\xfe bad\n")
+
+        with pytest.raises(ManifestError, match=r"cannot read .*config\.toml"):
+            load_workspace_config(tmp_path)
+
+    def test_a_directory_where_the_file_should_be_is_a_refusal(self, tmp_path: Path):
+        config = tmp_path / ".cjdev" / "config.toml"
+        config.mkdir(parents=True)
+
+        with pytest.raises(ManifestError, match=r"cannot read .*config\.toml"):
+            load_workspace_config(tmp_path)
+
+    def test_an_absent_file_is_still_no_layer(self, tmp_path: Path):
+        assert load_workspace_config(tmp_path) is None
 
 
 class TestSchemaVersionGate:
