@@ -15,7 +15,7 @@ from rich.text import Text
 
 from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
 from cjdev.application.runner import Outcome, RunReport
-from cjdev.domain.config import LayeredManifest
+from cjdev.domain.config import BUNDLED, WORKSPACE, LayeredManifest
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
 from ._console import CANCELLED, DETAIL, MARKS, WAITING
@@ -25,6 +25,10 @@ T = TypeVar("T")
 SHORT_SHA = 7
 """A table read many times a day cannot spend forty columns on a hash.
 `--json` carries the full one."""
+
+LAYER_WIDTH = max(len(BUNDLED), len(WORKSPACE))
+"""The slot the `-v` layer column prints in, before the value. Derived from
+the names themselves so a layer added later cannot silently break the column."""
 
 OUTCOMES: dict[Action, str] = {
     Action.CREATE: "created",
@@ -308,7 +312,14 @@ def render_config_show(
     the bundled manifest's URLs overflow - the command built to show effective
     values would print truncated ones. `soft_wrap` hands a long line to the
     terminal the way `print_detail` does; the label column is aligned by hand
-    because nothing else constrains it.
+    because nothing else constrains it - padded only where something follows
+    on the line, or every section header would carry trailing whitespace.
+
+    Under `-v` the layer prints *before* the value, in a fixed-width slot:
+    after the value it would trail at whatever offset that value left, and
+    the column exists to be skimmed - which of these did I override is a
+    vertical scan. Padding the value out to the widest value instead would
+    bring the ellipsis problem a grid had back.
     """
     rows: list[tuple[str, str, str | None]] = []
 
@@ -357,12 +368,14 @@ def render_config_show(
     for name, value, layer in rows:
         line = Text()
         if name:
-            line.append(f"{name:<{width}}", style=DETAIL)
+            padded = bool(value) or (verbose and layer is not None)
+            line.append(f"{name:<{width}}" if padded else name, style=DETAIL)
+            if verbose and layer is not None:
+                line.append("  ")
+                line.append(f"{layer:<{LAYER_WIDTH}}", style=DETAIL)
             if value:
                 line.append("  ")
                 line.append(value)
-            if verbose and layer is not None:
-                line.append(f"  {layer}", style=DETAIL)
         console.print(line, soft_wrap=True, highlight=False)
 
 

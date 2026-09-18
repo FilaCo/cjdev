@@ -127,6 +127,40 @@ class TestConfigShow:
         assert "workspace" in verbose.output
         assert "bundled" in verbose.output
 
+    def test_verbose_lines_the_layer_column_up_for_scanning(
+        self, empty_workspace: Path
+    ):
+        # The layer column exists to be skimmed vertically - "which of these
+        # did I override". It prints before the value, in a fixed-width slot,
+        # so every layer lands on the same column whatever the value is.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text('[projects.cangjie_compiler]\nupstream = "https://x/a.git"\n')
+
+        verbose = runner.invoke(cli, ["config", "show", str(empty_workspace), "-v"])
+
+        assert verbose.exit_code == 0
+        columns: set[int] = set()
+        for line in verbose.output.splitlines():
+            for word in ("bundled", "workspace"):
+                if word in line:
+                    columns.add(line.index(word))
+        assert len(columns) == 1
+
+    def test_no_line_of_the_table_carries_trailing_whitespace(
+        self, empty_workspace: Path
+    ):
+        # Labels are padded to the column width only where something follows
+        # on the line; padding a section header anyway left trailing
+        # whitespace on a dozen lines of every run.
+        for argv in (
+            ["config", "show", str(empty_workspace)],
+            ["config", "show", str(empty_workspace), "-v"],
+        ):
+            result = runner.invoke(cli, argv)
+
+            assert result.exit_code == 0
+            assert not any(line != line.rstrip() for line in result.output.splitlines())
+
     def test_a_broken_workspace_config_fails_with_the_file_named(
         self, empty_workspace: Path
     ):
