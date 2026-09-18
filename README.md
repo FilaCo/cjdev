@@ -51,7 +51,7 @@ cjdev build                          # the whole SDK, in dependency order
 cjdev build stdlib                   # stdlib and everything it needs
 cjdev build --from runtime           # runtime and everything that depends on it
 cjdev build compiler -p debug        # the other profile, no reconfigure
-cjdev build compiler -- --no-tests   # extra arguments, for one unit at a time
+cjdev build compiler -- --no-tests   # from the flag on, passed to the script
 ```
 
 - `cjdev build [UNITS...]` - build the named units or projects, with their

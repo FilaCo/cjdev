@@ -198,18 +198,27 @@ def select_units(
     on it - and the two cannot be combined, because the result would depend on
     which was applied first.
     """
+    units = {unit.name for unit in manifest.build_units}
+    projects = {project.name for project in manifest.projects}
     if downstream is not None:
         if names:
             raise UsageError(
                 "--from names where to start; positional units name where to "
                 "stop. Use one or the other."
             )
+        if downstream not in units:
+            # Checked here rather than left to `dependents_of`: a mistyped name
+            # is the invocation being wrong, and the manifest raising would
+            # report it as the world not being ready - a different exit code
+            # and a different `code` for the same typo the positional branch
+            # below calls a usage error.
+            raise UsageError(
+                f"unknown build unit {downstream}. Units: {', '.join(sorted(units))}."
+            )
         return manifest.dependents_of(downstream)
     if not names:
         return manifest.build_order()
     selection: list[str] = []
-    units = {unit.name for unit in manifest.build_units}
-    projects = {project.name for project in manifest.projects}
     for name in names:
         if name in units:
             selection.append(name)
@@ -513,12 +522,13 @@ def _exclusions(
         if not missing:
             continue
         head = current if current.endswith("\n") or not current else current + "\n"
+        # The header marks our lines for a reader; a second copy of it would
+        # mark nothing and accumulate as the scratch set grows.
+        marker = "" if EXCLUDE_HEADER in current.splitlines() else f"{EXCLUDE_HEADER}\n"
         exclusions.append(
             Exclusion(
                 path=layout.object_store(project) / "info" / "exclude",
-                text="".join(
-                    [head, f"{EXCLUDE_HEADER}\n", *(f"{line}\n" for line in missing)]
-                ),
+                text="".join([head, marker, *(f"{line}\n" for line in missing)]),
             )
         )
     return tuple(exclusions)

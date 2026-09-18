@@ -1013,3 +1013,27 @@ def _git(cwd: Path, *argv: str) -> str:
 
 def _status(worktree: Path) -> list[str]:
     return _git(worktree, "status", "--porcelain").splitlines()
+
+
+def test_a_mistyped_from_is_the_invocation_being_wrong():
+    # Arrange: the same typo made positionally is a usage error, and one
+    # mistake must not arrive as two failure classes.
+    graph = manifest(unit("compiler"))
+
+    # Act / Assert
+    with pytest.raises(UsageError, match="unknown build unit complier"):
+        select_units(graph, [], downstream="complier")
+
+
+def test_the_exclude_header_is_written_once_however_often_the_set_grows():
+    # Arrange: a store that already carries our marker and one of the lines.
+    compiler = unit("compiler", scratch=("build", "output"))
+    already = f"{EXCLUDE_HEADER}\n/build\n"
+
+    # Act
+    plan = plan_of(compiler, state=observed(compiler, excludes={"alpha": already}))
+
+    # Assert
+    text = plan.exclusions[0].text
+    assert text.splitlines().count(EXCLUDE_HEADER) == 1
+    assert text.splitlines()[-1] == "/output"

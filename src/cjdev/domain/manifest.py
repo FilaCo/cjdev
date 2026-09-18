@@ -16,7 +16,7 @@ from enum import Enum, auto, unique
 from pathlib import PurePosixPath
 from typing import final
 
-from cjdev.domain.build import InstallStep, RunStep, check_scratch, check_template
+from cjdev.domain.build import InstallStep, RunStep, check_inside, check_template
 from cjdev.errors import ManifestError
 
 
@@ -224,7 +224,7 @@ class Manifest:
         for unit in self.build_units:
             where = f"build unit {unit.name}"
             for scratch in unit.scratch:
-                check_scratch(scratch, where)
+                check_inside(scratch, where)
             self._reject_nested_scratch(unit)
             for word in (*unit.build, *unit.extra_args):
                 check_template(word, where)
@@ -233,7 +233,7 @@ class Manifest:
                     for word in step.argv:
                         check_template(word, where)
                 else:
-                    check_scratch(step.source, where)
+                    check_inside(step.source, where, "install from")
                     check_template(step.into, where)
 
     @staticmethod

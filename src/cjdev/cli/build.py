@@ -18,10 +18,15 @@ cli = Typer(cls=CjdevGroup)
 def split_passthrough(tokens: Sequence[str]) -> tuple[list[str], list[str]]:
     """Unit names, then everything meant for the build script.
 
-    Click drops the `--` before the arguments reach the command, so the split
-    is made on the first token that looks like a flag. `--` is still the way to
-    write it, and still what the help says, because anything else would be
-    parsed as one of cjdev's own options.
+    The separator does not survive parsing - it is consumed before the command
+    is called - so the split is made on the first token that looks like a flag,
+    and the help says as much. `--` is still required in the invocation,
+    because without it a flag cjdev does not know is a parse error rather than
+    a passthrough.
+
+    The cost is that a passthrough whose first token is not flag-shaped cannot
+    be told from a unit name. Naming the unit that is not a unit is the whole
+    diagnosis there, so it is left to the selection to refuse.
     """
     for index, token in enumerate(tokens):
         if token.startswith("-"):
@@ -36,8 +41,9 @@ def build(
         None,
         help=(
             "Build units or projects to build, with their dependencies. "
-            "Default: the whole SDK. Anything after `--` is passed to the "
-            "build script, and then exactly one unit may be named."
+            "Default: the whole SDK. After `--`, a flag and everything "
+            "following it are passed to the build script, and then exactly "
+            "one unit may be named."
         ),
     ),
     profile: Profile = Option(

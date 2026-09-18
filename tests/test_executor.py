@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from cjdev.application.ports import Command, Completed
-from cjdev.errors import CommandError
+from cjdev.errors import CommandError, PreconditionError
 from cjdev.infra.executor import build_executor
 from cjdev.infra.executor.host import TAIL_LINES, HostExecutor
 
@@ -166,8 +166,9 @@ class TestLoggedCommands:
         # Assert
         assert log.read_text(encoding="utf-8").splitlines() == ["build", "install"]
 
-    def test_a_missing_binary_is_a_refusal_not_an_errno(self, tmp_path: Path):
-        # Act / Assert
+    def test_a_missing_binary_is_still_the_command_failing(self, tmp_path: Path):
+        # Act / Assert: the other half of the distinction above - this one is
+        # the command, not the log.
         with pytest.raises(CommandError) as caught:
             HostExecutor().run(
                 Command(
@@ -178,3 +179,15 @@ class TestLoggedCommands:
             )
 
         assert caught.value.command_exit_code == 127
+
+
+class TestUnwritableLog:
+    def test_a_log_that_cannot_be_opened_is_not_a_command_that_would_not_start(
+        self, tmp_path: Path
+    ):
+        # Arrange: the log directory is missing, which `open` refuses.
+        log = tmp_path / "absent" / "unit.log"
+
+        # Act / Assert: exit 127 would send the reader to their build script.
+        with pytest.raises(PreconditionError, match="cannot write the build log"):
+            HostExecutor().run(Command(argv=("echo", "hi"), cwd=Path.cwd(), log=log))

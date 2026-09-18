@@ -129,12 +129,17 @@ def check_template(text: str, where: str) -> None:
         )
 
 
-def check_scratch(path: PurePosixPath, where: str) -> None:
-    """A scratch path is where a symlink gets written, and the symlink gets
-    removed, so a name that escapes the worktree is the whole risk here."""
+def check_inside(path: PurePosixPath, where: str, what: str = "scratch path") -> None:
+    """A path the build joins to a worktree directory.
+
+    A scratch path is where a symlink gets written and later removed, and a
+    copy's source is read from the same tree, so a name that escapes it is the
+    whole risk here. `what` names the key, because the two refusals are
+    otherwise indistinguishable to whoever has to fix the file.
+    """
     parts = path.parts
     if not parts or path.is_absolute() or ".." in parts or "." in parts:
         raise ManifestError(
-            f"{where} scratch path must be relative and free of '.' and "
+            f"{where} {what} must be relative and free of '.' and "
             f"'..', got {str(path)!r}."
         )

@@ -226,3 +226,22 @@ class TestBuildData:
                     )
                 ],
             )
+
+
+def test_a_bad_install_source_names_the_key_it_came_from():
+    # Arrange / Act / Assert: the refusal is the same check as a scratch
+    # path's, and a message naming `scratch` would send the author to the
+    # wrong key.
+    with pytest.raises(ManifestError, match="install from must be relative"):
+        manifest(
+            projects=[project("a")],
+            units=[
+                BuildUnit(
+                    name="u",
+                    project="a",
+                    path=PurePosixPath("."),
+                    depends_on=(),
+                    install=(CopyStep(PurePosixPath("../x"), "{dist}/bin"),),
+                )
+            ],
+        )
