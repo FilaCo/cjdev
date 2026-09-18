@@ -645,15 +645,16 @@ class TestBranchNew:
         assert isinstance(result.exception, PreconditionError)
         assert "cjdev init" in (result.exception.remedy or "")
 
-    def test_the_workspace_is_no_longer_a_positional_argument(self, provisioned: Path):
-        # Act: the second positional now lands on no parameter at all, and
-        # click reports that as its own usage error (SystemExit, not one of
-        # ours) before any code of ours runs.
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+    def test_the_workspace_is_no_longer_a_positional_argument(self):
+        # The second positional lands on no parameter at all: the parser
+        # refuses the invocation before any code of ours runs. What is
+        # pinned here is the usage line - the shape is ours - not the
+        # parser's error wording, which a typer upgrade may reword.
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", "ws"])
 
         # Assert
-        assert result.exit_code == UsageError.exit_code == 2
-        assert "Got unexpected extra argument" in result.output
+        assert result.exit_code == 2
+        assert "branch new [OPTIONS] {branch_set}" in result.output
 
     def test_a_name_git_would_refuse_creates_nothing(self, provisioned: Path):
         # Act
