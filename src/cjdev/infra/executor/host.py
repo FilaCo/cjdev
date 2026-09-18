@@ -2,38 +2,29 @@
 
 import os
 import subprocess
+from collections import deque
+from pathlib import Path, PurePath
 from typing import final
 
 from cjdev.application.ports import Command, Completed
 from cjdev.errors import CommandError
 
+TAIL_LINES = 100
+"""How much of a logged command's output is kept in memory.
+
+Above what any rendering shows (`CommandError` prints twenty) and far below a
+build's real output, which is what the log file is for. A bound rather than the
+whole thing, because a forty-minute compile is measured in hundreds of
+megabytes.
+"""
+
 
 @final
 class HostExecutor:
     def run(self, command: Command, *, check: bool = True) -> Completed:
-        # Captured rather than streamed to the terminal: under a fan-out the
-        # output of six projects has to be emitted whole and in manifest
-        # order, which is impossible once it has already been printed.
-        try:
-            finished = subprocess.run(
-                list(command.argv),
-                cwd=command.cwd,
-                env={**os.environ, **command.env} if command.env else None,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError as failure:
-            # A missing binary or a missing cwd arrives as an errno, and an
-            # errno reaching the user is the bare traceback we never print.
-            raise CommandError(
-                argv=command.argv,
-                cwd=str(command.cwd),
-                exit_code=127,
-                output=str(failure),
-            ) from failure
-        result = Completed(
-            command, finished.returncode, finished.stdout, finished.stderr
+        log = command.log
+        result = (
+            self._teed(command, log) if log is not None else self._captured(command)
         )
         if check and not result.ok:
             raise CommandError(
@@ -43,3 +34,66 @@ class HostExecutor:
                 output=result.stderr or result.stdout,
             )
         return result
+
+    def _captured(self, command: Command) -> Completed:
+        # Captured rather than streamed to the terminal: under a fan-out the
+        # output of six projects has to be emitted whole and in manifest
+        # order, which is impossible once it has already been printed.
+        try:
+            finished = subprocess.run(
+                list(command.argv),
+                cwd=command.cwd,
+                env=self._env(command),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as failure:
+            raise self._unstartable(command, failure) from failure
+        return Completed(command, finished.returncode, finished.stdout, finished.stderr)
+
+    def _teed(self, command: Command, log_file: PurePath) -> Completed:
+        """Into the unit's log while it runs, with only the tail coming back.
+
+        Streamed rather than captured and written afterwards, because the log
+        exists to be tailed during the build - a file that appears once the
+        build has already died is the failure mode it is meant to fix. stderr
+        is folded into stdout so the log reads in the order things happened.
+        """
+        tail: deque[str] = deque(maxlen=TAIL_LINES)
+        try:
+            # Line-buffered on both sides: anything larger and `tail -f` shows
+            # nothing for minutes at a time.
+            with (
+                Path(log_file).open("a", encoding="utf-8", buffering=1) as log,
+                subprocess.Popen(
+                    list(command.argv),
+                    cwd=command.cwd,
+                    env=self._env(command),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                ) as process,
+            ):
+                for line in process.stdout or ():
+                    log.write(line)
+                    tail.append(line.rstrip("\n"))
+        except OSError as failure:
+            raise self._unstartable(command, failure) from failure
+        return Completed(command, process.returncode, "\n".join(tail), "")
+
+    @staticmethod
+    def _env(command: Command) -> dict[str, str] | None:
+        return {**os.environ, **command.env} if command.env else None
+
+    @staticmethod
+    def _unstartable(command: Command, failure: OSError) -> CommandError:
+        """A missing binary or a missing cwd arrives as an errno, and an errno
+        reaching the user is the bare traceback we never print."""
+        return CommandError(
+            argv=command.argv,
+            cwd=str(command.cwd),
+            exit_code=127,
+            output=str(failure),
+        )

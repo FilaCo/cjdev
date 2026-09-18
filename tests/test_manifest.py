@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 
 import pytest
 
+from cjdev.domain.build import CopyStep
 from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole
 from cjdev.errors import ManifestError
 
@@ -157,3 +158,71 @@ class TestValidation:
     def test_rejects_a_unit_depending_on_itself(self):
         with pytest.raises(ManifestError, match="depends on itself"):
             manifest(projects=[project("a")], units=[unit("u", "a", "u")])
+
+
+class TestBuildData:
+    def test_a_scratch_path_that_escapes_the_worktree_is_refused(self):
+        # Arrange / Act / Assert: these paths get symlinked and removed.
+        with pytest.raises(ManifestError, match="scratch path must be relative"):
+            manifest(
+                projects=[project("a")],
+                units=[
+                    BuildUnit(
+                        name="u",
+                        project="a",
+                        path=PurePosixPath("."),
+                        depends_on=(),
+                        scratch=(PurePosixPath("../elsewhere"),),
+                    )
+                ],
+            )
+
+    def test_one_scratch_path_inside_another_is_refused(self):
+        # Arrange / Act / Assert: the outer one is a symlink, so the inner one
+        # is not a path in the worktree at all.
+        with pytest.raises(ManifestError, match="inside scratch path"):
+            manifest(
+                projects=[project("a")],
+                units=[
+                    BuildUnit(
+                        name="u",
+                        project="a",
+                        path=PurePosixPath("."),
+                        depends_on=(),
+                        scratch=(PurePosixPath("build"), PurePosixPath("build/bin")),
+                    )
+                ],
+            )
+
+    def test_an_unknown_template_token_is_refused_with_the_known_ones(self):
+        # Arrange / Act / Assert: substituted as a literal it would reach the
+        # build script as a path and fail much later.
+        with pytest.raises(ManifestError, match="Known tokens"):
+            manifest(
+                projects=[project("a")],
+                units=[
+                    BuildUnit(
+                        name="u",
+                        project="a",
+                        path=PurePosixPath("."),
+                        depends_on=(),
+                        build=("build.py", "--prefix", "{prefix}"),
+                    )
+                ],
+            )
+
+    def test_a_copy_install_step_is_checked_on_both_sides(self):
+        # Arrange / Act / Assert
+        with pytest.raises(ManifestError, match="Known tokens"):
+            manifest(
+                projects=[project("a")],
+                units=[
+                    BuildUnit(
+                        name="u",
+                        project="a",
+                        path=PurePosixPath("."),
+                        depends_on=(),
+                        install=(CopyStep(PurePosixPath("dist/x"), "{sdk}/bin"),),
+                    )
+                ],
+            )

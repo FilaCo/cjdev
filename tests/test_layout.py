@@ -1,8 +1,12 @@
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 
 import pytest
 
-from cjdev.domain.layout import WorkspaceLayout, flatten_branch_set
+from cjdev.domain.layout import (
+    WorkspaceLayout,
+    flatten_branch_set,
+    relative_target,
+)
 from cjdev.errors import UsageError
 
 ROOT = Path("/ws")
@@ -149,3 +153,112 @@ class TestBranchSetIsolation:
 
         assert layout.worktree("any", COMPILER).name == "cangjie_compiler"
         assert not hasattr(layout.marker, "mkdir")
+
+
+class TestBuildPaths:
+    def test_a_scratch_directory_keeps_its_shape_under_the_build_dir(
+        self, layout: WorkspaceLayout
+    ):
+        # Arrange / Act
+        real = layout.scratch_dir("main", "debug", "cjpm", PurePosixPath("cpp/out"))
+
+        # Assert: nested rather than flattened, so `build/bin` and `build-bin`
+        # cannot collide.
+        assert real == CJDEV / "build" / "main" / "debug" / "cjpm" / "cpp" / "out"
+
+    def test_the_build_lock_sits_above_the_profile(self, layout: WorkspaceLayout):
+        # Act
+        lock = layout.build_lock("fix/ice", "compiler")
+
+        # Assert: the profile is what it guards, so it cannot be keyed by it.
+        assert lock == CJDEV / "build" / "fix-ice" / "compiler.lock"
+
+    def test_one_log_file_per_unit_under_the_branch_sets_directory(
+        self, layout: WorkspaceLayout
+    ):
+        # Act / Assert
+        assert layout.unit_log("fix/ice", STDLIB) == (
+            CJDEV / "log" / "fix-ice" / "stdlib.log"
+        )
+
+    def test_stdx_installs_inside_the_shared_dist(self, layout: WorkspaceLayout):
+        # Act / Assert: anything else would let removing build artefacts break
+        # an already-installed SDK.
+        assert layout.stdx_dir("main", "release") == (
+            layout.dist_dir("main", "release") / "third_party" / "stdx"
+        )
+        assert layout.stdx_lib_dir("main", "release", "linux_x86_64") == (
+            layout.stdx_dir("main", "release")
+            / "linux_x86_64_cjnative"
+            / "static"
+            / "stdx"
+        )
+
+    def test_the_ccache_shim_lives_beside_the_cache_it_launches(
+        self, layout: WorkspaceLayout
+    ):
+        # Act / Assert
+        assert layout.shim_dir == layout.cache_dir / "shim"
+
+    def test_a_traversing_unit_name_cannot_reach_out_of_the_workspace(
+        self, layout: WorkspaceLayout
+    ):
+        # Act / Assert: these paths are removed, so a name that escapes is the
+        # whole risk.
+        with pytest.raises(UsageError):
+            layout.build_lock("main", "../../etc")
+        with pytest.raises(UsageError):
+            layout.unit_log("main", "..")
+
+
+class TestRelativeTargets:
+    def test_a_link_in_a_worktree_reaches_the_build_directory_by_dots(
+        self, layout: WorkspaceLayout
+    ):
+        # Arrange
+        link = layout.worktree("main", COMPILER) / "build"
+        real = layout.build_dir("main", "release", "compiler") / "build"
+
+        # Act / Assert: relative, because an absolute target breaks the moment
+        # the workspace is mounted somewhere else.
+        assert relative_target(link, real) == PurePath(
+            "../../.cjdev/build/main/release/compiler/build"
+        )
+
+    def test_a_deeper_link_needs_more_dots(self, layout: WorkspaceLayout):
+        # Arrange
+        link = layout.worktree("main", COMPILER) / "cjpm" / "cpp" / "out"
+        real = layout.build_dir("main", "release", "cjpm") / "cpp" / "out"
+
+        # Act
+        target = relative_target(link, real)
+
+        # Assert
+        assert target.parts[:4] == ("..", "..", "..", "..")
+
+
+class TestSdkEnvironment:
+    def test_path_carries_both_of_the_sdks_bin_directories(
+        self, layout: WorkspaceLayout
+    ):
+        # Act / Assert: `bin` without `tools/bin` is a PATH that works until
+        # the first `cjpm` invocation.
+        dist = layout.dist_dir("main", "release")
+
+        assert layout.sdk_path("main", "release") == (
+            dist / "bin",
+            dist / "tools" / "bin",
+        )
+
+    def test_the_library_path_is_keyed_by_the_runtime_target(
+        self, layout: WorkspaceLayout
+    ):
+        # Act
+        entries = layout.sdk_library_path("main", "release", "linux_x86_64")
+
+        # Assert
+        dist = layout.dist_dir("main", "release")
+        assert entries == (
+            dist / "runtime" / "lib" / "linux_x86_64_cjnative",
+            dist / "tools" / "lib",
+        )

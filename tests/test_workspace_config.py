@@ -6,10 +6,11 @@ naming the file it came from (FR-6), and the same schema gate as the bundled
 manifest (FR-5).
 """
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
+from cjdev.domain.build import CopyStep, RunStep
 from cjdev.errors import ManifestError
 from cjdev.infra.config import (
     SUPPORTED_SCHEMA_VERSION,
@@ -201,3 +202,74 @@ class TestSchemaVersionGate:
         )
 
         assert config.schema_version == SUPPORTED_SCHEMA_VERSION
+
+
+class TestBuildData:
+    def test_a_workspace_writes_down_the_flag_it_passes_every_day(self):
+        # Arrange / Act
+        config = parse_workspace_config(
+            '[build_units.compiler]\nextra_args = ["--no-tests"]\n',
+            source="config.toml",
+        )
+
+        # Assert
+        assert config.build_units["compiler"].extra_args == ("--no-tests",)
+
+    def test_an_array_of_strings_is_one_install_command(self):
+        # Arrange / Act
+        config = parse_workspace_config(
+            '[build_units.u]\ninstall = ["build.py", "install"]\n',
+            source="config.toml",
+        )
+
+        # Assert
+        assert config.build_units["u"].install == (RunStep(("build.py", "install")),)
+
+    def test_tables_of_from_and_to_are_copies(self):
+        # Arrange: cjpm's binary and its config go to two directories, which a
+        # single argv cannot express.
+        text = """
+        [[build_units.cjpm.install]]
+        from = "dist/cjpm"
+        to = "{dist}/tools/bin"
+
+        [[build_units.cjpm.install]]
+        from = "dist/cangjie-repo.toml"
+        to = "{dist}/tools/config"
+        """
+
+        # Act
+        config = parse_workspace_config(text, source="config.toml")
+
+        # Assert
+        assert config.build_units["cjpm"].install == (
+            CopyStep(PurePosixPath("dist/cjpm"), "{dist}/tools/bin"),
+            CopyStep(PurePosixPath("dist/cangjie-repo.toml"), "{dist}/tools/config"),
+        )
+
+    def test_a_mixed_install_array_is_refused(self):
+        # Arrange
+        text = """
+        [build_units.u]
+        install = ["build.py", { from = "a", to = "b" }]
+        """
+
+        # Act / Assert: there is no order in which it would mean something.
+        with pytest.raises(ManifestError, match="not a mixture"):
+            parse_workspace_config(text, source="config.toml")
+
+    def test_an_unknown_key_in_a_copy_step_names_the_file(self):
+        # Arrange / Act / Assert
+        with pytest.raises(ManifestError, match=r"config\.toml.*install"):
+            parse_workspace_config(
+                '[[build_units.u.install]]\nfrom = "a"\ninto = "b"\n',
+                source="config.toml",
+            )
+
+    def test_scratch_written_as_a_string_is_refused_where_the_file_is_named(self):
+        # Arrange / Act / Assert: iterated one character at a time it would
+        # multiply into failures far from the line that caused it.
+        with pytest.raises(ManifestError, match="scratch must be an array"):
+            parse_workspace_config(
+                '[build_units.u]\nscratch = "build"\n', source="config.toml"
+            )

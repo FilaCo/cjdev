@@ -13,12 +13,15 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from cjdev.application.build_units import BuildReport
 from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
 from cjdev.application.runner import Outcome, RunReport
+from cjdev.domain.build import CopyStep, InstallStep
 from cjdev.domain.config import BUNDLED, WORKSPACE, LayeredManifest
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
 from ._console import CANCELLED, DETAIL, MARKS, WAITING
+from ._progress import format_duration
 
 T = TypeVar("T")
 
@@ -135,6 +138,77 @@ def _outcome_of(row: Enrolled) -> str:
     if row.outcome is not Outcome.DONE:
         return row.outcome.name.lower()
     return OUTCOMES[row.action]
+
+
+def render_build(
+    console: Console,
+    report: BuildReport,
+    *,
+    lines: Callable[[str], tuple[str, ...]],
+) -> None:
+    """One row per unit, then whatever the run had to say.
+
+    The log path is in the table rather than only in `--json`, because the
+    table is what a forty-minute build leaves on screen and the log is where
+    the output went.
+    """
+    _detail(console, lines(""))
+
+    root = report.plan.root
+    table = Table.grid(padding=(0, 2))
+    table.add_column(width=1)
+    table.add_column()
+    table.add_column(justify="right", style=DETAIL)
+    table.add_column(style=DETAIL)
+    for row in report.rows:
+        mark, style = MARKS[row.outcome]
+        table.add_row(
+            Text(mark, style=style),
+            row.unit,
+            "" if row.took is None else format_duration(row.took),
+            str(row.log.relative_to(root)),
+        )
+    console.print(table)
+
+    for row in report.rows:
+        captured = lines(row.unit)
+        if not captured:
+            continue
+        console.print(row.unit)
+        _detail(console, captured, indent="  ")
+
+    for row in report.failures:
+        mark, style = MARKS[Outcome.FAILED]
+        console.print()
+        console.print(Text(f"{mark} {row.unit}", style=style))
+        _detail(console, str(row.error).splitlines(), indent="  ")
+
+    if report.interrupted:
+        console.print("\ninterrupted; nothing further was started.", style=CANCELLED)
+
+
+def build_payload(report: BuildReport) -> dict[str, object]:
+    """The same report, for something that is not a person.
+
+    The log path is carried per unit: it is the only place the whole output
+    exists, and a caller that has to reconstruct it from the layout is one
+    that will get it wrong.
+    """
+    return {
+        "branch_set": report.plan.branch_set,
+        "profile": report.plan.profile.value,
+        "dist": str(report.plan.dist),
+        "units": [
+            {
+                "name": row.unit,
+                "outcome": row.outcome.name.lower(),
+                "seconds": row.took,
+                "log": str(row.log),
+                "error": None if row.error is None else str(row.error),
+            }
+            for row in report.rows
+        ],
+    }
 
 
 def render_status(console: Console, status: WorkspaceStatus) -> None:
@@ -286,6 +360,17 @@ def config_payload(layered: LayeredManifest) -> dict[str, object]:
                 "depends_on": sourced(
                     list(unit.depends_on.value), unit.depends_on.layer
                 ),
+                "scratch": sourced(
+                    [str(path) for path in unit.scratch.value], unit.scratch.layer
+                ),
+                "build": sourced(list(unit.build.value), unit.build.layer),
+                "install": sourced(
+                    [_step_payload(step) for step in unit.install.value],
+                    unit.install.layer,
+                ),
+                "extra_args": sourced(
+                    list(unit.extra_args.value), unit.extra_args.layer
+                ),
             }
             for unit in layered.build_units
         ],
@@ -297,6 +382,27 @@ def config_payload(layered: LayeredManifest) -> dict[str, object]:
             for group in layered.groups
         ],
     }
+
+
+def _step_payload(step: InstallStep) -> dict[str, object]:
+    """An install step keeps the two shapes apart rather than flattening them:
+    a caller reading `argv` and a caller reading `from`/`to` are asking
+    different questions, and a merged key would answer neither."""
+    if isinstance(step, CopyStep):
+        return {"from": str(step.source), "to": step.into}
+    return {"argv": list(step.argv)}
+
+
+def _install_text(steps: tuple[InstallStep, ...]) -> str:
+    return (
+        "; ".join(
+            f"{step.source} -> {step.into}"
+            if isinstance(step, CopyStep)
+            else " ".join(step.argv)
+            for step in steps
+        )
+        or "-"
+    )
 
 
 def render_config_show(
@@ -357,6 +463,18 @@ def render_config_show(
             "    depends_on",
             ", ".join(unit.depends_on.value) or "-",
             unit.depends_on.layer,
+        )
+        add_row(
+            "    scratch",
+            ", ".join(str(path) for path in unit.scratch.value) or "-",
+            unit.scratch.layer,
+        )
+        add_row("    build", " ".join(unit.build.value) or "-", unit.build.layer)
+        add_row("    install", _install_text(unit.install.value), unit.install.layer)
+        add_row(
+            "    extra_args",
+            " ".join(unit.extra_args.value) or "-",
+            unit.extra_args.layer,
         )
 
     add_row("", "")

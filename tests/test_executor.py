@@ -5,7 +5,7 @@ import pytest
 from cjdev.application.ports import Command, Completed
 from cjdev.errors import CommandError
 from cjdev.infra.executor import build_executor
-from cjdev.infra.executor.host import HostExecutor
+from cjdev.infra.executor.host import TAIL_LINES, HostExecutor
 
 
 def echo(text: str, *, mutates: bool = True) -> Command:
@@ -90,3 +90,91 @@ class TestVerbose:
         build_executor(emit=printed.append).run(echo("hi"))
 
         assert printed == []
+
+
+class TestLoggedCommands:
+    def test_the_output_goes_to_the_log_while_the_command_runs(self, tmp_path: Path):
+        # Arrange: a log that only appears once the build has died is the
+        # failure mode it exists to fix.
+        log = tmp_path / "compiler.log"
+        # The script waits for its own first line to appear in the log, so
+        # the second line exists only if the log was written during the run.
+        script = (
+            "import pathlib, sys, time\n"
+            "print('first', flush=True)\n"
+            "log = pathlib.Path(sys.argv[1])\n"
+            "for _ in range(200):\n"
+            "    if 'first' in log.read_text():\n"
+            "        sys.stderr.write('saw first\\n')\n"
+            "        break\n"
+            "    time.sleep(0.01)\n"
+        )
+
+        # Act
+        result = HostExecutor().run(
+            Command(
+                argv=("python3", "-c", script, str(log)),
+                cwd=Path.cwd(),
+                log=log,
+            )
+        )
+
+        # Assert
+        assert result.ok
+        assert log.read_text(encoding="utf-8").splitlines() == ["first", "saw first"]
+
+    def test_only_the_tail_comes_back_in_memory(self, tmp_path: Path):
+        # Arrange
+        log = tmp_path / "unit.log"
+        count = TAIL_LINES * 3
+
+        # Act
+        result = HostExecutor().run(
+            Command(
+                argv=("python3", "-c", f"[print(i) for i in range({count})]"),
+                cwd=Path.cwd(),
+                log=log,
+            )
+        )
+
+        # Assert
+        assert len(log.read_text(encoding="utf-8").splitlines()) == count
+        assert len(result.stdout.splitlines()) == TAIL_LINES
+
+    def test_stderr_is_folded_into_the_log_in_the_order_it_happened(
+        self, tmp_path: Path
+    ):
+        # Arrange
+        log = tmp_path / "unit.log"
+
+        # Act
+        with pytest.raises(CommandError, match="boom"):
+            HostExecutor().run(Command(argv=failing().argv, cwd=Path.cwd(), log=log))
+
+        # Assert
+        assert log.read_text(encoding="utf-8").strip() == "boom"
+
+    def test_a_second_command_appends_rather_than_truncates(self, tmp_path: Path):
+        # Arrange: build and install share the unit's log.
+        log = tmp_path / "unit.log"
+        executor = HostExecutor()
+
+        # Act
+        for word in ("build", "install"):
+            executor.run(Command(argv=("echo", word), cwd=Path.cwd(), log=log))
+
+        # Assert
+        assert log.read_text(encoding="utf-8").splitlines() == ["build", "install"]
+
+    def test_a_missing_binary_is_a_refusal_not_an_errno(self, tmp_path: Path):
+        # Act / Assert
+        with pytest.raises(CommandError) as caught:
+            HostExecutor().run(
+                Command(
+                    argv=("cjdev-no-such-binary",),
+                    cwd=Path.cwd(),
+                    log=tmp_path / "unit.log",
+                )
+            )
+
+        assert caught.value.command_exit_code == 127

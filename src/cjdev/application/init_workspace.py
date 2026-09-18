@@ -93,9 +93,10 @@ def decide(layout: WorkspaceLayout, manifest: Manifest, observed: Observed) -> I
         else frozenset(p.name for p in manifest.default_projects())
     )
     return InitPlan(
-        # No `cache/` yet: nothing reads it until builds land, and an empty
-        # directory is a promise the tool is not keeping.
-        directories=(layout.marker, layout.bare_dir),
+        # `ccache/` is created rather than left to the first build, because
+        # `CCACHE_DIR` travels in the build's environment and ccache reads it
+        # before anything of ours could make the directory.
+        directories=(layout.marker, layout.bare_dir, layout.ccache_dir),
         config_file=layout.config_file,
         write_config=not observed.config_exists,
         projects=manifest.projects,

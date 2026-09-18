@@ -35,6 +35,24 @@ def require_root(start: Path) -> Path:
     return root
 
 
+def require_branch_set(root: Path, cwd: Path) -> str:
+    """The branch set the caller is standing in.
+
+    The directory name rather than the branch read back from git: flattening is
+    idempotent, so the two produce the same paths, and a build has no reason to
+    run six `git` invocations to learn a label.
+    """
+    for directory in (cwd, *cwd.parents):
+        if directory == root:
+            break
+        if directory.parent == root:
+            return directory.name
+    raise PreconditionError(
+        f"{cwd} is not inside a branch set of {root}, so there is nothing to build.",
+        remedy="cd into a branch set",
+    )
+
+
 def held_projects(layout: WorkspaceLayout, manifest: Manifest) -> tuple[str, ...]:
     """The projects this workspace actually holds, in manifest order.
 

@@ -42,6 +42,36 @@ cd fix-parser-ice/cangjie_compiler
 
 ### Build
 
+Builds happen where you stand: the branch set you are inside is the one that gets
+built, and there is no flag for it.
+
+```bash
+cd fix-parser-ice/cangjie_compiler
+cjdev build                          # the whole SDK, in dependency order
+cjdev build stdlib                   # stdlib and everything it needs
+cjdev build --from runtime           # runtime and everything that depends on it
+cjdev build compiler -p debug        # the other profile, no reconfigure
+cjdev build compiler -- --no-tests   # extra arguments, for one unit at a time
+```
+
+- `cjdev build [UNITS...]` - build the named units or projects, with their
+  dependencies. One unit at a time: each upstream script already takes the whole
+  machine. There is no `--workspace`: the cwd names the branch set too.
+
+Artefacts never land in the worktree. Each unit's scratch directories are symlinked
+into `.cjdev/build/<branch set>/<profile>/<unit>/`, so two branch sets never share a
+build and switching `-p debug` to `-p release` costs no reconfigure. Output is teed to
+`.cjdev/log/<branch set>/<unit>.log` while it runs, so a long build can be tailed.
+
+Every unit installs into one shared `.cjdev/dist/<branch set>/<profile>`, and each unit
+builds *with* what the ones before it installed: cjdev sets up the same environment
+`source <sdk>/envsetup.sh` would - `CANGJIE_HOME`, `CANGJIE_STDX_PATH`, the SDK's `bin`
+directories on `PATH` and its runtime libraries on the library path - so nothing has to
+be sourced by hand.
+
+`ccache` is used when it is installed - through a shim directory first on `PATH`,
+because the upstream scripts overwrite `CC` and `CXX` with their own lookup.
+
 ### Test
 
 ### Git/GitCode stuff
