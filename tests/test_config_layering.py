@@ -259,7 +259,12 @@ class TestValidationOnTheEffectiveResult:
         assert result.build_units[0].project.layer == BUNDLED
 
     def test_a_cycle_through_the_two_layers_is_refused(self, base: Manifest):
-        with pytest.raises(ManifestError, match="cycle"):
+        # The refusal names both files: `build_order` knows unit names only,
+        # so the wrap around it is the provenance the reader acts on.
+        with pytest.raises(
+            ManifestError,
+            match=r"layering config\.toml over default_manifest\.toml.*cycle",
+        ):
             layer(
                 base,
                 override(

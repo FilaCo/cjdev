@@ -182,10 +182,15 @@ def layer(base: Manifest, override: WorkspaceConfig) -> LayeredManifest:
         default_group=default_group.value,
     )
     # A cycle through the two layers is refused here rather than at the first
-    # `build_order`: the refusal has to name the config files that combined
-    # into it, and it has to happen at load time, not when a command happens
-    # to order a build days later.
-    effective.build_order()
+    # `build_order`: it has to happen at load time, not when a command happens
+    # to order a build days later. `build_order` knows unit names only, so the
+    # wrap is what names the two files whose combination produced the cycle.
+    try:
+        effective.build_order()
+    except ManifestError as exc:
+        raise ManifestError(
+            f"layering {override.source} over {BUNDLED_MANIFEST}: {exc}"
+        ) from exc
     return LayeredManifest(
         schema_version=schema_version,
         default_group=default_group,
