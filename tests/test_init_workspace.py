@@ -74,6 +74,31 @@ def manifest(tmp_path: Path) -> Manifest:
     )
 
 
+def test_plan_resolves_the_manifest_once(tmp_path: Path, manifest: Manifest) -> None:
+    """`decide` and `observe` reason about one manifest, not two reads of a
+    file that can change between them."""
+    calls = 0
+
+    def counted() -> Manifest:
+        nonlocal calls
+        calls += 1
+        return manifest
+
+    use_case = InitWorkspace(
+        manifest=counted,
+        executor=HostExecutor(),
+        file_system=HostFileSystem(),
+        prompt=NonInteractivePrompt(assume_yes=False),
+        provision=provision_object_store,
+        remove=remove_object_store,
+        render_config=render_workspace_config,
+    )
+
+    use_case.plan(tmp_path)
+
+    assert calls == 1
+
+
 class TestDecide:
     """The pure half. No filesystem, no git."""
 

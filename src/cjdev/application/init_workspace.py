@@ -130,7 +130,10 @@ class InitWorkspace:
     def plan(self, root: Path) -> InitPlan:
         """Everything `perform` would do, decided without doing any of it."""
         layout = WorkspaceLayout(root)
-        return decide(layout, self._manifest(), observe(layout, self._manifest()))
+        # Bound once: `decide` and `observe` must reason about the same
+        # manifest, not two reads of a file that can change between them.
+        manifest = self._manifest()
+        return decide(layout, manifest, observe(layout, manifest))
 
     def perform(
         self,

@@ -19,7 +19,7 @@ from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
 from cjdev.cli._output import SCHEMA
 from cjdev.domain.layout import WorkspaceLayout
-from cjdev.domain.manifest import Project, ProjectRole
+from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.errors import (
     InputRequiredError,
     ManifestError,
@@ -285,12 +285,71 @@ class TestWorkspacesMayNest:
 
         assert result.exit_code == 0
 
+    def test_a_nested_init_does_not_inherit_the_enclosing_workspace(
+        self, empty_workspace: Path
+    ):
+        # `init` provisions from the workspace it is creating - the bundled
+        # manifest, until the new workspace has a config of its own. Walking
+        # up would answer a fresh nested init with the *enclosing* workspace's
+        # file, and the new workspace would be built from an override its own
+        # config does not carry.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text('default_group = "solo"\n[groups]\nsolo = ["cangjie_test"]\n')
+
+        result = runner.invoke(
+            cli, ["init", str(empty_workspace / "inner"), "--dry-run"]
+        )
+
+        assert result.exit_code == 0
+        assert "cangjie_test" not in result.output
+        # The bundled default group is what a fresh workspace gets.
+        assert "cangjie_compiler" in result.output
+
     def test_re_running_on_the_workspace_itself_is_supported(
         self, empty_workspace: Path
     ):
         result = runner.invoke(cli, ["init", str(empty_workspace), "--dry-run"])
 
         assert result.exit_code == 0
+
+
+class TestWhatInitProvisionsFrom:
+    def test_a_fresh_workspace_provisions_from_the_bundled_manifest(
+        self, tmp_path: Path
+    ):
+        # Container level: `manifest_for_init` reads the workspace being
+        # created, not the nearest one a walk up would find.
+        config = Path(WorkspaceLayout(tmp_path).config_file)
+        config.parent.mkdir(parents=True)
+        config.write_text('default_group = "solo"\n[groups]\nsolo = ["cangjie_test"]\n')
+
+        container = Container()
+
+        assert container.manifest_for_init(tmp_path / "inner") == container.manifest(
+            None
+        )
+
+    def test_a_re_run_honours_the_workspace_it_is_reconfiguring(self, tmp_path: Path):
+        # The workspace's own config counts - but only its own: this is what
+        # keeps a re-run consistent with every later command run inside.
+        config = Path(WorkspaceLayout(tmp_path).config_file)
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            "[projects.cangjie_compiler]\n"
+            'upstream = "https://example.invalid/compiler.git"\n'
+        )
+
+        container = Container()
+
+        effective = container.manifest_for_init(tmp_path)
+        assert (
+            next(
+                project.upstream_url
+                for project in effective.projects
+                if project.name == "cangjie_compiler"
+            )
+            == "https://example.invalid/compiler.git"
+        )
 
 
 class TestInitDoesNotOverclaim:
@@ -406,8 +465,10 @@ class TestTheEnvelope:
         real = Container.report_status
         default = DEFAULT_QUERY_JOBS
 
-        def spy(self: Container, *, verbose: bool = False, start: Path) -> object:
-            use_case = real(self, verbose=verbose, start=start)
+        def spy(
+            self: Container, *, verbose: bool = False, manifest: Manifest
+        ) -> object:
+            use_case = real(self, verbose=verbose, manifest=manifest)
             perform = use_case.perform
 
             def watched(*args: Any, **kwargs: Any):
@@ -422,6 +483,27 @@ class TestTheEnvelope:
         runner.invoke(cli, ["status", str(empty_workspace), "-v"])
 
         assert seen["jobs"] == DEFAULT_QUERY_JOBS
+
+    def test_status_resolves_the_workspace_config_exactly_once(
+        self, monkeypatch: pytest.MonkeyPatch, empty_workspace: Path
+    ):
+        # The CLI resolves the manifest for the transcript labels and hands
+        # the same instance to the use case: a second resolution would let
+        # the file change in between, and the report could disagree with the
+        # labels it was flushed under.
+        calls = 0
+        real = Container.manifest
+
+        def counted(self: Container, start: Path | None = None) -> object:
+            nonlocal calls
+            calls += 1
+            return real(self, start)
+
+        monkeypatch.setattr(Container, "manifest", counted)
+        result = runner.invoke(cli, ["status", str(empty_workspace)])
+
+        assert result.exit_code == 0
+        assert calls == 1
 
     def test_a_failure_travels_inside_the_document_rather_than_beside_it(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys

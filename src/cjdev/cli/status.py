@@ -35,8 +35,9 @@ def status(
 
     # The labels come from the layout, not from the report: the flush has to
     # survive the run failing, when there is no report to name them.
-    # Resolved before the use case is built, so an unreadable workspace config
-    # fails here with the file named, before anything runs.
+    # Resolved here and handed to the use case, so an unreadable workspace
+    # config fails here with the file named, before anything runs - and the
+    # command reads the config exactly once.
     manifest = ctx.obj.manifest(root)
     projects = list(held_projects(WorkspaceLayout(root), manifest))
 
@@ -45,7 +46,7 @@ def status(
     # no branch set and `status` would quietly say you are standing outside
     # all of them.
     try:
-        report = ctx.obj.report_status(verbose=verbose, start=root).perform(
+        report = ctx.obj.report_status(verbose=verbose, manifest=manifest).perform(
             root,
             cwd=Path.cwd().resolve(),
             observer=transcript,

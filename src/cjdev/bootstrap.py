@@ -143,11 +143,27 @@ class Container:
             return InteractivePrompt()
         return NonInteractivePrompt(assume_yes=assume_yes)
 
+    def manifest_for_init(self, root: Path) -> Manifest:
+        """The manifest `init` provisions from: the workspace it is creating
+        or reconfiguring - never an enclosing one.
+
+        `init` writes `.cjdev/` at `root`, so the override layer it may honour
+        is `root`'s own file, and only when it already exists (a re-run that
+        changes the project set). Walking up from `root`, the way `manifest`
+        does, would answer a fresh nested `init` with the *enclosing*
+        workspace's config - and the new workspace would be provisioned from
+        an override its own file does not carry.
+        """
+        override = load_workspace_config(root)
+        if override is None:
+            return self._bundled
+        return layer(self._bundled, override).effective
+
     def init_workspace(
         self, *, dry_run: bool = False, verbose: bool = False, start: Path
     ) -> InitWorkspace:
         return InitWorkspace(
-            manifest=lambda: self.manifest(start),
+            manifest=lambda: self.manifest_for_init(start),
             executor=self.executor(dry_run=dry_run, verbose=verbose),
             file_system=self.file_system(dry_run=dry_run),
             # A dry run answers its own questions: it changes nothing, so a
@@ -175,11 +191,18 @@ class Container:
             drop=drop_checkout,
         )
 
-    def report_status(self, *, verbose: bool = False, start: Path) -> ReportStatus:
+    def report_status(
+        self, *, verbose: bool = False, manifest: Manifest
+    ) -> ReportStatus:
         """No `FileSystem` and no `Prompt`: it changes nothing, so there is
-        nothing to make dry, and nothing to ask permission for."""
+        nothing to make dry, and nothing to ask permission for.
+
+        The manifest arrives already resolved: the CLI needs it before the
+        fan-out (the transcript flush has labels to fall back on), and the
+        same instance travelling down is what keeps one command to one read
+        of the workspace config."""
         return ReportStatus(
-            manifest=lambda: self.manifest(start),
+            manifest=lambda: manifest,
             executor=self.executor(verbose=verbose),
             read_store=read_store,
         )
