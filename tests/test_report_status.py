@@ -59,7 +59,7 @@ def report(manifest: Manifest) -> ReportStatus:
     """Wired by hand rather than through `Container`, which necessarily binds
     the bundled manifest and its gitcode URLs."""
     return ReportStatus(
-        manifest=manifest,
+        manifest=lambda: manifest,
         executor=HostExecutor(),
         read_store=read_store,
     )

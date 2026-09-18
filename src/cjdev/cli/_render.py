@@ -15,6 +15,7 @@ from rich.text import Text
 
 from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
 from cjdev.application.runner import Outcome, RunReport
+from cjdev.domain.config import BUNDLED, WORKSPACE, LayeredManifest
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
 from ._console import CANCELLED, DETAIL, MARKS, WAITING
@@ -24,6 +25,10 @@ T = TypeVar("T")
 SHORT_SHA = 7
 """A table read many times a day cannot spend forty columns on a hash.
 `--json` carries the full one."""
+
+LAYER_WIDTH = max(len(BUNDLED), len(WORKSPACE))
+"""The slot the `-v` layer column prints in, before the value. Derived from
+the names themselves so a layer added later cannot silently break the column."""
 
 OUTCOMES: dict[Action, str] = {
     Action.CREATE: "created",
@@ -239,6 +244,139 @@ def _detail(
     # mid-word by rich's own word wrapping.
     for line in lines:
         console.print(f"{indent}{line}", style=DETAIL, highlight=False, soft_wrap=True)
+
+
+def config_payload(layered: LayeredManifest) -> dict[str, object]:
+    """The effective config, with the layer each value came from.
+
+    The layers are always carried - the machine surface hides nothing, which
+    is exactly what the table under plain `-` is allowed to do. Every value is
+    a `{"value": ..., "layer": ...}` pair so a parser never has to know which
+    fields can carry provenance: all of them do.
+    """
+
+    def sourced(value: object, layer: str) -> dict[str, object]:
+        return {"value": value, "layer": layer}
+
+    return {
+        "schema_version": sourced(
+            layered.schema_version.value, layered.schema_version.layer
+        ),
+        "default_group": sourced(
+            layered.default_group.value, layered.default_group.layer
+        ),
+        "projects": [
+            {
+                "name": project.name,
+                "role": sourced(project.role.value.name.lower(), project.role.layer),
+                "upstream": sourced(
+                    project.upstream_url.value, project.upstream_url.layer
+                ),
+                "default_branch": sourced(
+                    project.default_branch.value, project.default_branch.layer
+                ),
+            }
+            for project in layered.projects
+        ],
+        "build_units": [
+            {
+                "name": unit.name,
+                "project": sourced(unit.project.value, unit.project.layer),
+                "path": sourced(str(unit.path.value), unit.path.layer),
+                "depends_on": sourced(
+                    list(unit.depends_on.value), unit.depends_on.layer
+                ),
+            }
+            for unit in layered.build_units
+        ],
+        "groups": [
+            {
+                "name": group.name,
+                "members": sourced(list(group.members.value), group.members.layer),
+            }
+            for group in layered.groups
+        ],
+    }
+
+
+def render_config_show(
+    console: Console, layered: LayeredManifest, *, verbose: bool
+) -> None:
+    """The effective config as text. The layer rides along only under `-v`.
+
+    The `--json` payload always carries the layers; the text hides them by
+    default the way the status table hides zeros - what a reader skims past.
+
+    Rows are printed, not boxed in a `Table.grid`: a grid ellipsises whatever
+    does not fit the terminal, and at the non-tty default of 80 columns even
+    the bundled manifest's URLs overflow - the command built to show effective
+    values would print truncated ones. `soft_wrap` hands a long line to the
+    terminal the way `print_detail` does; the label column is aligned by hand
+    because nothing else constrains it - padded only where something follows
+    on the line, or every section header would carry trailing whitespace.
+
+    Under `-v` the layer prints *before* the value, in a fixed-width slot:
+    after the value it would trail at whatever offset that value left, and
+    the column exists to be skimmed - which of these did I override is a
+    vertical scan. Padding the value out to the widest value instead would
+    bring the ellipsis problem a grid had back.
+    """
+    rows: list[tuple[str, str, str | None]] = []
+
+    def add_row(name: str, value: object, layer: object = None) -> None:
+        rows.append((name, str(value), None if layer is None else str(layer)))
+
+    add_row(
+        "schema_version", layered.schema_version.value, layered.schema_version.layer
+    )
+    add_row(
+        "default_group",
+        layered.default_group.value if layered.default_group.value is not None else "-",
+        layered.default_group.layer,
+    )
+
+    add_row("", "")
+    add_row("Projects", "")
+    for project in layered.projects:
+        add_row(f"  {project.name}", "")
+        add_row("    role", project.role.value.name.lower(), project.role.layer)
+        add_row("    upstream", project.upstream_url.value, project.upstream_url.layer)
+        add_row(
+            "    default_branch",
+            project.default_branch.value,
+            project.default_branch.layer,
+        )
+
+    add_row("", "")
+    add_row("Build units", "")
+    for unit in layered.build_units:
+        add_row(f"  {unit.name}", "")
+        add_row("    project", unit.project.value, unit.project.layer)
+        add_row("    path", str(unit.path.value), unit.path.layer)
+        add_row(
+            "    depends_on",
+            ", ".join(unit.depends_on.value) or "-",
+            unit.depends_on.layer,
+        )
+
+    add_row("", "")
+    add_row("Groups", "")
+    for group in layered.groups:
+        add_row(f"  {group.name}", ", ".join(group.members.value), group.members.layer)
+
+    width = max(len(name) for name, _, _ in rows)
+    for name, value, layer in rows:
+        line = Text()
+        if name:
+            padded = bool(value) or (verbose and layer is not None)
+            line.append(f"{name:<{width}}" if padded else name, style=DETAIL)
+            if verbose and layer is not None:
+                line.append("  ")
+                line.append(f"{layer:<{LAYER_WIDTH}}", style=DETAIL)
+            if value:
+                line.append("  ")
+                line.append(value)
+        console.print(line, soft_wrap=True, highlight=False)
 
 
 def _absent(branch_set: BranchSet, held: tuple[str, ...]) -> tuple[str, ...]:

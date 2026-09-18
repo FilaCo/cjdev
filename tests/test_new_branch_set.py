@@ -72,7 +72,7 @@ def branch_set(manifest: Manifest, **overrides: object) -> NewBranchSet:
     """Wired by hand rather than through `Container`, which necessarily binds
     the bundled manifest and its gitcode URLs."""
     wiring: dict[str, object] = {
-        "manifest": manifest,
+        "manifest": lambda: manifest,
         "executor": HostExecutor(),
         "file_system": HostFileSystem(),
         "inspect": inspect_checkout,

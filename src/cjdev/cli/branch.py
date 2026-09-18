@@ -48,7 +48,7 @@ def new(
     ctx.obj.report_step = progress.step
     if not dry_run:
         ctx.obj.journal(root, ["branch", "new", name])
-    use_case = ctx.obj.new_branch_set(dry_run=dry_run, verbose=verbose)
+    use_case = ctx.obj.new_branch_set(dry_run=dry_run, verbose=verbose, start=root)
 
     # Kept apart only because the display cannot be built until it knows
     # which projects it is tracking; there is nothing to ask in between.

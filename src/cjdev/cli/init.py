@@ -52,7 +52,7 @@ def init(
     ctx.obj.report_step = progress.step
     if not dry_run:
         ctx.obj.journal(root, ["init", str(path)])
-    use_case = ctx.obj.init_workspace(dry_run=dry_run, verbose=verbose)
+    use_case = ctx.obj.init_workspace(dry_run=dry_run, verbose=verbose, start=root)
 
     plan = use_case.agree(use_case.plan(root), root)
     labels = [p.name for p in plan.to_provision + plan.to_remove]

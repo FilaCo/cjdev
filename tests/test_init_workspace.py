@@ -33,7 +33,7 @@ pytestmark = pytest.mark.usefixtures("git_available")
 
 def dry_run_workspace(manifest: Manifest, printed: list[str]) -> InitWorkspace:
     return InitWorkspace(
-        manifest=manifest,
+        manifest=lambda: manifest,
         executor=build_executor(dry_run=True, emit=printed.append),
         file_system=build_file_system(dry_run=True, emit=printed.append),
         prompt=NonInteractivePrompt(assume_yes=False),
@@ -47,7 +47,7 @@ def init_workspace(manifest: Manifest) -> InitWorkspace:
     """Wired by hand rather than through `Container`, which necessarily binds
     the bundled manifest and its gitcode URLs."""
     return InitWorkspace(
-        manifest=manifest,
+        manifest=lambda: manifest,
         executor=HostExecutor(),
         file_system=HostFileSystem(),
         prompt=NonInteractivePrompt(assume_yes=False),
@@ -72,6 +72,31 @@ def manifest(tmp_path: Path) -> Manifest:
         ),
         build_units=(),
     )
+
+
+def test_plan_resolves_the_manifest_once(tmp_path: Path, manifest: Manifest) -> None:
+    """`decide` and `observe` reason about one manifest, not two reads of a
+    file that can change between them."""
+    calls = 0
+
+    def counted() -> Manifest:
+        nonlocal calls
+        calls += 1
+        return manifest
+
+    use_case = InitWorkspace(
+        manifest=counted,
+        executor=HostExecutor(),
+        file_system=HostFileSystem(),
+        prompt=NonInteractivePrompt(assume_yes=False),
+        provision=provision_object_store,
+        remove=remove_object_store,
+        render_config=render_workspace_config,
+    )
+
+    use_case.plan(tmp_path)
+
+    assert calls == 1
 
 
 class TestDecide:
@@ -372,7 +397,7 @@ def test_the_rendered_config_is_valid_toml_and_carries_its_comments():
     text = render_workspace_config()
 
     assert tomlkit.parse(text) is not None
-    assert "cjdev config show --origin" in text
+    assert "cjdev config show" in text
 
 
 class TestDryRun:

@@ -22,6 +22,9 @@ pip install cjdev
 
 - `cjdev init` - create a workspace and fetch the projects it holds.
 - `cjdev status` - what the workspace holds: branch sets, projects and their git state.
+- `cjdev config show` - the effective configuration: the bundled manifest with the
+  workspace's `.cjdev/config.toml` layered over it (`-v` names the layer each value
+  came from).
 
 ### Branch sets
 

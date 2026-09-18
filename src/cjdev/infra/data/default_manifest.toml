@@ -7,7 +7,7 @@
 #
 # WHERE IT IS USED: it ships inside the wheel as the *default* manifest, and is
 # the base layer of the config. A workspace overrides any part of it in its own
-# `.cjdev/config.toml`; `cjdev manifest show` prints the effective result so nobody has
+# `.cjdev/config.toml`; `cjdev config show` prints the effective result so nobody has
 # to go looking inside site-packages for it.
 #
 # WHY TOML RATHER THAN PYTHON: workspaces override this, so a parser exists

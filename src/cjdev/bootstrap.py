@@ -15,8 +15,14 @@ from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.report_status import ReportStatus
+from cjdev.application.workspace import find_root
+from cjdev.domain.config import LayeredManifest, WorkspaceConfig, layer
 from cjdev.domain.manifest import Manifest
-from cjdev.infra.config import load_bundled_manifest, render_workspace_config
+from cjdev.infra.config import (
+    load_bundled_manifest,
+    load_workspace_config,
+    render_workspace_config,
+)
 from cjdev.infra.executor import build_executor
 from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
@@ -53,9 +59,48 @@ class Container:
         self._journal: CommandJournal | None = None
         self._journal_root: Path | None = None
 
+    def manifest(self, start: Path | None = None) -> Manifest:
+        """The effective project set: the bundled manifest with the nearest
+        workspace's `.cjdev/config.toml` layered over it.
+
+        `start` is where the caller stands; a walk up from there answers with
+        the nearest workspace, so an inner one shadows an outer (FR-1). With
+        no workspace in play - `config show` from a shell prompt, or tests -
+        the bundled manifest alone applies (FR-9).
+
+        Every command resolves its set through this one method, so a workspace
+        override cannot take effect for `branch new` and not for `status`.
+        """
+        override = self._override(start)
+        if override is None:
+            return self._bundled
+        return layer(self._bundled, override).effective
+
+    def layered(self, start: Path | None = None) -> LayeredManifest:
+        """The same answer as `manifest`, carrying the layer each value came
+        from - for `config show` alone."""
+        override = self._override(start)
+        if override is None:
+            # Outside a workspace the workspace layer is empty: the effective
+            # config is the bundled manifest, and every layer says so.
+            return layer(self._bundled, WorkspaceConfig())
+        return layer(self._bundled, override)
+
+    def _override(self, start: Path | None) -> WorkspaceConfig | None:
+        if start is None:
+            return None
+        root = find_root(start)
+        if root is None:
+            return None
+        # A workspace config that refuses to parse fails the command with the
+        # message naming the file: acting on a set the user believes they
+        # overrode is the worse outcome. The original error travels intact -
+        # its code (`manifest`) and message already say everything this layer
+        # would add.
+        return load_workspace_config(root)
+
     @cached_property
-    def manifest(self) -> Manifest:
-        """The default project set. Workspace overrides land here."""
+    def _bundled(self) -> Manifest:
         return load_bundled_manifest()
 
     def journal(self, root: Path, argv: Sequence[str]) -> CommandJournal:
@@ -98,11 +143,27 @@ class Container:
             return InteractivePrompt()
         return NonInteractivePrompt(assume_yes=assume_yes)
 
+    def manifest_for_init(self, root: Path) -> Manifest:
+        """The manifest `init` provisions from: the workspace it is creating
+        or reconfiguring - never an enclosing one.
+
+        `init` writes `.cjdev/` at `root`, so the override layer it may honour
+        is `root`'s own file, and only when it already exists (a re-run that
+        changes the project set). Walking up from `root`, the way `manifest`
+        does, would answer a fresh nested `init` with the *enclosing*
+        workspace's config - and the new workspace would be provisioned from
+        an override its own file does not carry.
+        """
+        override = load_workspace_config(root)
+        if override is None:
+            return self._bundled
+        return layer(self._bundled, override).effective
+
     def init_workspace(
-        self, *, dry_run: bool = False, verbose: bool = False
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
     ) -> InitWorkspace:
         return InitWorkspace(
-            manifest=self.manifest,
+            manifest=lambda: self.manifest_for_init(start),
             executor=self.executor(dry_run=dry_run, verbose=verbose),
             file_system=self.file_system(dry_run=dry_run),
             # A dry run answers its own questions: it changes nothing, so a
@@ -116,13 +177,13 @@ class Container:
         )
 
     def new_branch_set(
-        self, *, dry_run: bool = False, verbose: bool = False
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
     ) -> NewBranchSet:
         """No `Prompt`: the whole input is the name, and nothing of the
         user's is at stake, so there is no question to ask and nothing to
         refuse for the lack of a terminal."""
         return NewBranchSet(
-            manifest=self.manifest,
+            manifest=lambda: self.manifest(start),
             executor=self.executor(dry_run=dry_run, verbose=verbose),
             file_system=self.file_system(dry_run=dry_run),
             inspect=inspect_checkout,
@@ -130,11 +191,18 @@ class Container:
             drop=drop_checkout,
         )
 
-    def report_status(self, *, verbose: bool = False) -> ReportStatus:
+    def report_status(
+        self, *, verbose: bool = False, manifest: Manifest
+    ) -> ReportStatus:
         """No `FileSystem` and no `Prompt`: it changes nothing, so there is
-        nothing to make dry, and nothing to ask permission for."""
+        nothing to make dry, and nothing to ask permission for.
+
+        The manifest arrives already resolved: the CLI needs it before the
+        fan-out (the transcript flush has labels to fall back on), and the
+        same instance travelling down is what keeps one command to one read
+        of the workspace config."""
         return ReportStatus(
-            manifest=self.manifest,
+            manifest=lambda: manifest,
             executor=self.executor(verbose=verbose),
             read_store=read_store,
         )

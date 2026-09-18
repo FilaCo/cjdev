@@ -117,9 +117,43 @@ class TestParseErrors:
         with pytest.raises(ManifestError, match="Known roles"):
             parse_manifest(toml, source="test")
 
+    def test_a_top_level_key_of_the_wrong_type_is_refused_naming_the_key(self):
+        # A string where a table belongs is otherwise an AttributeError at
+        # the first `.items()` - a traceback, not a refusal.
+        with pytest.raises(ManifestError, match=r"projects must be a table"):
+            parse_manifest(
+                """
+                schema_version = 1
+                projects = "x"
+                """,
+                source="test",
+            )
+
     def test_broken_toml_is_reported_as_such(self):
         with pytest.raises(ManifestError, match="not valid TOML"):
             parse_manifest("schema_version = = 1", source="test")
+
+    def test_depends_on_written_as_a_string_is_refused_at_parse_time(self):
+        # The bundled parser shares the guard: iterated one character at a
+        # time, "compiler" would surface as unknown one-letter build units,
+        # far from the line that caused it.
+        toml = """
+        schema_version = 1
+        [projects.compiler]
+        role = "buildable"
+        upstream = "https://example.invalid/compiler.git"
+        default_branch = "main"
+        [build_units.compiler]
+        project = "compiler"
+        path = "."
+        depends_on = "runtime"
+        """
+
+        with pytest.raises(
+            ManifestError,
+            match=r"build unit compiler depends_on must be an array",
+        ):
+            parse_manifest(toml, source="test")
 
 
 class TestGroups:

@@ -19,12 +19,14 @@ from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
 from cjdev.cli._output import SCHEMA
 from cjdev.domain.layout import WorkspaceLayout
-from cjdev.domain.manifest import Project, ProjectRole
+from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.errors import (
     InputRequiredError,
+    ManifestError,
     PreconditionError,
     UsageError,
 )
+from cjdev.infra.config import render_workspace_config
 from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.git import provision_object_store
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
@@ -51,8 +53,159 @@ def test_help_lists_commands():
     result = runner.invoke(cli, ["-h"])
 
     assert result.exit_code == 0
-    for command in ("branch", "init", "status"):
+    for command in ("branch", "init", "status", "config"):
         assert command in result.output
+
+
+class TestConfigShow:
+    """`cjdev config show`: the effective config, in both renderings."""
+
+    def test_outside_any_workspace_the_bundled_manifest_is_shown_as_such(
+        self, tmp_path: Path
+    ):
+        # FR-9: the same answer `init` will act on, with no workspace in play.
+        result = runner.invoke(cli, ["config", "show", str(tmp_path)])
+
+        assert result.exit_code == 0
+        assert "cangjie_compiler" in result.output
+
+    def test_the_json_payload_carries_the_layer_of_every_value(self, tmp_path: Path):
+        # FR-8: the machine surface hides nothing - provenance is always in
+        # the document, whatever the verbosity flag said.
+        result = runner.invoke(cli, ["config", "show", str(tmp_path), "--json"])
+
+        document = json.loads(result.stdout)
+        assert document["command"] == "config show"
+        assert document["ok"]
+        assert document["data"]["schema_version"] == {
+            "value": 1,
+            "layer": "bundled",
+        }
+        upstream = next(
+            p["upstream"]
+            for p in document["data"]["projects"]
+            if p["name"] == "cangjie_compiler"
+        )
+        assert upstream == {
+            "value": "https://gitcode.com/Cangjie/cangjie_compiler.git",
+            "layer": "bundled",
+        }
+
+    def test_a_workspace_override_changes_the_effective_config(
+        self, empty_workspace: Path
+    ):
+        # FR-1/FR-2: the nearest workspace's file layers over the bundled
+        # manifest, one field of one project at a time.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text(
+            "[projects.cangjie_compiler]\n"
+            'upstream = "https://gitcode.com/FilaCo/cangjie_compiler.git"\n'
+        )
+
+        result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
+
+        document = json.loads(result.stdout)
+        upstream = next(
+            p["upstream"]
+            for p in document["data"]["projects"]
+            if p["name"] == "cangjie_compiler"
+        )
+        assert upstream["value"] == "https://gitcode.com/FilaCo/cangjie_compiler.git"
+        assert upstream["layer"] == "workspace"
+
+    def test_verbose_names_the_layer_of_every_value(self, empty_workspace: Path):
+        # FR-8: -v changes what is shown. The layers are in the table now -
+        # and in the JSON payload they were there regardless.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text('[projects.cangjie_compiler]\nupstream = "https://x/a.git"\n')
+
+        plain = runner.invoke(cli, ["config", "show", str(empty_workspace)])
+        verbose = runner.invoke(cli, ["config", "show", str(empty_workspace), "-v"])
+
+        assert plain.exit_code == verbose.exit_code == 0
+        assert "workspace" not in plain.output
+        assert "workspace" in verbose.output
+        assert "bundled" in verbose.output
+
+    def test_verbose_lines_the_layer_column_up_for_scanning(
+        self, empty_workspace: Path
+    ):
+        # The layer column exists to be skimmed vertically - "which of these
+        # did I override". It prints before the value, in a fixed-width slot,
+        # so every layer lands on the same column whatever the value is.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text('[projects.cangjie_compiler]\nupstream = "https://x/a.git"\n')
+
+        verbose = runner.invoke(cli, ["config", "show", str(empty_workspace), "-v"])
+
+        assert verbose.exit_code == 0
+        columns: set[int] = set()
+        for line in verbose.output.splitlines():
+            for word in ("bundled", "workspace"):
+                if word in line:
+                    columns.add(line.index(word))
+        assert len(columns) == 1
+
+    def test_no_line_of_the_table_carries_trailing_whitespace(
+        self, empty_workspace: Path
+    ):
+        # Labels are padded to the column width only where something follows
+        # on the line; padding a section header anyway left trailing
+        # whitespace on a dozen lines of every run.
+        for argv in (
+            ["config", "show", str(empty_workspace)],
+            ["config", "show", str(empty_workspace), "-v"],
+        ):
+            result = runner.invoke(cli, argv)
+
+            assert result.exit_code == 0
+            assert not any(line != line.rstrip() for line in result.output.splitlines())
+
+    def test_a_broken_workspace_config_fails_with_the_file_named(
+        self, empty_workspace: Path
+    ):
+        # FR-6: with two files in play, the refusal says which one refused.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text("schema_version = 99\n")
+
+        result = runner.invoke(cli, ["config", "show", str(empty_workspace)])
+
+        assert isinstance(result.exception, ManifestError)
+        assert "config.toml" in str(result.exception)
+
+    def test_the_comment_only_template_layers_to_an_unchanged_manifest(
+        self, empty_workspace: Path
+    ):
+        # FR-4, end to end: the file `init` writes must be a no-op layer.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text(render_workspace_config())
+
+        result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
+
+        document = json.loads(result.stdout)
+        assert document["data"]["schema_version"]["layer"] == "bundled"
+        assert len(document["data"]["projects"]) == len(Container().manifest().projects)
+
+
+def test_a_workspace_override_changes_what_status_reports(
+    empty_workspace: Path,
+):
+    # FR-1: the layering is not a `config show` toy - every command resolves
+    # its set through the same composition root, so an added project is
+    # reported as held-or-absent by `status` too.
+    config = Path(WorkspaceLayout(empty_workspace).config_file)
+    config.write_text(
+        "[projects.mirror]\n"
+        'role = "test_data"\n'
+        'upstream = "https://example.invalid/mirror.git"\n'
+        'default_branch = "main"\n'
+    )
+
+    result = runner.invoke(cli, ["status", str(empty_workspace), "--json"])
+
+    document = json.loads(result.stdout)
+    names = {p["name"] for p in document["data"]["projects"]}
+    assert "mirror" in names
 
 
 class TestStatus:
@@ -106,7 +259,7 @@ def test_the_root_callback_puts_a_container_on_the_context():
 
 
 def test_the_container_loads_the_bundled_manifest():
-    assert Container().manifest.projects
+    assert Container().manifest().projects
 
 
 def test_no_terminal_means_no_question_rather_than_a_wait_for_one():
@@ -166,12 +319,71 @@ class TestWorkspacesMayNest:
 
         assert result.exit_code == 0
 
+    def test_a_nested_init_does_not_inherit_the_enclosing_workspace(
+        self, empty_workspace: Path
+    ):
+        # `init` provisions from the workspace it is creating - the bundled
+        # manifest, until the new workspace has a config of its own. Walking
+        # up would answer a fresh nested init with the *enclosing* workspace's
+        # file, and the new workspace would be built from an override its own
+        # config does not carry.
+        config = Path(WorkspaceLayout(empty_workspace).config_file)
+        config.write_text('default_group = "solo"\n[groups]\nsolo = ["cangjie_test"]\n')
+
+        result = runner.invoke(
+            cli, ["init", str(empty_workspace / "inner"), "--dry-run"]
+        )
+
+        assert result.exit_code == 0
+        assert "cangjie_test" not in result.output
+        # The bundled default group is what a fresh workspace gets.
+        assert "cangjie_compiler" in result.output
+
     def test_re_running_on_the_workspace_itself_is_supported(
         self, empty_workspace: Path
     ):
         result = runner.invoke(cli, ["init", str(empty_workspace), "--dry-run"])
 
         assert result.exit_code == 0
+
+
+class TestWhatInitProvisionsFrom:
+    def test_a_fresh_workspace_provisions_from_the_bundled_manifest(
+        self, tmp_path: Path
+    ):
+        # Container level: `manifest_for_init` reads the workspace being
+        # created, not the nearest one a walk up would find.
+        config = Path(WorkspaceLayout(tmp_path).config_file)
+        config.parent.mkdir(parents=True)
+        config.write_text('default_group = "solo"\n[groups]\nsolo = ["cangjie_test"]\n')
+
+        container = Container()
+
+        assert container.manifest_for_init(tmp_path / "inner") == container.manifest(
+            None
+        )
+
+    def test_a_re_run_honours_the_workspace_it_is_reconfiguring(self, tmp_path: Path):
+        # The workspace's own config counts - but only its own: this is what
+        # keeps a re-run consistent with every later command run inside.
+        config = Path(WorkspaceLayout(tmp_path).config_file)
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            "[projects.cangjie_compiler]\n"
+            'upstream = "https://example.invalid/compiler.git"\n'
+        )
+
+        container = Container()
+
+        effective = container.manifest_for_init(tmp_path)
+        assert (
+            next(
+                project.upstream_url
+                for project in effective.projects
+                if project.name == "cangjie_compiler"
+            )
+            == "https://example.invalid/compiler.git"
+        )
 
 
 class TestInitDoesNotOverclaim:
@@ -222,7 +434,7 @@ class TestTheEnvelope:
         assert document["errors"] == []
         assert document["data"]["branch_sets"] == []
         assert {p["name"] for p in document["data"]["projects"]} == {
-            p.name for p in Container().manifest.projects
+            p.name for p in Container().manifest().projects
         }
 
     def test_stdout_carries_the_document_and_the_transcript_goes_to_stderr(
@@ -287,8 +499,10 @@ class TestTheEnvelope:
         real = Container.report_status
         default = DEFAULT_QUERY_JOBS
 
-        def spy(self: Container, *, verbose: bool = False) -> object:
-            use_case = real(self, verbose=verbose)
+        def spy(
+            self: Container, *, verbose: bool = False, manifest: Manifest
+        ) -> object:
+            use_case = real(self, verbose=verbose, manifest=manifest)
             perform = use_case.perform
 
             def watched(*args: Any, **kwargs: Any):
@@ -303,6 +517,27 @@ class TestTheEnvelope:
         runner.invoke(cli, ["status", str(empty_workspace), "-v"])
 
         assert seen["jobs"] == DEFAULT_QUERY_JOBS
+
+    def test_status_resolves_the_workspace_config_exactly_once(
+        self, monkeypatch: pytest.MonkeyPatch, empty_workspace: Path
+    ):
+        # The CLI resolves the manifest for the transcript labels and hands
+        # the same instance to the use case: a second resolution would let
+        # the file change in between, and the report could disagree with the
+        # labels it was flushed under.
+        calls = 0
+        real = Container.manifest
+
+        def counted(self: Container, start: Path | None = None) -> object:
+            nonlocal calls
+            calls += 1
+            return real(self, start)
+
+        monkeypatch.setattr(Container, "manifest", counted)
+        result = runner.invoke(cli, ["status", str(empty_workspace)])
+
+        assert result.exit_code == 0
+        assert calls == 1
 
     def test_a_failure_travels_inside_the_document_rather_than_beside_it(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys

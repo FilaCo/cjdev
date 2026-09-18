@@ -13,6 +13,7 @@ from pathlib import Path, PurePath
 from typing import final
 
 from cjdev.application.ports import Executor, FileSystem
+from cjdev.application.report_status import ManifestProvider
 from cjdev.application.runner import (
     Outcome,
     Runner,
@@ -24,7 +25,6 @@ from cjdev.application.runner import (
 from cjdev.application.workspace import held_projects
 from cjdev.domain.branch import check_branch_name
 from cjdev.domain.layout import WorkspaceLayout
-from cjdev.domain.manifest import Manifest
 from cjdev.errors import AbortedError, PreconditionError
 
 DEFAULT_CHECKOUT_JOBS = 4
@@ -238,13 +238,16 @@ def _outcome(enrolment: Enrolment, result: UnitResult[Enrolment] | None) -> Outc
 class NewBranchSet:
     def __init__(
         self,
-        manifest: Manifest,
+        manifest: ManifestProvider,
         executor: Executor,
         file_system: FileSystem,
         inspect: Inspect,
         add: Add,
         drop: Drop,
     ) -> None:
+        # A provider rather than a Manifest: the workspace layer is resolved
+        # when the command runs, from where the caller stands - not when the
+        # composition root was built.
         self._manifest = manifest
         self._executor = executor
         self._fs = file_system
@@ -265,7 +268,7 @@ class NewBranchSet:
         # costs no git at all.
         check_branch_name(branch)
         layout = WorkspaceLayout(root)
-        projects = held_projects(layout, self._manifest)
+        projects = held_projects(layout, self._manifest())
         if not projects:
             raise PreconditionError(
                 f"{root} holds no projects, so there is nothing to branch.",
