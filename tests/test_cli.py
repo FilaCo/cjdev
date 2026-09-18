@@ -223,6 +223,9 @@ class TestStatus:
         assert result.exit_code == 0
         assert "cangjie_compiler" in result.output
         assert "No branch sets yet" in result.output
+        # The hint a first-time user follows must spell the argument the way
+        # the conventions do - `<name>` predates the vocabulary rename.
+        assert "cjdev branch new <branch-set>" in result.output
 
     def test_an_unreadable_store_is_reported_and_is_not_a_success(
         self, empty_workspace: Path
