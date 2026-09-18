@@ -223,6 +223,9 @@ class TestStatus:
         assert result.exit_code == 0
         assert "cangjie_compiler" in result.output
         assert "No branch sets yet" in result.output
+        # The hint a first-time user follows must spell the argument the way
+        # the conventions do - `<name>` predates the vocabulary rename.
+        assert "cjdev branch new <branch-set>" in result.output
 
     def test_an_unreadable_store_is_reported_and_is_not_a_success(
         self, empty_workspace: Path
@@ -615,7 +618,9 @@ class TestBranchNew:
 
     def test_it_refuses_outside_a_workspace(self, tmp_path: Path):
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(tmp_path)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(tmp_path)]
+        )
 
         # Assert
         assert isinstance(result.exception, PreconditionError)
@@ -623,16 +628,41 @@ class TestBranchNew:
 
     def test_a_workspace_with_no_projects_names_the_fix(self, empty_workspace: Path):
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(empty_workspace)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(empty_workspace)]
+        )
 
         # Assert
         assert isinstance(result.exception, PreconditionError)
         assert "cjdev init" in (result.exception.remedy or "")
 
+    def test_the_short_flag_names_the_workspace_too(self, empty_workspace: Path):
+        # The workspace is context, not the subject, so it arrives as an
+        # option - and the short spelling reaches the same walk-up.
+        # Act
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "-w", str(empty_workspace)]
+        )
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)
+        assert "cjdev init" in (result.exception.remedy or "")
+
+    def test_the_workspace_is_no_longer_a_positional_argument(self):
+        # The second positional lands on no parameter at all: the parser
+        # refuses the invocation before any code of ours runs. What is
+        # pinned here is the usage line - the shape is ours - not the
+        # parser's error wording, which a typer upgrade may reword.
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", "ws"])
+
+        # Assert
+        assert result.exit_code == 2
+        assert "branch new [OPTIONS] {branch_set}" in result.output
+
     def test_a_name_git_would_refuse_creates_nothing(self, provisioned: Path):
         # Act
         result = runner.invoke(
-            cli, ["branch", "new", "fix/../escape", str(provisioned)]
+            cli, ["branch", "new", "fix/../escape", "--workspace", str(provisioned)]
         )
 
         # Assert
@@ -648,7 +678,9 @@ class TestBranchNew:
         monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
 
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned)]
+        )
 
         # Assert
         assert result.exit_code == 0, result.output
@@ -659,7 +691,7 @@ class TestBranchNew:
     ):
         # Act
         result = runner.invoke(
-            cli, ["branch", "new", "fix/ice", str(provisioned), "--json"]
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned), "--json"]
         )
 
         # Assert
@@ -696,7 +728,9 @@ class TestBranchNew:
         monkeypatch.setattr(Container, "new_branch_set", failing)
 
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned)]
+        )
 
         # Assert
         assert result.exit_code == 1
@@ -706,7 +740,9 @@ class TestBranchNew:
 
     def test_what_it_ran_is_in_the_workspace_log(self, provisioned: Path):
         # Act
-        runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+        runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned)]
+        )
 
         # Assert: the log is always on, because "what did that actually run?"
         # is only ever asked afterwards.

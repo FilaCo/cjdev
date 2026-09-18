@@ -232,7 +232,7 @@ nothing; everything else asks at a terminal or refuses.
 | --- | --- | --- |
 | `init` | a wizard for the project set, then consent if the answer drops one | none; `--dry-run` asks nothing |
 | `status` | nothing | none |
-| `branch new` | nothing - the whole input is the name | none |
+| `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two

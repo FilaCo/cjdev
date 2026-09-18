@@ -142,7 +142,7 @@ def render_status(console: Console, status: WorkspaceStatus) -> None:
 
     if not status.branch_sets:
         console.print(
-            "No branch sets yet - create one with `cjdev branch new <name>`.",
+            "No branch sets yet - create one with `cjdev branch new <branch-set>`.",
             style=DETAIL,
         )
     held = tuple(store.project for store in status.stores if store.provisioned)
