@@ -133,6 +133,28 @@ class TestParseErrors:
         with pytest.raises(ManifestError, match="not valid TOML"):
             parse_manifest("schema_version = = 1", source="test")
 
+    def test_depends_on_written_as_a_string_is_refused_at_parse_time(self):
+        # The bundled parser shares the guard: iterated one character at a
+        # time, "compiler" would surface as unknown one-letter build units,
+        # far from the line that caused it.
+        toml = """
+        schema_version = 1
+        [projects.compiler]
+        role = "buildable"
+        upstream = "https://example.invalid/compiler.git"
+        default_branch = "main"
+        [build_units.compiler]
+        project = "compiler"
+        path = "."
+        depends_on = "runtime"
+        """
+
+        with pytest.raises(
+            ManifestError,
+            match=r"build unit compiler depends_on must be an array",
+        ):
+            parse_manifest(toml, source="test")
+
 
 class TestGroups:
     def test_the_default_group_is_the_minimal_sdk(self, bundled: Manifest):

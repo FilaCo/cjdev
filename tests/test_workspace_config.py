@@ -112,6 +112,56 @@ class TestWrongTypes:
                 '[groups]\nminimal = "cangjie_compiler"\n', source="config.toml"
             )
 
+    def test_a_scalar_body_in_the_projects_table_is_refused_naming_the_entry(self):
+        # `_require_table` proves `projects` is a table, not what sits in it:
+        # a scalar body would reach `set(body)` as a TypeError - a traceback
+        # that takes the `--json` envelope down with it.
+        with pytest.raises(
+            ManifestError,
+            match=r"^config\.toml: project a must be a table, not Integer",
+        ):
+            parse_workspace_config("[projects]\na = 1\n", source="config.toml")
+
+    def test_a_scalar_build_unit_body_is_refused_like_a_scalar_project(self):
+        with pytest.raises(
+            ManifestError,
+            match=r"^config\.toml: build unit u must be a table, not Integer",
+        ):
+            parse_workspace_config("[build_units]\nu = 1\n", source="config.toml")
+
+    def test_depends_on_written_as_a_string_is_refused_at_parse_time(self):
+        # Iterated one character at a time it would surface as unknown
+        # one-letter build units ("depends on unknown unit r"), far from the
+        # line that caused it - the defect `_groups` refuses for members.
+        with pytest.raises(
+            ManifestError,
+            match=r"build unit u depends_on must be an array of build-unit names",
+        ):
+            parse_workspace_config(
+                '[build_units.u]\nproject = "a"\npath = "."\ndepends_on = "runtime"\n',
+                source="config.toml",
+            )
+
+    def test_an_array_in_a_scalar_unit_field_is_refused(self):
+        # Through `str()` it would become the plausible-looking path "['a']",
+        # failing far from the line that caused it.
+        with pytest.raises(
+            ManifestError, match=r"build unit u path must be a string, not Array"
+        ):
+            parse_workspace_config(
+                '[build_units.u]\npath = ["a"]\n', source="config.toml"
+            )
+
+    def test_an_array_in_a_scalar_project_field_is_refused_like_a_units(self):
+        # `upstream` coerces through `str()` just the same way as `path`.
+        with pytest.raises(
+            ManifestError, match=r"project a upstream must be a string, not Array"
+        ):
+            parse_workspace_config(
+                '[projects.a]\nupstream = ["https://example.invalid/a.git"]\n',
+                source="config.toml",
+            )
+
 
 class TestUnreadableFiles:
     def test_bytes_that_are_not_utf8_are_a_refusal_naming_the_file(

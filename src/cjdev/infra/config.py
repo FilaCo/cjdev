@@ -154,6 +154,8 @@ def _project(name: str, body: Any, source: str) -> Project:
     """A bundled-manifest project: total, not partial."""
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    _reject_mistyped(body, "upstream", where, str, "a string")
+    _reject_mistyped(body, "default_branch", where, str, "a string")
     role = str(_require(body, "role", where))
     if role not in ROLE_NAMES:
         raise ManifestError(
@@ -171,6 +173,9 @@ def _project(name: str, body: Any, source: str) -> Project:
 def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
     where = f"{source}: build unit {name}"
     _reject_unknown_keys(body, {"project", "path", "depends_on"}, where)
+    _reject_mistyped(body, "project", where, str, "a string")
+    _reject_mistyped(body, "path", where, str, "a string")
+    _reject_mistyped(body, "depends_on", where, list, "an array of build-unit names")
     return BuildUnit(
         name=name,
         project=str(_require(body, "project", where)),
@@ -182,6 +187,8 @@ def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
 def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    _reject_mistyped(body, "upstream", where, str, "a string")
+    _reject_mistyped(body, "default_branch", where, str, "a string")
     if not body:
         # Same refusal as `_unit_override`: a bare table header overrides
         # nothing, so honouring it would read as success while saying nothing
@@ -208,6 +215,9 @@ def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
 def _unit_override(name: str, body: Any, source: str) -> UnitOverride:
     where = f"{source}: build unit {name}"
     _reject_unknown_keys(body, {"project", "path", "depends_on"}, where)
+    _reject_mistyped(body, "project", where, str, "a string")
+    _reject_mistyped(body, "path", where, str, "a string")
+    _reject_mistyped(body, "depends_on", where, list, "an array of build-unit names")
     if not body:
         # A bare table header overrides nothing, so honouring it would read as
         # success while saying nothing - almost always a key the user meant to
@@ -232,12 +242,32 @@ def _unit_override(name: str, body: Any, source: str) -> UnitOverride:
 def _reject_unknown_keys(body: Any, allowed: set[str], where: str) -> None:
     """A key in the wrong place is the failure mode TOML makes easy: written
     after a table header it silently belongs to that table. Refusing what we
-    do not understand turns that into a message instead of a shrug."""
+    do not understand turns that into a message instead of a shrug.
+
+    The body's own shape is checked here too, where the file is named:
+    `_require_table` proves the outer table is a table, not what sits in it,
+    and a scalar body would otherwise reach `set(body)` as a TypeError -
+    a traceback where the refusal names the entry that is not a table.
+    """
+    if not isinstance(body, dict):
+        raise ManifestError(f"{where} must be a table, not {type(body).__name__}.")
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise ManifestError(
             f"{where} has unknown key(s) {', '.join(unknown)}. "
             f"Expected: {', '.join(sorted(allowed))}."
+        )
+
+
+def _reject_mistyped(body: Any, key: str, where: str, want: type, what: str) -> None:
+    """A value of the wrong shape has to fail here, where the file is named.
+    Coerced through `str()`, an array in a scalar's place becomes a
+    plausible-looking wrong value ("['a']" as a path) that fails far from the
+    line that caused it; a string in an array's place is iterated one
+    character at a time and multiplies into failures just as far away."""
+    if key in body and not isinstance(body[key], want):
+        raise ManifestError(
+            f"{where} {key} must be {what}, not {type(body[key]).__name__}."
         )
 
 
