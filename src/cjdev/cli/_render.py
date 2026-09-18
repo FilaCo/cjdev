@@ -298,24 +298,22 @@ def config_payload(layered: LayeredManifest) -> dict[str, object]:
 def render_config_show(
     console: Console, layered: LayeredManifest, *, verbose: bool
 ) -> None:
-    """The effective config as text. The layer column exists only under `-v`.
+    """The effective config as text. The layer rides along only under `-v`.
 
-    The `--json` payload always carries the layers; the table hides them by
+    The `--json` payload always carries the layers; the text hides them by
     default the way the status table hides zeros - what a reader skims past.
+
+    Rows are printed, not boxed in a `Table.grid`: a grid ellipsises whatever
+    does not fit the terminal, and at the non-tty default of 80 columns even
+    the bundled manifest's URLs overflow - the command built to show effective
+    values would print truncated ones. `soft_wrap` hands a long line to the
+    terminal the way `print_detail` does; the label column is aligned by hand
+    because nothing else constrains it.
     """
-    table = Table.grid(padding=(0, 2))
-    table.add_column(style=DETAIL)
-    table.add_column()
-    if verbose:
-        table.add_column(style=DETAIL)
+    rows: list[tuple[str, str, str | None]] = []
 
     def add_row(name: str, value: object, layer: object = None) -> None:
-        # The layer rides along as a third cell only when the table has a
-        # column for it; a section row carries neither a value nor a layer.
-        if verbose:
-            table.add_row(name, str(value), "" if layer is None else str(layer))
-        else:
-            table.add_row(name, str(value))
+        rows.append((name, str(value), None if layer is None else str(layer)))
 
     add_row(
         "schema_version", layered.schema_version.value, layered.schema_version.layer
@@ -355,7 +353,17 @@ def render_config_show(
     for group in layered.groups:
         add_row(f"  {group.name}", ", ".join(group.members.value), group.members.layer)
 
-    console.print(table)
+    width = max(len(name) for name, _, _ in rows)
+    for name, value, layer in rows:
+        line = Text()
+        if name:
+            line.append(f"{name:<{width}}", style=DETAIL)
+            if value:
+                line.append("  ")
+                line.append(value)
+            if verbose and layer is not None:
+                line.append(f"  {layer}", style=DETAIL)
+        console.print(line, soft_wrap=True, highlight=False)
 
 
 def _absent(branch_set: BranchSet, held: tuple[str, ...]) -> tuple[str, ...]:
