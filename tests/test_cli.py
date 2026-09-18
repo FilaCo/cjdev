@@ -615,7 +615,9 @@ class TestBranchNew:
 
     def test_it_refuses_outside_a_workspace(self, tmp_path: Path):
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(tmp_path)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(tmp_path)]
+        )
 
         # Assert
         assert isinstance(result.exception, PreconditionError)
@@ -623,16 +625,40 @@ class TestBranchNew:
 
     def test_a_workspace_with_no_projects_names_the_fix(self, empty_workspace: Path):
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(empty_workspace)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(empty_workspace)]
+        )
 
         # Assert
         assert isinstance(result.exception, PreconditionError)
         assert "cjdev init" in (result.exception.remedy or "")
 
+    def test_the_short_flag_names_the_workspace_too(self, empty_workspace: Path):
+        # The workspace is context, not the subject, so it arrives as an
+        # option - and the short spelling reaches the same walk-up.
+        # Act
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "-w", str(empty_workspace)]
+        )
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)
+        assert "cjdev init" in (result.exception.remedy or "")
+
+    def test_the_workspace_is_no_longer_a_positional_argument(self, provisioned: Path):
+        # Act: the second positional now lands on no parameter at all, and
+        # click reports that as its own usage error (SystemExit, not one of
+        # ours) before any code of ours runs.
+        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+
+        # Assert
+        assert result.exit_code == UsageError.exit_code == 2
+        assert "Got unexpected extra argument" in result.output
+
     def test_a_name_git_would_refuse_creates_nothing(self, provisioned: Path):
         # Act
         result = runner.invoke(
-            cli, ["branch", "new", "fix/../escape", str(provisioned)]
+            cli, ["branch", "new", "fix/../escape", "--workspace", str(provisioned)]
         )
 
         # Assert
@@ -648,7 +674,9 @@ class TestBranchNew:
         monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
 
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned)]
+        )
 
         # Assert
         assert result.exit_code == 0, result.output
@@ -659,7 +687,7 @@ class TestBranchNew:
     ):
         # Act
         result = runner.invoke(
-            cli, ["branch", "new", "fix/ice", str(provisioned), "--json"]
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned), "--json"]
         )
 
         # Assert
@@ -696,7 +724,9 @@ class TestBranchNew:
         monkeypatch.setattr(Container, "new_branch_set", failing)
 
         # Act
-        result = runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+        result = runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned)]
+        )
 
         # Assert
         assert result.exit_code == 1
@@ -706,7 +736,9 @@ class TestBranchNew:
 
     def test_what_it_ran_is_in_the_workspace_log(self, provisioned: Path):
         # Act
-        runner.invoke(cli, ["branch", "new", "fix/ice", str(provisioned)])
+        runner.invoke(
+            cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned)]
+        )
 
         # Assert: the log is always on, because "what did that actually run?"
         # is only ever asked afterwards.

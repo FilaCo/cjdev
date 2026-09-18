@@ -21,13 +21,18 @@ cli = Typer(
 @cli.command(cls=CjdevCommand)
 def new(
     ctx: CjdevContext,
-    name: str = Argument(..., help="The branch, and the branch set it names."),
-    path: Path | None = Argument(None, help="The workspace. Defaults to the cwd."),
+    branch_set: str = Argument(..., help="The branch, and the branch set it names."),
+    path: Path | None = Option(
+        None,
+        "--workspace",
+        "-w",
+        help="The workspace. Defaults to the cwd.",
+    ),
     as_json: bool = Option(False, "--json", help="Print the report as JSON."),
     dry_run: bool = Option(False, "--dry-run", help="Print commands, run none."),
     verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
 ) -> None:
-    """Create a branch set: one checkout per project, all on NAME."""
+    """Create a branch set: one checkout per project, all on BRANCH_SET."""
     out = begin("branch new", as_json=as_json)
     # A walk up from wherever the caller is standing: being inside another
     # branch set is a normal place to start one from.
@@ -47,15 +52,15 @@ def new(
     ctx.obj.emit = progress.emit
     ctx.obj.report_step = progress.step
     if not dry_run:
-        ctx.obj.journal(root, ["branch", "new", name])
+        ctx.obj.journal(root, ["branch", "new", branch_set])
     use_case = ctx.obj.new_branch_set(dry_run=dry_run, verbose=verbose, start=root)
 
     # Kept apart only because the display cannot be built until it knows
     # which projects it is tracking; there is nothing to ask in between.
-    plan = use_case.plan(root, name, jobs=jobs, observer=progress.transcript)
+    plan = use_case.plan(root, branch_set, jobs=jobs, observer=progress.transcript)
     progress.track(
         [enrolment.project for enrolment in plan.to_enrol],
-        title=f"Checking out {name}",
+        title=f"Checking out {branch_set}",
         # The estimate divides by what apply will use; a dry run is sequential
         # by its own rule - nothing to overlap.
         jobs=1 if dry_run else jobs,

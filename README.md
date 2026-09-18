@@ -36,8 +36,9 @@ cjdev branch new fix/parser-ice
 cd fix-parser-ice/cangjie_compiler
 ```
 
-- `cjdev branch new NAME` - create one, adopting a branch that already carries the name
-  and completing a set that covers only some projects.
+- `cjdev branch new BRANCH_SET` - create one, adopting a branch that already carries the
+  name and completing a set that covers only some projects. `-w/--workspace PATH` names
+  the workspace to create it in; the default is the cwd, walked up like git.
 
 ### Build
 

@@ -60,3 +60,13 @@ seam is in the wrong place: fetching is a command's job, not an assertion's.
 The feature list in `README.md` is where a command is looked for, so it is updated by the
 same change that adds the command. One that ships unlisted is one nobody outside this
 repository can find.
+
+## The positional argument is the subject; options carry context
+
+A command's positional argument is the thing the command is *about*; an option is
+circumstance the command works *in*. `branch new BRANCH_SET --workspace PATH` creates a
+branch set - the branch set is the subject - inside a workspace that `require_root`
+already resolves from the cwd, exactly as git resolves a repository. The same split
+leaves `status PATH` and `config show PATH` positional: there the workspace *is* the
+subject - "show me this workspace". A path that only names where the subject lives is an
+option; a path that names what to act on is the argument.
