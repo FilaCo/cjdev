@@ -35,6 +35,14 @@ class InteractivePrompt:
         # everything downstream depends on it being stable.
         return tuple(option for option in options if option in set(chosen))
 
+    def select(self, question: str, options: Sequence[str], *, default: str) -> str:
+        chosen = questionary.select(
+            question, choices=list(options), default=default
+        ).ask()
+        if chosen is None:
+            raise AbortedError(question)
+        return str(chosen)
+
 
 @final
 class NonInteractivePrompt:
@@ -68,3 +76,15 @@ class NonInteractivePrompt:
         preselected: Sequence[str],
     ) -> tuple[str, ...]:
         return tuple(option for option in options if option in set(preselected))
+
+    def select(
+        self,
+        question: str,  # noqa: ARG002
+        options: Sequence[str],  # noqa: ARG002
+        *,
+        default: str,
+    ) -> str:
+        """The default, and no refusal: a setting with nobody to answer it
+        keeps the value already in force, which is the one this argument
+        carries. Only consent refuses in the dark."""
+        return default

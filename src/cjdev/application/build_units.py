@@ -41,9 +41,15 @@ from cjdev.domain.build import (
     RunStep,
     substitute,
 )
+from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode
 from cjdev.domain.layout import WorkspaceLayout, relative_target
 from cjdev.domain.manifest import BuildUnit, Manifest
 from cjdev.errors import PreconditionError, UsageError
+
+HostProvider = Callable[[], Host]
+"""What the environment contributes, read when the command runs rather than
+when the composition root was built: under a container the image and the daemon
+are what answer, and neither is reachable from a constructor."""
 
 Lock = Callable[[PurePath], AbstractContextManager[None]]
 """Held for the whole of one unit's build. Not a port: it has one
@@ -270,6 +276,7 @@ def decide(
     host: Host,
     observed: Observed,
     *,
+    environment: Environment = DEFAULT_ENVIRONMENT,
     passthrough: Sequence[str] = (),
 ) -> BuildPlan:
     """The whole run, settled before the first symlink moves."""
@@ -279,9 +286,12 @@ def decide(
             f"resolves to {len(units)} units "
             f"({', '.join(unit.name for unit in units)}). Name one unit."
         )
-    dist = layout.dist_dir(branch_set, profile.value)
+    where = environment.mode.value
+    dist = layout.dist_dir(branch_set, where, profile.value)
     planned = tuple(
-        _unit_plan(layout, branch_set, profile, unit, host, observed, passthrough)
+        _unit_plan(
+            layout, branch_set, where, profile, unit, host, observed, passthrough
+        )
         for unit in units
     )
     exclusions = _exclusions(layout, units, observed)
@@ -293,14 +303,21 @@ def decide(
         directories=(
             dist,
             layout.log_dir(branch_set),
-            *(() if host.ccache is None else (layout.shim_dir, layout.ccache_dir)),
+            *(
+                ()
+                if host.ccache is None
+                else (layout.shim_dir(where), layout.ccache_dir)
+            ),
+            # The container is told to use a home inside the mount, because
+            # the image has no passwd entry for the uid it runs as.
+            *(() if environment.mode is Mode.HOST else (layout.home_dir,)),
             *(r.real for plan in planned for r in plan.redirects),
             # `write_text` writes one file and creates no directory, and a
             # store whose `info/` is missing is otherwise a FileNotFoundError
             # on the way into a build.
             *(exclusion.path.parent for exclusion in exclusions),
         ),
-        shims=_shims(layout, host),
+        shims=_shims(layout, where, host),
         exclusions=exclusions,
         units=planned,
     )
@@ -331,6 +348,7 @@ def report_rows(plan: BuildPlan, report: RunReport[float]) -> tuple[Built, ...]:
 def _unit_plan(
     layout: WorkspaceLayout,
     branch_set: str,
+    where: str,
     profile: Profile,
     unit: BuildUnit,
     host: Host,
@@ -351,12 +369,12 @@ def _unit_plan(
         )
     directory = layout.worktree(branch_set, unit.project) / unit.path
     log = layout.unit_log(branch_set, unit.name)
-    env = _env(layout, branch_set, profile, host)
+    env = build_environment(layout, branch_set, where, profile, host)
     values = {
         PROFILE: profile.value,
         JOBS: str(host.jobs),
-        DIST: str(layout.dist_dir(branch_set, profile.value)),
-        BUILD_DIR: str(layout.build_dir(branch_set, profile.value, unit.name)),
+        DIST: str(layout.dist_dir(branch_set, where, profile.value)),
+        BUILD_DIR: str(layout.build_dir(branch_set, where, profile.value, unit.name)),
     }
     return UnitPlan(
         unit=unit.name,
@@ -364,7 +382,7 @@ def _unit_plan(
         directory=directory,
         log=log,
         lock=layout.build_lock(branch_set, unit.name),
-        redirects=_redirects(layout, branch_set, profile, unit, observed),
+        redirects=_redirects(layout, branch_set, where, profile, unit, observed),
         steps=(
             Command(
                 argv=(
@@ -415,6 +433,7 @@ def _install_step(
 def _redirects(
     layout: WorkspaceLayout,
     branch_set: str,
+    where: str,
     profile: Profile,
     unit: BuildUnit,
     observed: Observed,
@@ -422,7 +441,9 @@ def _redirects(
     redirects = []
     for seen in observed.links.get(unit.name, ()):
         link = layout.worktree(branch_set, unit.project) / unit.path / seen.scratch
-        real = layout.scratch_dir(branch_set, profile.value, unit.name, seen.scratch)
+        real = layout.scratch_dir(
+            branch_set, where, profile.value, unit.name, seen.scratch
+        )
         target = relative_target(link, real)
         if seen.state is LinkState.OCCUPIED:
             raise PreconditionError(
@@ -442,10 +463,14 @@ def _redirects(
     return tuple(redirects)
 
 
-def _env(
-    layout: WorkspaceLayout, branch_set: str, profile: Profile, host: Host
+def build_environment(
+    layout: WorkspaceLayout, branch_set: str, where: str, profile: Profile, host: Host
 ) -> dict[str, str]:
     """The SDK under construction, and the cache.
+
+    Public because `cjdev env run` exists to reproduce a build step by hand,
+    and a step run without the environment the build gave it is a different
+    command that happens to share an argv.
 
     This is what `source <sdk>/envsetup.sh` does, derived from the layout
     instead: every unit after the compiler builds *with* the SDK the ones
@@ -455,16 +480,16 @@ def _env(
     second place for them to disagree.
     """
     env = {
-        "CANGJIE_HOME": str(layout.dist_dir(branch_set, profile.value)),
+        "CANGJIE_HOME": str(layout.dist_dir(branch_set, where, profile.value)),
         "CANGJIE_STDX_PATH": str(
-            layout.stdx_lib_dir(branch_set, profile.value, host.target)
+            layout.stdx_lib_dir(branch_set, where, profile.value, host.target)
         ),
         host.library_var: _joined(
-            layout.sdk_library_path(branch_set, profile.value, host.target),
+            layout.sdk_library_path(branch_set, where, profile.value, host.target),
             host.library_path,
         ),
     }
-    path = layout.sdk_path(branch_set, profile.value)
+    path = layout.sdk_path(branch_set, where, profile.value)
     if host.ccache is None:
         return env | {"PATH": _joined(path, host.path)}
     return env | {
@@ -477,7 +502,7 @@ def _env(
         "CCACHE_NOHASHDIR": "1",
         # The shim goes in front of the SDK's own directories: it stands in for
         # the C compiler, which is not something the SDK provides.
-        "PATH": _joined((layout.shim_dir, *path), host.path),
+        "PATH": _joined((layout.shim_dir(where), *path), host.path),
     }
 
 
@@ -490,11 +515,11 @@ def _joined(ours: tuple[PurePath, ...], theirs: str) -> str:
     )
 
 
-def _shims(layout: WorkspaceLayout, host: Host) -> tuple[Shim, ...]:
+def _shims(layout: WorkspaceLayout, where: str, host: Host) -> tuple[Shim, ...]:
     if host.ccache is None:
         return ()
     return tuple(
-        Shim(link=layout.shim_dir / name, target=host.ccache) for name in SHIMMED
+        Shim(link=layout.shim_dir(where) / name, target=host.ccache) for name in SHIMMED
     )
 
 
@@ -559,8 +584,9 @@ class BuildUnits:
         manifest: ManifestProvider,
         executor: Executor,
         file_system: FileSystem,
-        host: Host,
+        host: HostProvider,
         lock: Lock,
+        environment: Environment = DEFAULT_ENVIRONMENT,
     ) -> None:
         # A provider rather than a Manifest: the workspace layer is resolved
         # when the command runs, from where the caller stands - not when the
@@ -570,6 +596,7 @@ class BuildUnits:
         self._fs = file_system
         self._host = host
         self._lock = lock
+        self._environment = environment
 
     def plan(
         self,
@@ -593,8 +620,11 @@ class BuildUnits:
             branch_set,
             profile,
             units,
-            self._host,
+            # Gathered here rather than held since construction: under a
+            # container this is a read of the daemon and the image.
+            self._host(),
             observe(layout, branch_set, units),
+            environment=self._environment,
             passthrough=passthrough,
         )
 

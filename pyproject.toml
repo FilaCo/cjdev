@@ -74,6 +74,9 @@ unused-ignore-comment = "error"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "container: needs a container runtime daemon; skipped where none answers",
+]
 
 [tool.coverage.run]
 source = ["cjdev"]

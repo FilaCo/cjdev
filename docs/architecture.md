@@ -155,7 +155,7 @@ for it, so the only way out of the worktree is a symlink from the worktree into
 ## Ports, and what earns one
 
 A port is earned by a second implementation that will actually exist. There are three:
-`Executor` (host today, container next), `FileSystem` (real, or dry-run) and `Prompt` (a
+`Executor` (this machine, or a container), `FileSystem` (real, or dry-run) and `Prompt` (a
 terminal, or a pipe/`--dry-run`). `Forge` will be the fourth once the gitcode work starts; it
 is absent from `ports.py` rather than stubbed, because an empty protocol tells a reader
 nothing and invites guessing.
@@ -208,7 +208,10 @@ is the same problem in memory.
 2. **A worker never prints**: under a fan-out the order things happen in belongs to the
    scheduler, and the transcript is not allowed to, so command output is captured per unit
    and rendered afterwards in manifest order. The live display is the one thing allowed to
-   be concurrent, and it draws only status.
+   be concurrent, and it draws only status. `Command.interactive` is the exception and
+   names itself: one foreground command the caller is watching or typing into - `cjdev env
+   run`, a shell, an image build - is not a worker and owns nothing but itself, so it
+   inherits the terminal and brings back only an exit code.
 3. **stdout is the report, stderr is everything about it**: the `-v` transcript, the
    progress fallback and errors all go to `diagnostics`, so that `--json` stays a document
    something else can parse.
@@ -217,6 +220,47 @@ A long-running command answers three questions: what it is doing, how long it ha
 doing it, and how much longer. `_progress.py` shows all three; the per-unit step comes
 from `Command.what` through `StepExecutor`, so adding a step to a new command means
 labelling the command.
+
+## Where a build runs
+
+`[environment]` in `.cjdev/config.toml` says `host` or `container`, and it is a setting
+rather than an override: nothing is bundled under it, so it is parsed on its own and
+`config show` prints it without a layer. Host is the default and a missing section is
+that default, which is what keeps every workspace that predates it building unchanged.
+
+**One `docker run --rm` per command, and no long-lived container.** The unit of work is
+a build unit, tens of minutes of compiling, so container creation is noise against it -
+and what a per-command run buys is that there is no name to derive, no staleness to
+check, nothing to reclaim but the image, and a cancellation that works: the client
+proxies the signal to pid 1, `--init` gives it a pid 1 that forwards, and `--rm` reaps
+what is left. Nothing may `SIGKILL` that client, because a killed client leaves a live
+container behind.
+
+**The image describes itself, and nothing probes it from the inside.** `info` answers
+what the daemon will run the build on and `image inspect` answers what is in the image.
+Both are host-side reads, so `--dry-run` may make them and plan from the truth, and
+neither needs a container to exist. The CPU count comes from the daemon rather than from
+a cached label, because it is a property of the run and not of the image.
+
+**`ContainerExecutor` is outermost, not innermost.** It rewrites a command into a run of
+that command inside, and everything below it - dry run, the step label, `-v`, the
+workspace log - then sees the argv that will really run. An inner argv nobody typed, with
+no mount and no uid on it, is not an answer to "what did that actually run?". It runs
+nothing itself; the host executor at the bottom of the stack runs the runtime binary. The
+probe keeps the *unwrapped* stack, or it would be a container asking a daemon about
+itself.
+
+**The environment is a key in the path**, beside the profile: `build/<set>/<env>/<profile>/`
+and `dist/<set>/<env>/<profile>/`. Two environments are two targets from two toolchains,
+and one `bin/cjc` cannot be both. The build lock stays above them both, because a worktree
+has one symlink per scratch path and the two environments contend for it exactly as two
+profiles do. The ccache shim is keyed the same way - it names a binary that exists in one
+of the two - and the ccache store is not, because ccache hashes the compiler.
+
+**Only `build` crosses the boundary.** git stays here, all of it: credential helpers, the
+ssh agent and the worktree registrations are this machine's, and `cjdev status` must not
+start failing because a daemon is down. The build's *own* git does run inside - cjpm's
+build clones libuv - which is why the image carries git and CA certificates.
 
 ## The machine surface
 
@@ -273,10 +317,11 @@ nothing; everything else asks at a terminal or refuses.
 
 | command | asks | flags |
 | --- | --- | --- |
-| `init` | a wizard for the project set, then consent if the answer drops one | none; `--dry-run` asks nothing |
+| `init` | a wizard for the project set and for the environment, then consent if the answer drops one | `--env`, `--runtime`; `--dry-run` asks nothing |
 | `status` | nothing | none |
 | `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
 | `build` | nothing - it creates and overwrites only what cjdev owns | none; `--dry-run` asks nothing |
+| `env` | nothing - the image is cjdev's, and `rm` removes only what `build` made | none; `--dry-run` asks nothing |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two
@@ -287,10 +332,16 @@ be, it must answer the confirmation and nothing else.
 
 `init` therefore **needs a terminal**. With no TTY and no `--dry-run` it refuses with exit
 3 rather than picking a project set nobody chose or blocking on a stdin nobody will write
-to. The flag that answers the wizard from a script is deliberately absent until its shape
-is decided; when it arrives, the rule it has to satisfy is that **every question a wizard
-asks needs a flag that answers it**, and "take the defaults" is not that flag - defaults
-are what a first-time caller has none of.
+to. The rule is that **every question a wizard asks needs a flag that answers it**, and
+"take the defaults" is not that flag - defaults are what a first-time caller has none of.
+`--env` and `--runtime` satisfy it for the environment questions; the project set is the
+one question still without a flag, which is why the terminal is still required. They are
+settings, so neither of them answers the confirmation, and passing both still leaves
+`init` asking which projects the workspace holds.
+
+The environment is asked only when `init` creates `.cjdev/config.toml`. Nothing rewrites
+that section afterwards, so a re-run that asked would be collecting an answer it has to
+throw away; changing it is editing the file until `cjdev config set` exists.
 
 ## File or folder?
 

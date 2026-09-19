@@ -111,8 +111,12 @@ def native_target(system: str, machine: str) -> str:
     both sources canonicalise it: `envsetup.sh` rewrites `arm64`, and every
     native cmake toolchain file pins `CMAKE_SYSTEM_PROCESSOR` to `aarch64` or
     `x86_64` rather than taking the host's word for it.
+
+    Three spellings of two architectures reach here, because a container
+    runtime reports Go's names (`amd64`, `arm64`) where `platform.machine()`
+    reports the kernel's.
     """
-    arch = machine.replace("AMD64", "x86_64").lower().replace("arm64", "aarch64")
+    arch = machine.lower().replace("amd64", "x86_64").replace("arm64", "aarch64")
     return f"{system.lower()}_{arch}"
 
 

@@ -37,8 +37,8 @@ class TestWorkspaceTree:
             layout.bare_dir,
             layout.cache_dir,
             layout.log_dir("fix/ice"),
-            layout.build_dir("fix/ice", "debug", STDLIB),
-            layout.dist_dir("fix/ice", "debug"),
+            layout.build_dir("fix/ice", "host", "debug", STDLIB),
+            layout.dist_dir("fix/ice", "host", "debug"),
         ]
         assert all(CJDEV in path.parents for path in internals)
 
@@ -50,16 +50,18 @@ class TestWorkspaceTree:
             CJDEV / "bare" / "cangjie_compiler.git"
         )
 
-    def test_build_dirs_are_keyed_by_branch_set_profile_and_unit(
+    def test_build_dirs_are_keyed_by_set_environment_profile_and_unit(
         self, layout: WorkspaceLayout
     ):
-        assert layout.build_dir("fix/ice", "debug", STDLIB) == (
-            CJDEV / "build" / "fix-ice" / "debug" / "stdlib"
+        assert layout.build_dir("fix/ice", "host", "debug", STDLIB) == (
+            CJDEV / "build" / "fix-ice" / "host" / "debug" / "stdlib"
         )
 
-    def test_dist_is_keyed_by_branch_set_and_profile(self, layout: WorkspaceLayout):
-        assert layout.dist_dir("main", "release") == (
-            CJDEV / "dist" / "main" / "release"
+    def test_dist_is_keyed_the_same_way(self, layout: WorkspaceLayout):
+        # The two environments build different targets from different
+        # toolchains, and one `bin/cjc` cannot be both.
+        assert layout.dist_dir("main", "container", "release") == (
+            CJDEV / "dist" / "main" / "container" / "release"
         )
 
     def test_logs_are_per_branch_set(self, layout: WorkspaceLayout):
@@ -124,25 +126,25 @@ class TestBranchSetNamesFollowGitsRules:
     def test_a_profile_may_not_be_a_path(self, layout: WorkspaceLayout):
         # Branch-set names may nest in git; profiles are plain names.
         with pytest.raises(UsageError, match="single path segment"):
-            layout.dist_dir("main", "debug/x86")
+            layout.dist_dir("main", "host", "debug/x86")
 
     def test_a_build_unit_may_not_be_a_path_either(self, layout: WorkspaceLayout):
         # Unit names are the flat token `cjdev build <unit>` takes, so one
         # containing a slash is a manifest mistake rather than nesting.
         with pytest.raises(UsageError, match="single path segment"):
-            layout.build_dir("main", "debug", "cangjie_runtime/stdlib")
+            layout.build_dir("main", "host", "debug", "cangjie_runtime/stdlib")
 
 
 class TestBranchSetIsolation:
     def test_two_branch_sets_never_share_a_build_dir(self, layout: WorkspaceLayout):
         # This is what makes switching branch sets cheap.
-        assert layout.build_dir("a", "debug", STDLIB) != layout.build_dir(
-            "b", "debug", STDLIB
+        assert layout.build_dir("a", "host", "debug", STDLIB) != layout.build_dir(
+            "b", "host", "debug", STDLIB
         )
 
     def test_two_profiles_never_share_a_build_dir(self, layout: WorkspaceLayout):
-        assert layout.build_dir("a", "debug", STDLIB) != layout.build_dir(
-            "a", "release", STDLIB
+        assert layout.build_dir("a", "host", "debug", STDLIB) != layout.build_dir(
+            "a", "host", "release", STDLIB
         )
 
     def test_a_layout_works_from_a_root_that_cannot_do_io(self):
@@ -160,11 +162,15 @@ class TestBuildPaths:
         self, layout: WorkspaceLayout
     ):
         # Arrange / Act
-        real = layout.scratch_dir("main", "debug", "cjpm", PurePosixPath("cpp/out"))
+        real = layout.scratch_dir(
+            "main", "host", "debug", "cjpm", PurePosixPath("cpp/out")
+        )
 
         # Assert: nested rather than flattened, so `build/bin` and `build-bin`
         # cannot collide.
-        assert real == CJDEV / "build" / "main" / "debug" / "cjpm" / "cpp" / "out"
+        assert real == (
+            CJDEV / "build" / "main" / "host" / "debug" / "cjpm" / "cpp" / "out"
+        )
 
     def test_the_build_lock_sits_above_the_profile(self, layout: WorkspaceLayout):
         # Act
@@ -184,21 +190,21 @@ class TestBuildPaths:
     def test_stdx_installs_inside_the_shared_dist(self, layout: WorkspaceLayout):
         # Act / Assert: anything else would let removing build artefacts break
         # an already-installed SDK.
-        assert layout.stdx_dir("main", "release") == (
-            layout.dist_dir("main", "release") / "third_party" / "stdx"
+        assert layout.stdx_dir("main", "host", "release") == (
+            layout.dist_dir("main", "host", "release") / "third_party" / "stdx"
         )
-        assert layout.stdx_lib_dir("main", "release", "linux_x86_64") == (
-            layout.stdx_dir("main", "release")
+        assert layout.stdx_lib_dir("main", "host", "release", "linux_x86_64") == (
+            layout.stdx_dir("main", "host", "release")
             / "linux_x86_64_cjnative"
             / "static"
             / "stdx"
         )
 
-    def test_the_ccache_shim_lives_beside_the_cache_it_launches(
-        self, layout: WorkspaceLayout
-    ):
-        # Act / Assert
-        assert layout.shim_dir == layout.cache_dir / "shim"
+    def test_the_ccache_shim_is_keyed_by_environment(self, layout: WorkspaceLayout):
+        # Act / Assert: the link names a ccache binary, and the two
+        # environments have it in different places.
+        assert layout.shim_dir("host") == layout.cache_dir / "shim" / "host"
+        assert layout.shim_dir("container") != layout.shim_dir("host")
 
     def test_a_traversing_unit_name_cannot_reach_out_of_the_workspace(
         self, layout: WorkspaceLayout
@@ -217,18 +223,18 @@ class TestRelativeTargets:
     ):
         # Arrange
         link = layout.worktree("main", COMPILER) / "build"
-        real = layout.build_dir("main", "release", "compiler") / "build"
+        real = layout.build_dir("main", "host", "release", "compiler") / "build"
 
         # Act / Assert: relative, because an absolute target breaks the moment
         # the workspace is mounted somewhere else.
         assert relative_target(link, real) == PurePath(
-            "../../.cjdev/build/main/release/compiler/build"
+            "../../.cjdev/build/main/host/release/compiler/build"
         )
 
     def test_a_deeper_link_needs_more_dots(self, layout: WorkspaceLayout):
         # Arrange
         link = layout.worktree("main", COMPILER) / "cjpm" / "cpp" / "out"
-        real = layout.build_dir("main", "release", "cjpm") / "cpp" / "out"
+        real = layout.build_dir("main", "host", "release", "cjpm") / "cpp" / "out"
 
         # Act
         target = relative_target(link, real)
@@ -243,9 +249,9 @@ class TestSdkEnvironment:
     ):
         # Act / Assert: `bin` without `tools/bin` is a PATH that works until
         # the first `cjpm` invocation.
-        dist = layout.dist_dir("main", "release")
+        dist = layout.dist_dir("main", "host", "release")
 
-        assert layout.sdk_path("main", "release") == (
+        assert layout.sdk_path("main", "host", "release") == (
             dist / "bin",
             dist / "tools" / "bin",
         )
@@ -254,10 +260,10 @@ class TestSdkEnvironment:
         self, layout: WorkspaceLayout
     ):
         # Act
-        entries = layout.sdk_library_path("main", "release", "linux_x86_64")
+        entries = layout.sdk_library_path("main", "host", "release", "linux_x86_64")
 
         # Assert
-        dist = layout.dist_dir("main", "release")
+        dist = layout.dist_dir("main", "host", "release")
         assert entries == (
             dist / "runtime" / "lib" / "linux_x86_64_cjnative",
             dist / "tools" / "lib",

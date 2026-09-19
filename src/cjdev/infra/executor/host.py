@@ -24,9 +24,12 @@ megabytes.
 class HostExecutor:
     def run(self, command: Command, *, check: bool = True) -> Completed:
         log = command.log
-        result = (
-            self._teed(command, log) if log is not None else self._captured(command)
-        )
+        if command.interactive:
+            result = self._attached(command)
+        elif log is not None:
+            result = self._teed(command, log)
+        else:
+            result = self._captured(command)
         if check and not result.ok:
             raise CommandError(
                 argv=command.argv,
@@ -52,6 +55,26 @@ class HostExecutor:
         except OSError as failure:
             raise self._unstartable(command, failure) from failure
         return Completed(command, finished.returncode, finished.stdout, finished.stderr)
+
+    def _attached(self, command: Command) -> Completed:
+        """The terminal, as it is: no pipes, so a shell has a tty, a build run
+        by hand paints its own progress, and Ctrl-C reaches the child because
+        it is in this process group.
+
+        Nothing is captured, so nothing comes back. A `Completed` with empty
+        output is the honest shape here, and the caller that wanted a
+        transcript should not have asked for the terminal.
+        """
+        try:
+            finished = subprocess.run(
+                list(command.argv),
+                cwd=command.cwd,
+                env=self._env(command),
+                check=False,
+            )
+        except OSError as failure:
+            raise self._unstartable(command, failure) from failure
+        return Completed(command, finished.returncode, "", "")
 
     def _teed(self, command: Command, log_file: PurePath) -> Completed:
         """Into the unit's log while it runs, with only the tail coming back.

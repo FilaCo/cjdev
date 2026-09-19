@@ -32,3 +32,28 @@ def make_upstream(path: Path, branch: str = "main") -> str:
     run("add", "README")
     run("commit", "--quiet", "-m", "initial")
     return f"file://{path}"
+
+
+@pytest.fixture(scope="session")
+def container_runtime() -> str:
+    """The runtime that answers, or a skip.
+
+    A daemon is not a dependency of this suite: most of container mode is argv
+    built from data and is tested without one. What is left needs a real
+    runtime to mean anything, and a machine without one is not a failing
+    machine.
+    """
+    for runtime in ("docker", "podman"):
+        try:
+            probe = subprocess.run([runtime, "info"], capture_output=True, check=False)
+        except OSError:
+            # Not installed at all, which is the ordinary shape here: a
+            # missing binary and a daemon that will not answer both mean the
+            # same thing to a test that needs one.
+            continue
+        if probe.returncode == 0:
+            subprocess.run(
+                [runtime, "pull", "alpine:3.20"], capture_output=True, check=True
+            )
+            return runtime
+    pytest.skip("no container runtime is running")

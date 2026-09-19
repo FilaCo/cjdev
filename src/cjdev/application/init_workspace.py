@@ -20,6 +20,12 @@ from typing import final
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.report_status import ManifestProvider
 from cjdev.application.runner import Runner, RunObserver, RunReport, Work
+from cjdev.domain.environment import (
+    DEFAULT_ENVIRONMENT,
+    Environment,
+    Mode,
+    Runtime,
+)
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project
 from cjdev.errors import AbortedError
@@ -47,6 +53,11 @@ class InitPlan:
     projects: tuple[Project, ...]
     provisioned: frozenset[str]
     selected: frozenset[str]
+    environment: Environment
+    """What `write_config` would write, and what the workspace already says
+    when it would not. Answered only on the way to a file that does not exist
+    yet: nothing rewrites this section afterwards, so a re-run that asked
+    would collect an answer it then has to throw away."""
 
     @property
     def to_provision(self) -> tuple[Project, ...]:
@@ -71,6 +82,9 @@ class InitPlan:
     def with_selection(self, names: frozenset[str]) -> "InitPlan":
         return replace(self, selected=names)
 
+    def with_environment(self, environment: Environment) -> "InitPlan":
+        return replace(self, environment=environment)
+
 
 def observe(layout: WorkspaceLayout, manifest: Manifest) -> Observed:
     return Observed(
@@ -83,7 +97,12 @@ def observe(layout: WorkspaceLayout, manifest: Manifest) -> Observed:
     )
 
 
-def decide(layout: WorkspaceLayout, manifest: Manifest, observed: Observed) -> InitPlan:
+def decide(
+    layout: WorkspaceLayout,
+    manifest: Manifest,
+    observed: Observed,
+    environment: Environment = DEFAULT_ENVIRONMENT,
+) -> InitPlan:
     # An existing workspace starts from what it already holds, so the wizard
     # shows the truth and an unchanged answer is a no-op. Only a fresh one
     # falls back to the manifest's default group.
@@ -102,6 +121,7 @@ def decide(layout: WorkspaceLayout, manifest: Manifest, observed: Observed) -> I
         projects=manifest.projects,
         provisioned=observed.provisioned,
         selected=default,
+        environment=environment,
     )
 
 
@@ -115,7 +135,10 @@ class InitWorkspace:
         prompt: Prompt,
         provision: Provision,
         remove: Remove,
-        render_config: Callable[[], str],
+        render_config: Callable[[Environment], str],
+        environment: Environment = DEFAULT_ENVIRONMENT,
+        mode: Mode | None = None,
+        runtime: Runtime | None = None,
     ) -> None:
         # A provider rather than a Manifest: the workspace layer is resolved
         # when the command runs, from where the caller stands - not when the
@@ -127,6 +150,14 @@ class InitWorkspace:
         self._provision = provision
         self._remove = remove
         self._render_config = render_config
+        self._environment = environment
+        """What this workspace says today, which is the default every
+        environment question is asked with."""
+        self._mode = mode
+        self._runtime = runtime
+        """The flags, one per question, `None` where the flag was not passed.
+        A question a flag has answered is not asked - that is the whole of
+        what they are for - and neither of them answers a confirmation."""
 
     def plan(self, root: Path) -> InitPlan:
         """Everything `perform` would do, decided without doing any of it."""
@@ -134,7 +165,7 @@ class InitWorkspace:
         # Bound once: `decide` and `observe` must reason about the same
         # manifest, not two reads of a file that can change between them.
         manifest = self._manifest()
-        return decide(layout, manifest, observe(layout, manifest))
+        return decide(layout, manifest, observe(layout, manifest), self._environment)
 
     def perform(
         self,
@@ -174,7 +205,9 @@ class InitWorkspace:
         for directory in plan.directories:
             self._fs.mkdir(directory)
         if plan.write_config:
-            self._fs.write_text(layout.config_file, self._render_config())
+            self._fs.write_text(
+                layout.config_file, self._render_config(plan.environment)
+            )
 
         return runner.run(self._work(layout, plan), observer=observer)
 
@@ -206,10 +239,38 @@ class InitWorkspace:
                 )
             )
         )
+        if plan.write_config:
+            plan = plan.with_environment(self._answered(plan.environment))
         question, destructive = self._question(plan, root)
         if not self._prompt.confirm(question, destructive=destructive):
             raise AbortedError("init")
         return plan
+
+    def _answered(self, current: Environment) -> Environment:
+        """The environment questions, minus the ones a flag already answered.
+
+        The runtime is asked only under container mode, because nothing reads
+        it otherwise: a question whose answer changes nothing is a question
+        that should not be asked. It is still written to the file, so a
+        workspace that switches later finds the vocabulary already there.
+        """
+        mode = self._mode or Mode(
+            self._prompt.select(
+                "Where builds run",
+                [word.value for word in Mode],
+                default=current.mode.value,
+            )
+        )
+        runtime = self._runtime or current.runtime
+        if mode is Mode.CONTAINER and self._runtime is None:
+            runtime = Runtime(
+                self._prompt.select(
+                    "Which container runtime",
+                    [word.value for word in Runtime],
+                    default=current.runtime.value,
+                )
+            )
+        return Environment(mode=mode, runtime=runtime)
 
     @staticmethod
     def _question(plan: InitPlan, root: Path) -> tuple[str, bool]:
