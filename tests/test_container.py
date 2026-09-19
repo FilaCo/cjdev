@@ -298,10 +298,27 @@ class TestTheExecutor:
         assert "python3" in inner.ran[0].argv
 
 
+def probe_spec(runtime: str, root: Path) -> ContainerSpec:
+    """A spec against a real runtime, so the caller is the real caller.
+
+    The uid is not decoration here the way it is in the argv tests above: the
+    mounted directory belongs to whoever is running the suite, and a container
+    mapped to anyone else cannot even enter it.
+    """
+    return spec(
+        Runtime(runtime),
+        tag=PROBE_IMAGE,
+        root=root,
+        home=root,
+        uid=os.getuid(),
+        gid=os.getgid(),
+    )
+
+
 @pytest.mark.container
 class TestAgainstARealRuntime:
-    """What a fake cannot answer: whether the mount lands where FR-7 says and
-    whether what the build writes belongs to the caller."""
+    """What a fake cannot answer: whether the mount lands where it is asked to
+    and whether what the build writes belongs to the caller."""
 
     def test_the_workspace_is_at_the_same_absolute_path_inside(
         self, container_runtime: str, tmp_path: Path
@@ -310,12 +327,7 @@ class TestAgainstARealRuntime:
         (tmp_path / "marker").write_text("here", encoding="utf-8")
         command = containerise(
             Command(argv=("cat", "marker"), cwd=tmp_path),
-            spec(
-                Runtime(container_runtime),
-                tag=PROBE_IMAGE,
-                root=tmp_path,
-                home=tmp_path,
-            ),
+            probe_spec(container_runtime, tmp_path),
         )
 
         # Act
@@ -331,14 +343,7 @@ class TestAgainstARealRuntime:
         # Arrange
         command = containerise(
             Command(argv=("touch", "written"), cwd=tmp_path),
-            spec(
-                Runtime(container_runtime),
-                tag=PROBE_IMAGE,
-                root=tmp_path,
-                home=tmp_path,
-                uid=os.getuid(),
-                gid=os.getgid(),
-            ),
+            probe_spec(container_runtime, tmp_path),
         )
 
         # Act
