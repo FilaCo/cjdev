@@ -833,7 +833,9 @@ class TestBuild:
         assert result.exit_code == 0, result.output
         layout = WorkspaceLayout(branch_set)
         artefacts = Path(
-            layout.scratch_dir("main", "release", "compiler", PurePosixPath("build"))
+            layout.scratch_dir(
+                "main", "host", "release", "compiler", PurePosixPath("build")
+            )
         )
         assert sorted(p.name for p in artefacts.iterdir()) == ["build", "install"]
 
@@ -846,7 +848,7 @@ class TestBuild:
         # Assert
         layout = WorkspaceLayout(branch_set)
         scratch = layout.scratch_dir(
-            "main", "debug", "compiler", PurePosixPath("build")
+            "main", "host", "debug", "compiler", PurePosixPath("build")
         )
         built = Path(scratch / "build")
         assert built.read_text() == "build debug"
@@ -925,3 +927,50 @@ class TestPassthroughSplit:
             ["compiler", "stdlib"],
             [],
         )
+
+
+class TestEnv:
+    """`cjdev env`, and the preflight the two subcommands that need an image
+    share. Three failures with three different fixes, and the CLI's job is
+    that each one arrives with its own."""
+
+    def test_a_host_workspace_is_told_it_has_no_image(self, empty_workspace: Path):
+        # Arrange
+        Path(WorkspaceLayout(empty_workspace).config_file).write_text(
+            render_workspace_config(DEFAULT_ENVIRONMENT)
+        )
+
+        # Act
+        with mock.patch.object(Path, "cwd", return_value=empty_workspace):
+            result = runner.invoke(cli, ["env", "build"])
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)
+        assert "no image to build" in str(result.exception)
+
+    def test_a_missing_runtime_is_not_a_missing_image(
+        self, empty_workspace: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Arrange: the binary is the first of the three, and the only one
+        # there is nothing to ask with.
+        Path(WorkspaceLayout(empty_workspace).config_file).write_text(
+            render_workspace_config(Environment(Mode.CONTAINER))
+        )
+        monkeypatch.setattr("cjdev.infra.container.shutil.which", lambda _: None)
+
+        # Act
+        with mock.patch.object(Path, "cwd", return_value=empty_workspace):
+            result = runner.invoke(cli, ["env", "build"])
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)
+        assert "docker is not installed" in str(result.exception)
+        assert result.exception.remedy is not None
+
+    def test_outside_a_workspace_there_is_nothing_to_run_in(self, tmp_path: Path):
+        # Act
+        with mock.patch.object(Path, "cwd", return_value=tmp_path):
+            result = runner.invoke(cli, ["env", "run", "--", "ls"])
+
+        # Assert
+        assert isinstance(result.exception, PreconditionError)

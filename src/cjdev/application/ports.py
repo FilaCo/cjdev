@@ -36,6 +36,15 @@ class Command:
     command nobody can follow while it runs and a lot of memory once it is
     over. Unset for everything short, whose output the caller renders whole.
     """
+    interactive: bool = False
+    """Hand this command the terminal instead of capturing it.
+
+    For the one command a person is watching and typing into, which is neither
+    a worker nor part of a fan-out: the rule that output is captured and
+    replayed in manifest order exists because concurrency owns the order, and
+    a shell the caller asked for owns nothing but itself. Nothing comes back
+    but the exit code, because nothing was collected.
+    """
     what: str = ""
     """A short phrase for the progress display: "fetching from upstream".
 

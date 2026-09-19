@@ -10,7 +10,7 @@ import subprocess
 import threading
 from dataclasses import replace
 from pathlib import Path, PurePath, PurePosixPath
-from typing import final
+from typing import Any, final
 
 import pytest
 
@@ -29,6 +29,7 @@ from cjdev.application.build_units import (
 from cjdev.application.ports import Command, Completed
 from cjdev.application.runner import Outcome
 from cjdev.domain.build import CopyStep, Host, Profile, RunStep, native_target
+from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode
 from cjdev.domain.layout import WorkspaceLayout, relative_target
 from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole
 from cjdev.errors import CommandError, PreconditionError, UsageError
@@ -128,6 +129,7 @@ def plan_of(
     host: Host = HOST,
     passthrough: tuple[str, ...] = (),
     state: Observed | None = None,
+    environment: Environment = DEFAULT_ENVIRONMENT,
 ) -> BuildPlan:
     return decide(
         LAYOUT,
@@ -136,6 +138,7 @@ def plan_of(
         units,
         host,
         state if state is not None else observed(*units),
+        environment=environment,
         passthrough=passthrough,
     )
 
@@ -216,9 +219,11 @@ class TestRedirects:
         # Assert
         build = plan.units[0].redirects[0]
         assert build.link == PurePath("/ws/main/alpha/build")
-        assert build.real == PurePath("/ws/.cjdev/build/main/release/compiler/build")
+        assert build.real == PurePath(
+            "/ws/.cjdev/build/main/host/release/compiler/build"
+        )
         assert build.target == PurePosixPath(
-            "../../.cjdev/build/main/release/compiler/build"
+            "../../.cjdev/build/main/host/release/compiler/build"
         )
 
     def test_a_nested_scratch_path_keeps_its_shape_on_both_sides(self):
@@ -231,11 +236,13 @@ class TestRedirects:
         # Assert
         redirect = plan.units[0].redirects[0]
         assert redirect.link == PurePath("/ws/main/alpha/cjpm/cpp/out")
-        assert redirect.real == PurePath("/ws/.cjdev/build/main/release/cjpm/cpp/out")
+        assert redirect.real == PurePath(
+            "/ws/.cjdev/build/main/host/release/cjpm/cpp/out"
+        )
 
     def test_a_link_already_on_this_profile_is_left_alone(self):
         # Arrange
-        target = "../../.cjdev/build/main/release/compiler/build"
+        target = "../../.cjdev/build/main/host/release/compiler/build"
         compiler = unit("compiler", scratch=("build",))
 
         # Act
@@ -252,7 +259,7 @@ class TestRedirects:
     def test_a_link_on_another_profile_is_repointed(self):
         # Arrange
         compiler = unit("compiler", scratch=("build",))
-        debug = "../../.cjdev/build/main/debug/compiler/build"
+        debug = "../../.cjdev/build/main/host/debug/compiler/build"
 
         # Act
         plan = plan_of(
@@ -307,7 +314,7 @@ class TestSteps:
             "-j",
             "4",
         )
-        assert install.argv[-1] == "/ws/.cjdev/dist/main/release"
+        assert install.argv[-1] == "/ws/.cjdev/dist/main/host/release"
 
     def test_extra_args_then_passthrough_follow_the_template(self):
         # Arrange
@@ -344,7 +351,7 @@ class TestSteps:
         copy = plan.units[0].steps[1]
         assert copy == Copy(
             source=PurePath("/ws/main/alpha/cjpm/dist/cjpm"),
-            into=PurePath("/ws/.cjdev/dist/main/release/tools/bin"),
+            into=PurePath("/ws/.cjdev/dist/main/host/release/tools/bin"),
         )
 
     def test_every_command_writes_to_the_units_own_log(self):
@@ -375,9 +382,9 @@ class TestEnvironment:
         # Assert
         build = plan.units[0].steps[0]
         assert isinstance(build, Command)
-        assert build.env["CANGJIE_HOME"] == "/ws/.cjdev/dist/main/release"
+        assert build.env["CANGJIE_HOME"] == "/ws/.cjdev/dist/main/host/release"
         assert build.env["CANGJIE_STDX_PATH"] == (
-            "/ws/.cjdev/dist/main/release/third_party/stdx/"
+            "/ws/.cjdev/dist/main/host/release/third_party/stdx/"
             "linux_x86_64_cjnative/static/stdx"
         )
 
@@ -391,13 +398,13 @@ class TestEnvironment:
         build = plan.units[0].steps[0]
         assert isinstance(build, Command)
         assert build.env["PATH"].split(os.pathsep) == [
-            "/ws/.cjdev/dist/main/release/bin",
-            "/ws/.cjdev/dist/main/release/tools/bin",
+            "/ws/.cjdev/dist/main/host/release/bin",
+            "/ws/.cjdev/dist/main/host/release/tools/bin",
             "/usr/bin",
         ]
         assert build.env["LD_LIBRARY_PATH"].split(os.pathsep) == [
-            "/ws/.cjdev/dist/main/release/runtime/lib/linux_x86_64_cjnative",
-            "/ws/.cjdev/dist/main/release/tools/lib",
+            "/ws/.cjdev/dist/main/host/release/runtime/lib/linux_x86_64_cjnative",
+            "/ws/.cjdev/dist/main/host/release/tools/lib",
             "/lib",
         ]
 
@@ -433,13 +440,13 @@ class TestEnvironment:
         assert isinstance(build, Command)
         # In front of the SDK's own directories: the shim stands in for the C
         # compiler, which the SDK does not provide.
-        assert build.env["PATH"].split(os.pathsep)[0] == "/ws/.cjdev/cache/shim"
+        assert build.env["PATH"].split(os.pathsep)[0] == "/ws/.cjdev/cache/shim/host"
         assert build.env["CCACHE_DIR"] == "/ws/.cjdev/cache/ccache"
         # BASEDIR is what makes one store serve every branch set.
         assert build.env["CCACHE_BASEDIR"] == "/ws"
         assert [str(shim.link) for shim in plan.shims] == [
-            "/ws/.cjdev/cache/shim/clang",
-            "/ws/.cjdev/cache/shim/clang++",
+            "/ws/.cjdev/cache/shim/host/clang",
+            "/ws/.cjdev/cache/shim/host/clang++",
         ]
 
 
@@ -557,7 +564,7 @@ def use_case(
         manifest=lambda: graph,
         executor=executor,  # type: ignore[arg-type]
         file_system=fs,  # type: ignore[arg-type]
-        host=host,
+        host=lambda: host,
         lock=no_lock,
     )
 
@@ -602,7 +609,7 @@ class TestApply:
                     seen(
                         "build",
                         LinkState.LINKED,
-                        "../../.cjdev/build/main/release/compiler/build",
+                        "../../.cjdev/build/main/host/release/compiler/build",
                     ),
                     seen("output"),
                 )
@@ -632,7 +639,7 @@ class TestApply:
         assert fs.copied == [
             (
                 PurePath("/ws/main/alpha/dist/cjpm"),
-                PurePath("/ws/.cjdev/dist/main/release/tools/bin"),
+                PurePath("/ws/.cjdev/dist/main/host/release/tools/bin"),
             )
         ]
 
@@ -660,17 +667,17 @@ def workspace(tmp_path: Path) -> Path:
     return root
 
 
-def real_build(root: Path, graph: Manifest, **overrides: object) -> BuildUnits:
-    wiring: dict[str, object] = {
+def real_build(root: Path, graph: Manifest, **overrides: Any) -> BuildUnits:
+    wiring: dict[str, Any] = {
         "manifest": lambda: graph,
         "executor": HostExecutor(),
         "file_system": HostFileSystem(),
-        "host": replace(HOST, path=os.environ.get("PATH", "")),
+        "host": lambda: replace(HOST, path=os.environ.get("PATH", "")),
         "lock": file_lock,
     }
     wiring.update(overrides)
     del root
-    return BuildUnits(**wiring)  # type: ignore[arg-type]
+    return BuildUnits(**wiring)
 
 
 REAL = unit(
@@ -693,7 +700,9 @@ class TestAgainstARealTree:
         # Assert
         assert report.ok, report.rows[0].error
         real = Path(
-            layout.scratch_dir(SET, "release", "compiler", PurePosixPath("output"))
+            layout.scratch_dir(
+                SET, "host", "release", "compiler", PurePosixPath("output")
+            )
         )
         assert sorted(p.name for p in real.iterdir()) == ["build", "install"]
         assert Path(workspace / SET / "alpha" / "output").is_symlink()
@@ -724,13 +733,15 @@ class TestAgainstARealTree:
         layout = WorkspaceLayout(workspace)
         for profile in ("release", "debug"):
             kept = Path(
-                layout.scratch_dir(SET, profile, "compiler", PurePosixPath("output"))
+                layout.scratch_dir(
+                    SET, "host", profile, "compiler", PurePosixPath("output")
+                )
             )
             assert (kept / "build").is_file()
         assert (workspace / SET / "alpha" / "build").readlink() == Path(
             relative_target(
                 layout.worktree(SET, "alpha") / "build",
-                layout.build_dir(SET, "debug", "compiler") / "build",
+                layout.build_dir(SET, "host", "debug", "compiler") / "build",
             )
         )
 
@@ -814,7 +825,9 @@ class TestObserve:
     def test_it_reads_the_link_state_off_the_disk(self, workspace: Path):
         # Arrange
         link = workspace / SET / "alpha" / "build"
-        link.symlink_to(PurePosixPath("../../.cjdev/build/main/debug/compiler/build"))
+        link.symlink_to(
+            PurePosixPath("../../.cjdev/build/main/host/debug/compiler/build")
+        )
         (workspace / SET / "alpha" / "output").mkdir()
 
         # Act
@@ -1037,3 +1050,62 @@ def test_the_exclude_header_is_written_once_however_often_the_set_grows():
     text = plan.exclusions[0].text
     assert text.splitlines().count(EXCLUDE_HEADER) == 1
     assert text.splitlines()[-1] == "/output"
+
+
+CONTAINER = Environment(Mode.CONTAINER)
+
+
+class TestWhereTheBuildRuns:
+    """The environment is a key in the path, beside the profile. A host build
+    and a container build of one branch set are different targets from
+    different toolchains, and one prefix cannot hold both."""
+
+    def test_the_build_and_the_dist_are_keyed_by_it(self):
+        # Arrange / Act
+        plan = plan_of(unit("compiler"), environment=CONTAINER)
+
+        # Assert
+        assert plan.dist == PurePath("/ws/.cjdev/dist/main/container/release")
+        assert plan.units[0].redirects[0].real == PurePath(
+            "/ws/.cjdev/build/main/container/release/compiler/build"
+        )
+
+    def test_neither_environment_can_reach_the_other_s_tree(self):
+        # Arrange / Act
+        here = plan_of(unit("compiler"))
+        there = plan_of(unit("compiler"), environment=CONTAINER)
+
+        # Assert
+        assert here.dist != there.dist
+
+    def test_the_shim_is_the_one_the_image_has(self):
+        # Arrange: the link names a ccache binary, and the container's is not
+        # the one on this machine.
+        host = replace(HOST, ccache=PurePath("/usr/bin/ccache"))
+
+        # Act
+        plan = plan_of(unit("compiler"), host=host, environment=CONTAINER)
+
+        # Assert: it dangles when read from here, which is correct - it is
+        # resolved on the other side of the mount.
+        assert plan.shims[0].link == PurePath("/ws/.cjdev/cache/shim/container/clang")
+        assert plan.shims[0].target == PurePath("/usr/bin/ccache")
+
+    def test_the_home_the_image_has_no_passwd_entry_for_is_created(self):
+        # Arrange / Act
+        plan = plan_of(unit("compiler"), environment=CONTAINER)
+
+        # Assert
+        assert PurePath("/ws/.cjdev/cache/home") in plan.directories
+        assert (
+            PurePath("/ws/.cjdev/cache/home")
+            not in plan_of(unit("compiler")).directories
+        )
+
+    def test_the_lock_stays_above_the_environment(self):
+        # Arrange / Act: a worktree has one symlink per scratch path, so the
+        # two environments contend exactly as two profiles do.
+        assert (
+            plan_of(unit("compiler"), environment=CONTAINER).units[0].lock
+            == plan_of(unit("compiler")).units[0].lock
+        )

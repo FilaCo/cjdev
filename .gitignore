@@ -5,6 +5,9 @@ __pycache__/
 # Build artifacts
 /dist/
 
+# A workspace made in the checkout while testing by hand
+/.cjdev/
+
 # Tool caches and reports
 .coverage
 htmlcov/
