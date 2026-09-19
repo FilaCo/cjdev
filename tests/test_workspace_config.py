@@ -11,11 +11,15 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from cjdev.domain.build import CopyStep, RunStep
+from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
 from cjdev.errors import ManifestError
 from cjdev.infra.config import (
     SUPPORTED_SCHEMA_VERSION,
+    load_environment,
     load_workspace_config,
+    parse_environment,
     parse_workspace_config,
+    render_workspace_config,
 )
 
 
@@ -273,3 +277,75 @@ class TestBuildData:
             parse_workspace_config(
                 '[build_units.u]\nscratch = "build"\n', source="config.toml"
             )
+
+
+class TestEnvironment:
+    """The `[environment]` section, which is read from the same file and is
+    not part of the layering: nothing is bundled under it to inherit from."""
+
+    def test_a_file_without_the_section_answers_host(self):
+        # Arrange / Act
+        environment = parse_environment("# nothing here.\n", source="config.toml")
+
+        # Assert: every workspace written before the section existed.
+        assert environment == DEFAULT_ENVIRONMENT
+
+    def test_a_named_mode_leaves_the_runtime_at_its_default(self):
+        # Arrange / Act
+        environment = parse_environment(
+            '[environment]\nmode = "container"\n', source="config.toml"
+        )
+
+        # Assert
+        assert environment.mode is Mode.CONTAINER
+        assert environment.runtime is Runtime.DOCKER
+
+    def test_both_keys_are_read(self):
+        # Arrange / Act
+        environment = parse_environment(
+            '[environment]\nmode = "container"\nruntime = "podman"\n',
+            source="config.toml",
+        )
+
+        # Assert
+        assert environment == Environment(Mode.CONTAINER, Runtime.PODMAN)
+
+    def test_a_misspelled_mode_is_refused_with_the_vocabulary(self):
+        # Arrange / Act / Assert: two words, so naming them is the whole fix.
+        with pytest.raises(ManifestError, match="host, container"):
+            parse_environment('[environment]\nmode = "docker"\n', source="config.toml")
+
+    def test_an_unknown_key_names_the_file(self):
+        # Arrange / Act / Assert
+        with pytest.raises(ManifestError, match=r"config\.toml.*environment"):
+            parse_environment('[environment]\nimage = "x"\n', source="config.toml")
+
+    def test_a_mistyped_mode_is_refused_where_the_file_is_named(self):
+        # Arrange / Act / Assert
+        with pytest.raises(ManifestError, match="mode must be a string"):
+            parse_environment("[environment]\nmode = 3\n", source="config.toml")
+
+    def test_the_section_is_not_a_stray_key_to_the_override_parser(self):
+        # Arrange: one file carries both shapes.
+        text = '[environment]\nmode = "container"\n\n[projects.a]\nupstream = "u"\n'
+
+        # Act
+        config = parse_workspace_config(text, source="config.toml")
+
+        # Assert: the section overrides nothing, and refuses nothing either.
+        assert config.projects["a"].upstream == "u"
+
+    def test_what_init_writes_reads_back_as_what_it_was_asked_for(self, tmp_path: Path):
+        # Arrange
+        chosen = Environment(Mode.CONTAINER, Runtime.PODMAN)
+        (tmp_path / ".cjdev").mkdir()
+        (tmp_path / ".cjdev" / "config.toml").write_text(
+            render_workspace_config(chosen)
+        )
+
+        # Act / Assert
+        assert load_environment(tmp_path) == chosen
+
+    def test_a_workspace_with_no_file_at_all_answers_host(self, tmp_path: Path):
+        # Arrange / Act / Assert
+        assert load_environment(tmp_path) == DEFAULT_ENVIRONMENT

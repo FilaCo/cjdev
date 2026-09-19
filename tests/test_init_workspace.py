@@ -7,7 +7,9 @@ actually produces, and where `remote set-head` puts `HEAD`.
 
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path, PurePath
+from typing import final
 
 import pytest
 
@@ -16,11 +18,17 @@ from cjdev.application.init_workspace import (
     Observed,
     decide,
 )
-from cjdev.application.ports import Command
+from cjdev.application.ports import Command, Prompt
+from cjdev.domain.environment import (
+    DEFAULT_ENVIRONMENT,
+    Environment,
+    Mode,
+    Runtime,
+)
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.errors import PreconditionError, UsageError
-from cjdev.infra.config import render_workspace_config
+from cjdev.infra.config import load_environment, render_workspace_config
 from cjdev.infra.executor import build_executor
 from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.filesystem import HostFileSystem, build_file_system
@@ -43,18 +51,53 @@ def dry_run_workspace(manifest: Manifest, printed: list[str]) -> InitWorkspace:
     )
 
 
-def init_workspace(manifest: Manifest) -> InitWorkspace:
+def init_workspace(
+    manifest: Manifest,
+    *,
+    prompt: Prompt | None = None,
+    environment: Environment = DEFAULT_ENVIRONMENT,
+    mode: Mode | None = None,
+    runtime: Runtime | None = None,
+) -> InitWorkspace:
     """Wired by hand rather than through `Container`, which necessarily binds
     the bundled manifest and its gitcode URLs."""
     return InitWorkspace(
         manifest=lambda: manifest,
         executor=HostExecutor(),
         file_system=HostFileSystem(),
-        prompt=NonInteractivePrompt(assume_yes=False),
+        prompt=prompt or NonInteractivePrompt(assume_yes=False),
         provision=provision_object_store,
         remove=remove_object_store,
         render_config=render_workspace_config,
+        environment=environment,
+        mode=mode,
+        runtime=runtime,
     )
+
+
+@final
+class Wizard:
+    """A prompt that answers from a list and remembers what it was asked.
+
+    Every question it runs out of answers for falls back to the default, which
+    is what a terminal-less run does too.
+    """
+
+    def __init__(self, *answers: str) -> None:
+        self.asked: list[str] = []
+        self._answers = list(answers)
+
+    def confirm(self, question: str, *, destructive: bool = True) -> bool:
+        return True
+
+    def choose(
+        self, question: str, options: Sequence[str], *, preselected: Sequence[str]
+    ) -> tuple[str, ...]:
+        return tuple(option for option in options if option in set(preselected))
+
+    def select(self, question: str, options: Sequence[str], *, default: str) -> str:
+        self.asked.append(question)
+        return self._answers.pop(0) if self._answers else default
 
 
 @pytest.fixture
@@ -393,7 +436,7 @@ class TestGitIsReadOnlyWhereItClaims:
 def test_the_rendered_config_is_valid_toml_and_carries_its_comments():
     import tomlkit
 
-    text = render_workspace_config()
+    text = render_workspace_config(DEFAULT_ENVIRONMENT)
 
     assert tomlkit.parse(text) is not None
     assert "cjdev config show" in text
@@ -436,3 +479,97 @@ class TestDryRun:
             "remote",
         ] * 2
         assert "alpha" in git[0] and "beta" in git[4]
+
+
+class TestTheEnvironmentQuestion:
+    """Two settings, asked once, on the way to a file that does not exist
+    yet. Nothing rewrites the section afterwards, so a re-run that asked would
+    be collecting an answer it has to throw away."""
+
+    def test_the_answer_reaches_the_plan(self, manifest: Manifest, tmp_path: Path):
+        # Arrange
+        wizard = Wizard("container", "podman")
+        use_case = init_workspace(manifest, prompt=wizard)
+
+        # Act
+        plan = use_case.agree(use_case.plan(tmp_path / "ws"), tmp_path / "ws")
+
+        # Assert
+        assert plan.environment == Environment(Mode.CONTAINER, Runtime.PODMAN)
+        assert len(wizard.asked) == 2
+
+    def test_host_mode_is_not_asked_which_runtime(
+        self, manifest: Manifest, tmp_path: Path
+    ):
+        # Arrange: nothing reads the runtime under host mode.
+        wizard = Wizard("host")
+        use_case = init_workspace(manifest, prompt=wizard)
+
+        # Act
+        plan = use_case.agree(use_case.plan(tmp_path / "ws"), tmp_path / "ws")
+
+        # Assert: written all the same, so a later switch finds the vocabulary.
+        assert plan.environment == DEFAULT_ENVIRONMENT
+        assert len(wizard.asked) == 1
+
+    def test_a_flag_answers_its_own_question_and_no_other(
+        self, manifest: Manifest, tmp_path: Path
+    ):
+        # Arrange
+        wizard = Wizard("podman")
+        use_case = init_workspace(manifest, prompt=wizard, mode=Mode.CONTAINER)
+
+        # Act
+        plan = use_case.agree(use_case.plan(tmp_path / "ws"), tmp_path / "ws")
+
+        # Assert: the mode came from the flag, the runtime from the wizard.
+        assert plan.environment == Environment(Mode.CONTAINER, Runtime.PODMAN)
+        assert len(wizard.asked) == 1
+
+    def test_both_flags_leave_nothing_to_ask(self, manifest: Manifest, tmp_path: Path):
+        # Arrange
+        wizard = Wizard()
+        use_case = init_workspace(
+            manifest, prompt=wizard, mode=Mode.CONTAINER, runtime=Runtime.PODMAN
+        )
+
+        # Act
+        plan = use_case.agree(use_case.plan(tmp_path / "ws"), tmp_path / "ws")
+
+        # Assert
+        assert plan.environment == Environment(Mode.CONTAINER, Runtime.PODMAN)
+        assert wizard.asked == []
+
+    def test_a_re_run_asks_nothing_and_keeps_what_the_file_says(
+        self, manifest: Manifest, tmp_path: Path
+    ):
+        # Arrange: a workspace whose config is already written.
+        root = tmp_path / "ws"
+        init_workspace(manifest, mode=Mode.CONTAINER, runtime=Runtime.PODMAN).perform(
+            root, jobs=2
+        )
+        wizard = Wizard("host")
+        use_case = init_workspace(
+            manifest, prompt=wizard, environment=load_environment(root)
+        )
+
+        # Act
+        plan = use_case.agree(use_case.plan(root), root)
+
+        # Assert
+        assert not plan.write_config
+        assert plan.environment == Environment(Mode.CONTAINER, Runtime.PODMAN)
+        assert wizard.asked == []
+
+    def test_what_was_answered_is_what_the_file_gets(
+        self, manifest: Manifest, tmp_path: Path
+    ):
+        # Arrange
+        root = tmp_path / "ws"
+        use_case = init_workspace(manifest, mode=Mode.CONTAINER, runtime=Runtime.PODMAN)
+
+        # Act
+        use_case.perform(root, jobs=2)
+
+        # Assert
+        assert load_environment(root) == Environment(Mode.CONTAINER, Runtime.PODMAN)

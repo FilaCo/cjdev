@@ -18,6 +18,7 @@ from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
 from cjdev.application.runner import Outcome, RunReport
 from cjdev.domain.build import CopyStep, InstallStep
 from cjdev.domain.config import BUNDLED, WORKSPACE, LayeredManifest
+from cjdev.domain.environment import Environment
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
 
 from ._console import CANCELLED, DETAIL, MARKS, WAITING
@@ -320,13 +321,19 @@ def _detail(
         console.print(f"{indent}{line}", style=DETAIL, highlight=False, soft_wrap=True)
 
 
-def config_payload(layered: LayeredManifest) -> dict[str, object]:
+def config_payload(
+    layered: LayeredManifest, environment: Environment
+) -> dict[str, object]:
     """The effective config, with the layer each value came from.
 
     The layers are always carried - the machine surface hides nothing, which
-    is exactly what the table under plain `-` is allowed to do. Every value is
-    a `{"value": ..., "layer": ...}` pair so a parser never has to know which
-    fields can carry provenance: all of them do.
+    is exactly what the table under plain `-` is allowed to do. Every manifest
+    value is a `{"value": ..., "layer": ...}` pair so a parser never has to
+    know which fields can carry provenance: all of them do.
+
+    `environment` is the exception, and carries bare values. It overrides
+    nothing, so there is no layer it could have come from, and a pair whose
+    second half was always the same word would be provenance theatre.
     """
 
     def sourced(value: object, layer: str) -> dict[str, object]:
@@ -339,6 +346,10 @@ def config_payload(layered: LayeredManifest) -> dict[str, object]:
         "default_group": sourced(
             layered.default_group.value, layered.default_group.layer
         ),
+        "environment": {
+            "mode": environment.mode.value,
+            "runtime": environment.runtime.value,
+        },
         "projects": [
             {
                 "name": project.name,
@@ -406,7 +417,11 @@ def _install_text(steps: tuple[InstallStep, ...]) -> str:
 
 
 def render_config_show(
-    console: Console, layered: LayeredManifest, *, verbose: bool
+    console: Console,
+    layered: LayeredManifest,
+    environment: Environment,
+    *,
+    verbose: bool,
 ) -> None:
     """The effective config as text. The layer rides along only under `-v`.
 
@@ -440,6 +455,14 @@ def render_config_show(
         layered.default_group.value if layered.default_group.value is not None else "-",
         layered.default_group.layer,
     )
+
+    add_row("", "")
+    add_row("Environment", "")
+    # An empty layer rather than no layer: it keeps the value column where the
+    # rest of the table put it under `-v`, and a blank provenance slot is what
+    # a value with nothing layered under it honestly has.
+    add_row("  mode", environment.mode.value, "")
+    add_row("  runtime", environment.runtime.value, "")
 
     add_row("", "")
     add_row("Projects", "")

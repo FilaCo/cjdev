@@ -31,9 +31,10 @@ def show(
     start = (path or Path.cwd()).resolve()
 
     layered = ctx.obj.layered(start)
+    environment = ctx.obj.environment(start)
 
     if as_json:
         # The layers are always in the payload; -v governs only the table.
-        out.document(config_payload(layered))
+        out.document(config_payload(layered, environment))
     else:
-        render_config_show(console, layered, verbose=verbose)
+        render_config_show(console, layered, environment, verbose=verbose)

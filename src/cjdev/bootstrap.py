@@ -18,9 +18,11 @@ from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.report_status import ReportStatus
 from cjdev.application.workspace import find_root
 from cjdev.domain.config import LayeredManifest, WorkspaceConfig, layer
+from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
 from cjdev.domain.manifest import Manifest
 from cjdev.infra.config import (
     load_bundled_manifest,
+    load_environment,
     load_workspace_config,
     render_workspace_config,
 )
@@ -102,6 +104,21 @@ class Container:
         # would add.
         return load_workspace_config(root)
 
+    def environment(self, start: Path | None = None) -> Environment:
+        """Where the nearest workspace's builds run.
+
+        Its own method rather than a field of `manifest()`: it overrides
+        nothing, so it is not part of the layering that method composes.
+        Outside a workspace it is the default, which is also what `config
+        show` from a shell prompt has to print.
+        """
+        if start is None:
+            return DEFAULT_ENVIRONMENT
+        root = find_root(start)
+        if root is None:
+            return DEFAULT_ENVIRONMENT
+        return load_environment(root)
+
     @cached_property
     def _bundled(self) -> Manifest:
         return load_bundled_manifest()
@@ -163,7 +180,13 @@ class Container:
         return layer(self._bundled, override).effective
 
     def init_workspace(
-        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+        self,
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        start: Path,
+        mode: Mode | None = None,
+        runtime: Runtime | None = None,
     ) -> InitWorkspace:
         return InitWorkspace(
             manifest=lambda: self.manifest_for_init(start),
@@ -177,6 +200,12 @@ class Container:
             provision=provision_object_store,
             remove=remove_object_store,
             render_config=render_workspace_config,
+            # `start` rather than a walk up, for `manifest_for_init`'s reason:
+            # the workspace being created answers for itself, and an
+            # enclosing one's mode is not an answer about this one.
+            environment=load_environment(start),
+            mode=mode,
+            runtime=runtime,
         )
 
     def new_branch_set(

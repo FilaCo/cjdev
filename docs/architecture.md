@@ -273,7 +273,7 @@ nothing; everything else asks at a terminal or refuses.
 
 | command | asks | flags |
 | --- | --- | --- |
-| `init` | a wizard for the project set, then consent if the answer drops one | none; `--dry-run` asks nothing |
+| `init` | a wizard for the project set and for the environment, then consent if the answer drops one | `--env`, `--runtime`; `--dry-run` asks nothing |
 | `status` | nothing | none |
 | `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
 | `build` | nothing - it creates and overwrites only what cjdev owns | none; `--dry-run` asks nothing |
@@ -287,10 +287,16 @@ be, it must answer the confirmation and nothing else.
 
 `init` therefore **needs a terminal**. With no TTY and no `--dry-run` it refuses with exit
 3 rather than picking a project set nobody chose or blocking on a stdin nobody will write
-to. The flag that answers the wizard from a script is deliberately absent until its shape
-is decided; when it arrives, the rule it has to satisfy is that **every question a wizard
-asks needs a flag that answers it**, and "take the defaults" is not that flag - defaults
-are what a first-time caller has none of.
+to. The rule is that **every question a wizard asks needs a flag that answers it**, and
+"take the defaults" is not that flag - defaults are what a first-time caller has none of.
+`--env` and `--runtime` satisfy it for the environment questions; the project set is the
+one question still without a flag, which is why the terminal is still required. They are
+settings, so neither of them answers the confirmation, and passing both still leaves
+`init` asking which projects the workspace holds.
+
+The environment is asked only when `init` creates `.cjdev/config.toml`. Nothing rewrites
+that section afterwards, so a re-run that asked would be collecting an answer it has to
+throw away; changing it is editing the file until `cjdev config set` exists.
 
 ## File or folder?
 

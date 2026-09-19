@@ -19,6 +19,12 @@ from cjdev.cli import cli, cli_cb
 from cjdev.cli._context import CjdevContext
 from cjdev.cli._output import SCHEMA
 from cjdev.cli.build import split_passthrough
+from cjdev.domain.environment import (
+    DEFAULT_ENVIRONMENT,
+    Environment,
+    Mode,
+    Runtime,
+)
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.errors import (
@@ -69,6 +75,29 @@ class TestConfigShow:
 
         assert result.exit_code == 0
         assert "cangjie_compiler" in result.output
+
+    def test_the_environment_a_workspace_declares_is_shown(self, empty_workspace: Path):
+        # Arrange: the section is read from the same file as the overrides,
+        # and reaches the command through the composition root like they do.
+        Path(WorkspaceLayout(empty_workspace).config_file).write_text(
+            render_workspace_config(Environment(Mode.CONTAINER, Runtime.PODMAN))
+        )
+
+        # Act
+        result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
+
+        # Assert: bare values, because nothing is layered under them.
+        assert json.loads(result.stdout)["data"]["environment"] == {
+            "mode": "container",
+            "runtime": "podman",
+        }
+
+    def test_outside_any_workspace_the_environment_is_the_host(self, tmp_path: Path):
+        # Arrange / Act
+        result = runner.invoke(cli, ["config", "show", str(tmp_path), "--json"])
+
+        # Assert
+        assert json.loads(result.stdout)["data"]["environment"]["mode"] == "host"
 
     def test_the_json_payload_carries_the_layer_of_every_value(self, tmp_path: Path):
         # The machine surface hides nothing: provenance is always in the
@@ -179,7 +208,7 @@ class TestConfigShow:
     ):
         # FR-4, end to end: the file `init` writes must be a no-op layer.
         config = Path(WorkspaceLayout(empty_workspace).config_file)
-        config.write_text(render_workspace_config())
+        config.write_text(render_workspace_config(DEFAULT_ENVIRONMENT))
 
         result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
 
