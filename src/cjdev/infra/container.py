@@ -22,6 +22,7 @@ is what breaks it there.
 import hashlib
 import os
 import shutil
+import sys
 from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path, PurePath
@@ -89,6 +90,15 @@ class ContainerSpec:
     uid: int
     gid: int
     selinux: bool
+    tty: bool
+    """Whether the caller has a terminal to attach.
+
+    A property of the process rather than of the command: `--tty` asked for
+    when stdin is a pipe is refused outright by the runtime, and the command
+    most worth piping is the one `env run` exists for - reproducing a step the
+    journal recorded. `--interactive` is unconditional, because stdin being
+    forwarded is what makes a pipe work at all.
+    """
 
     @property
     def program(self) -> str:
@@ -147,6 +157,7 @@ def build_spec(
         uid=os.getuid(),
         gid=os.getgid(),
         selinux=selinux_enforcing(),
+        tty=sys.stdin.isatty(),
     )
 
 
@@ -226,7 +237,13 @@ def containerise(command: Command, spec: ContainerSpec) -> Command:
             # forwards the signal the client proxies in when a build is
             # interrupted.
             "--init",
-            *(("--interactive", "--tty") if command.interactive else ()),
+            *(
+                ()
+                if not command.interactive
+                else ("--interactive", "--tty")
+                if spec.tty
+                else ("--interactive",)
+            ),
             "--volume",
             spec.mount,
             "--workdir",

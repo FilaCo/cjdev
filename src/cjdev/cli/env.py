@@ -59,6 +59,10 @@ def remove(
 
     There is no container to stop: every command runs its own and takes it with
     it.
+
+    Only the image this cjdev's Dockerfile hashes to. An upgrade that changed
+    the recipe left the tag before it on the machine, and removing that one is
+    `docker image rm cjdev-build:<hash>` for now.
     """
     begin("env rm")
     root = require_root(Path.cwd().resolve())

@@ -51,6 +51,7 @@ def spec(runtime: Runtime = Runtime.DOCKER, **overrides: object) -> ContainerSpe
         "uid": 501,
         "gid": 20,
         "selinux": False,
+        "tty": True,
     }
     fields.update(overrides)
     return ContainerSpec(**fields)
@@ -158,6 +159,16 @@ class TestTheArgv:
         assert "--interactive" in argv and "--tty" in argv
         assert "--tty" not in containerise(a_command(), spec()).argv
 
+    def test_a_pipe_still_gets_stdin_but_not_a_tty(self):
+        # Arrange / Act: the runtime refuses --tty outright when stdin is not
+        # a terminal, and the command most worth piping is the one `env run`
+        # exists for.
+        argv = containerise(a_command(interactive=True), spec(tty=False)).argv
+
+        # Assert
+        assert "--interactive" in argv
+        assert "--tty" not in argv
+
     def test_the_build_context_is_not_the_workspace(self):
         # Arrange / Act
         argv = image_command(spec(), ROOT / ".cjdev" / "cache" / "image").argv
@@ -196,9 +207,17 @@ class TestWhatTheEnvironmentAnswers:
         # Neither read needs a container, so a dry run may make them for real.
         assert [command.mutates for command in executor.ran] == [False, False]
 
+    def test_docker_answers_with_the_kernel_s_spelling(self):
+        # Arrange: measured, not assumed - `docker info` prints `x86_64`,
+        # where podman prints Go's `amd64` for the same machine.
+        executor = FakeExecutor("linux x86_64 16", f"{NO_VALUE}\nPATH=/usr/bin\n")
+
+        # Act / Assert
+        assert detect_container_host(executor, spec()).target == "linux_x86_64"
+
     def test_podman_spells_the_architecture_its_own_way(self):
-        # Arrange: docker says aarch64, podman says arm64, and the SDK's
-        # directory names take neither on trust.
+        # Arrange: podman reports Go's names, and the SDK's directory names
+        # take neither runtime's spelling on trust.
         executor = FakeExecutor("linux arm64 4", f"{NO_VALUE}\nPATH=/usr/bin\n")
 
         # Act
@@ -312,6 +331,8 @@ def probe_spec(runtime: str, root: Path) -> ContainerSpec:
         home=root,
         uid=os.getuid(),
         gid=os.getgid(),
+        # Under pytest stdin is not a terminal, and neither is CI.
+        tty=False,
     )
 
 

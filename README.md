@@ -90,6 +90,13 @@ runtime = "docker"  # or "podman"
 `cjdev init --env container --runtime podman` answers it from a script. A workspace
 that never says anything builds on this machine, exactly as before.
 
+The environment is part of the build and dist paths, so a workspace that predates this
+gets a fresh tree on its first build: the scratch symlinks are repointed for you and the
+result is right, but the previous `.cjdev/build/<branch set>/<profile>/` and
+`.cjdev/dist/<branch set>/<profile>/` are orphaned rather than reused, and nothing
+reclaims them. Switching modes later is the same trade, and the same one switching
+profiles has always been: a rebuild, and both trees kept.
+
 In container mode every build command runs as its own `docker run --rm`, with the
 workspace mounted at the same absolute path it has here - which is what lets the
 scratch symlinks resolve on both sides and a host editor read a `compile_commands.json`
