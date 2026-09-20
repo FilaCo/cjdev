@@ -19,8 +19,12 @@ FROM ubuntu:24.04
 
 # The package list is cangjie_build's own, from docs/linux.md 2.2, minus the
 # editors, debuggers and remote tooling (vim, gdb, lldb, strace, net-tools,
-# nfs-common, ssh) that a build never invokes, and minus sudo, which a
-# container running as the caller's uid cannot use anyway. Its four
+# nfs-common, ssh, openssh-client) that a build never invokes, minus sudo,
+# which a container running as the caller's uid cannot use anyway, and minus
+# dos2unix and rpm2cpio, which nothing in the build flow calls. The one of
+# those with a near miss is ssh: `find_program(SSH_EXECUTABLE ssh)` in the
+# compiler's `third_party/CMakeLists.txt` feeds a `GIT_CONFIG` sshCommand used
+# only by the openharmony-repo branch, and even there over https. Its four
 # version-pinned entries are unpinned for the reason above, and `libcurl4` is
 # gone because `libcurl4-openssl-dev` pulls the runtime library under whatever
 # name 24.04's time_t transition left it with.

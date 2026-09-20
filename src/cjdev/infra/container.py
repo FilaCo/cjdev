@@ -53,8 +53,8 @@ INFO_FORMAT = {
 }
 """Three answers in one read: what the daemon runs, on what, and with how many
 CPUs. The spellings differ because the two runtimes report their own structs,
-and the architectures differ with them - docker says `aarch64`, podman says
-`arm64` - which `native_target` already folds together."""
+and so do the architectures: docker prints the kernel's (`x86_64`, `aarch64`),
+podman prints Go's (`amd64`, `arm64`), which `native_target` folds together."""
 
 INSPECT_FORMAT = (
     f'{{{{index .Config.Labels "{CCACHE_LABEL}"}}}}'
