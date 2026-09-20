@@ -5,15 +5,25 @@
 # place for it to drift. The tag carries the hash of this file, so an edit to
 # it cannot be shadowed by an image built from the version before.
 #
-# Ubuntu 22.04 rather than upstream's 18.04, which is EOL, and rather than
-# 24.04, which has dropped three packages the list below needs: clang-15,
-# libtinfo5 and libncurses5.
-FROM ubuntu:22.04
+# Ubuntu 24.04 rather than upstream's 18.04, which is EOL.
+#
+# The three packages 24.04 has dropped are ones this build does not need.
+# `clang-15` and `libclang-15-dev` are pinned by upstream's list as the *host*
+# compiler, not as anything the code links against: the compiler unit fetches
+# `Cangjie/llvm-project` and builds LLVM from source
+# (`cangjie_compiler/third_party/CMakeLists.txt`), so the version here only has
+# to be able to compile it. `libtinfo5` and `libncurses5` are what a *prebuilt*
+# LLVM wants, and there is no prebuilt LLVM here; 24.04's ncurses 6 development
+# package stands in for `libncurses5-dev`.
+FROM ubuntu:24.04
 
 # The package list is cangjie_build's own, from docs/linux.md 2.2, minus the
 # editors, debuggers and remote tooling (vim, gdb, lldb, strace, net-tools,
 # nfs-common, ssh) that a build never invokes, and minus sudo, which a
-# container running as the caller's uid cannot use anyway.
+# container running as the caller's uid cannot use anyway. Its four
+# version-pinned entries are unpinned for the reason above, and `libcurl4` is
+# gone because `libcurl4-openssl-dev` pulls the runtime library under whatever
+# name 24.04's time_t transition left it with.
 #
 # Three additions, and they are the ones upstream does not need:
 #   python3    every build unit is `python3 build.py`, and the base has none;
@@ -29,7 +39,6 @@ RUN apt-get update && apt-get install --no-install-recommends --yes \
         ca-certificates \
         ccache \
         clang \
-        clang-15 \
         cmake \
         cpio \
         curl \
@@ -38,19 +47,16 @@ RUN apt-get update && apt-get install --no-install-recommends --yes \
         g++ \
         gettext \
         git \
-        libclang-15-dev \
+        libclang-dev \
         libcups2-dev \
-        libcurl4 \
         libcurl4-openssl-dev \
         libdwarf-dev \
         libedit-dev \
         libelf-dev \
         libgtest-dev \
-        libncurses5 \
-        libncurses5-dev \
+        libncurses-dev \
         libopenmpi-dev \
         libssl-dev \
-        libtinfo5 \
         libtool \
         libxext-dev \
         libxrender-dev \

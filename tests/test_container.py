@@ -103,7 +103,7 @@ class TestTheTag:
 
         # Assert
         assert text.startswith("#")
-        assert "FROM ubuntu:22.04" in text
+        assert "FROM ubuntu:24.04" in text
 
     def test_the_image_declares_the_label_cjdev_reads_back(self):
         # Arrange / Act / Assert: the two halves of one contract, and nothing
