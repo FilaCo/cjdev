@@ -4,9 +4,10 @@ This is the boundary the TOML rule in docs/architecture.md names: `tomlkit` type
 stop here. Everything above receives `domain/` dataclasses.
 """
 
+from enum import Enum
 from importlib.resources import files
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, TypeVar
 
 import tomlkit
 
@@ -18,6 +19,7 @@ from cjdev.domain.config import (
     UnitOverride,
     WorkspaceConfig,
 )
+from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
 from cjdev.domain.manifest import BuildUnit, Manifest, Project
 from cjdev.errors import ManifestError
 
@@ -39,6 +41,8 @@ UNIT_KEYS = {
 }
 
 WORKSPACE_CONFIG = "config.toml"
+
+_E = TypeVar("_E", bound=Enum)
 
 
 def load_bundled_manifest() -> Manifest:
@@ -63,9 +67,38 @@ def load_workspace_config(root: Any) -> WorkspaceConfig | None:
     A file that `init` has not written yet but the user has created is real
     configuration all the same: existence is the gate, not provenance.
     """
+    text = _read_workspace_file(root)
+    if text is None:
+        return None
+    return parse_workspace_config(text, source=WORKSPACE_CONFIG)
+
+
+def load_environment(root: Any) -> Environment:
+    """Where this workspace's builds run, from the same file.
+
+    A missing file and a missing section are the same answer, and it is the
+    host: that is what keeps a workspace written before this section existed
+    building the way it did.
+
+    Read separately from the overrides rather than returned beside them,
+    because it is not one of them - nothing is layered under it, so there is
+    nothing for a layer to mean.
+    """
+    text = _read_workspace_file(root)
+    if text is None:
+        return DEFAULT_ENVIRONMENT
+    return parse_environment(text, source=WORKSPACE_CONFIG)
+
+
+def _read_workspace_file(root: Any) -> str | None:
+    """`None` when there is no workspace file.
+
+    `Any` for the root rather than `Path`: this module has no business caring
+    that the layout is more than a path.
+    """
     path = root / ".cjdev" / WORKSPACE_CONFIG
     try:
-        text = path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8")
     except FileNotFoundError:
         # No workspace file is the ordinary shape here: every non-workspace
         # invocation lands on this arm, as does a fresh `init`.
@@ -77,7 +110,6 @@ def load_workspace_config(root: Any) -> WorkspaceConfig | None:
         # `CjdevError`, so these would reach the user as a traceback, and the
         # `--json` path would lose its envelope with them.
         raise ManifestError(f"cannot read {path}: {exc}") from exc
-    return parse_workspace_config(text, source=WORKSPACE_CONFIG)
 
 
 def parse_manifest(text: str, *, source: str) -> Manifest:
@@ -134,7 +166,17 @@ def parse_workspace_config(text: str, *, source: str) -> WorkspaceConfig:
 
     _reject_unknown_keys(
         document,
-        {"schema_version", "default_group", "groups", "projects", "build_units"},
+        {
+            "schema_version",
+            "default_group",
+            "groups",
+            "projects",
+            "build_units",
+            # Parsed by `parse_environment`, not here: it overrides nothing,
+            # so it has no place in a layer. Allowed all the same, or the
+            # section the same file carries would be refused as a stray key.
+            "environment",
+        },
         source,
     )
     version: int | None = None
@@ -163,6 +205,26 @@ def parse_workspace_config(text: str, *, source: str) -> WorkspaceConfig:
         default_group=(
             str(document["default_group"]) if "default_group" in document else None
         ),
+    )
+
+
+def parse_environment(text: str, *, source: str) -> Environment:
+    """The `[environment]` section, which overrides nothing.
+
+    Every key optional and every default the host's, so the question is
+    answered by a file that never mentions it.
+    """
+    try:
+        document: Any = tomlkit.parse(text)
+    except Exception as exc:  # tomlkit raises a family of parse errors
+        raise ManifestError(f"{source} is not valid TOML: {exc}") from exc
+
+    where = f"{source}: environment"
+    body = _require_table(document, "environment", source)
+    _reject_unknown_keys(body, {"mode", "runtime"}, where)
+    return Environment(
+        mode=_word(body, "mode", where, Mode, DEFAULT_ENVIRONMENT.mode),
+        runtime=_word(body, "runtime", where, Runtime, DEFAULT_ENVIRONMENT.runtime),
     )
 
 
@@ -340,6 +402,24 @@ def _reject_mistyped(body: Any, key: str, where: str, want: type, what: str) -> 
         )
 
 
+def _word(body: Any, key: str, where: str, vocabulary: type[_E], default: _E) -> _E:
+    """One value out of a closed vocabulary, or the default when unsaid.
+
+    The refusal lists the vocabulary, because a misspelled mode is the whole
+    of what this section can get wrong and the fix is one of two words.
+    """
+    if key not in body:
+        return default
+    _reject_mistyped(body, key, where, str, "a string")
+    try:
+        return vocabulary(str(body[key]))
+    except ValueError:
+        raise ManifestError(
+            f"{where} {key} is {str(body[key])!r}. "
+            f"Expected: {', '.join(member.value for member in vocabulary)}."
+        ) from None
+
+
 def _require(body: Any, key: str, where: str) -> Any:
     if key not in body:
         raise ManifestError(f"{where} is missing required key {key!r}.")
@@ -386,13 +466,23 @@ def _groups(document: Any, source: str) -> dict[str, tuple[str, ...]]:
 WORKSPACE_CONFIG_TEMPLATE = """\
 # cjdev workspace configuration.
 #
-# Everything here overrides the bundled manifest, so an empty file is a valid
-# workspace: missing keys inherit the default. `cjdev config show` prints the
-# effective result, and `-v` adds which layer every value came from.
+# Everything outside [environment] overrides the bundled manifest, so a file
+# with nothing but the section below is a valid workspace: missing keys inherit
+# the default. `cjdev config show` prints the effective result, and `-v` adds
+# which layer every value came from.
+
+# Where builds run. `mode` is "host" or "container"; `runtime` is "docker" or
+# "podman", and is read only under "container". These two are settings rather
+# than overrides - nothing is layered under them - and `cjdev init` asks for
+# them once, when it creates this file. Changing the answer afterwards is
+# editing these lines.
+[environment]
+mode = "{mode}"
+runtime = "{runtime}"
 """
 
 
-def render_workspace_config() -> str:
+def render_workspace_config(environment: Environment) -> str:
     """The starting config, comments and all.
 
     Rendered through `tomlkit` rather than returned as a literal because the
@@ -400,5 +490,15 @@ def render_workspace_config() -> str:
     afterwards; a round trip that dropped their comments and reordered their
     keys would be the tool vandalising their file. Writing it is the caller's
     job, so that `--dry-run` can decline to.
+
+    Both values are written even in host mode, where the runtime decides
+    nothing: a workspace that switches later should find the vocabulary
+    already in its own file rather than have to look it up.
     """
-    return tomlkit.dumps(tomlkit.parse(WORKSPACE_CONFIG_TEMPLATE))
+    return tomlkit.dumps(
+        tomlkit.parse(
+            WORKSPACE_CONFIG_TEMPLATE.format(
+                mode=environment.mode.value, runtime=environment.runtime.value
+            )
+        )
+    )

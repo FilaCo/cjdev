@@ -36,6 +36,15 @@ class Command:
     command nobody can follow while it runs and a lot of memory once it is
     over. Unset for everything short, whose output the caller renders whole.
     """
+    interactive: bool = False
+    """Hand this command the terminal instead of capturing it.
+
+    For the one command a person is watching and typing into, which is neither
+    a worker nor part of a fan-out: the rule that output is captured and
+    replayed in manifest order exists because concurrency owns the order, and
+    a shell the caller asked for owns nothing but itself. Nothing comes back
+    but the exit code, because nothing was collected.
+    """
     what: str = ""
     """A short phrase for the progress display: "fetching from upstream".
 
@@ -82,6 +91,16 @@ class Prompt(Protocol):
     def choose(
         self, question: str, options: Sequence[str], *, preselected: Sequence[str]
     ) -> tuple[str, ...]: ...
+
+    def select(self, question: str, options: Sequence[str], *, default: str) -> str:
+        """One of the options, where `choose` takes any number of them.
+
+        A separate method rather than a bound on `choose`, because the two
+        differ in what they mean and not only in how many boxes are ticked: a
+        set that may be empty is a selection, and a setting always has exactly
+        one value - the one already in force, when nobody answers.
+        """
+        ...
 
 
 class FileSystem(Protocol):

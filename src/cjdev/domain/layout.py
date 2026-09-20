@@ -115,15 +115,43 @@ class WorkspaceLayout:
         return self.cache_dir / "misc"
 
     @property
-    def shim_dir(self) -> PurePath:
+    def home_dir(self) -> PurePath:
+        """`HOME` for a containerised build.
+
+        Under the workspace because that is what the container has mounted,
+        and per workspace rather than shared because it is a cache like the
+        rest of `cache/`: the image has no passwd entry for the uid it is told
+        to run as, and anything that writes to a home it cannot find fails
+        somewhere far from the cause.
+        """
+        return self.cache_dir / "home"
+
+    @property
+    def image_dir(self) -> PurePath:
+        """The build context for the image: the Dockerfile, and nothing else.
+
+        A directory of its own because the context is what gets sent to the
+        daemon, and the workspace is gigabytes of fetched source that the image
+        copies none of.
+        """
+        return self.cache_dir / "image"
+
+    def shim_dir(self, environment: str) -> PurePath:
         """First on `PATH` during a build, holding `clang` and `clang++` as
         symlinks to `ccache`.
 
         A directory rather than `CC`/`CXX`, because `stdlib/build.py`
         overwrites both from its own `shutil.which` lookup - which finds the
         shim.
+
+        Keyed by environment, because the link names a `ccache` binary and the
+        two environments have it in different places: one directory shared
+        would repoint the other environment's shim at a path it does not have.
+        The container's shim therefore dangles when read from the host, which
+        is correct - it is resolved on the other side of the mount, and an
+        existence check here would "fix" it into a build with no ccache.
         """
-        return self.cache_dir / "shim"
+        return self.cache_dir / "shim" / self._segment(environment, "environment")
 
     @property
     def log_root(self) -> PurePath:
@@ -150,34 +178,49 @@ class WorkspaceLayout:
     def worktree(self, branch_set: str, project: str) -> PurePath:
         return self.branch_set_dir(branch_set) / self._segment(project, "project")
 
-    def build_dir(self, branch_set: str, profile: str, unit: str) -> PurePath:
-        """Out-of-tree, and keyed by branch set x profile x unit.
+    def build_dir(
+        self, branch_set: str, environment: str, profile: str, unit: str
+    ) -> PurePath:
+        """Out-of-tree, and keyed by branch set x environment x profile x unit.
 
         Two branch sets never share a build directory; that is what makes
         switching cheap enough to be worth doing.
+
+        The environment sits beside the profile because it is the same kind of
+        key: a host build and a container build of one set produce different
+        targets from different toolchains, and sharing one cmake cache between
+        them would leave an SDK that is half of each.
         """
         return (
             self.marker
             / "build"
             / flatten_branch_set(branch_set)
+            / self._segment(environment, "environment")
             / self._segment(profile, "profile")
             / self._segment(unit, "build unit")
         )
 
     def scratch_dir(
-        self, branch_set: str, profile: str, unit: str, scratch: PurePosixPath
+        self,
+        branch_set: str,
+        environment: str,
+        profile: str,
+        unit: str,
+        scratch: PurePosixPath,
     ) -> PurePath:
         """The real directory a scratch path in the worktree points at.
 
         Nested under the build directory rather than flattened into one
         segment, so that `build/bin` and `build-bin` cannot collide.
         """
-        return self.build_dir(branch_set, profile, unit) / scratch
+        return self.build_dir(branch_set, environment, profile, unit) / scratch
 
     def build_lock(self, branch_set: str, unit: str) -> PurePath:
-        """Above the profile, because the profile is what it guards: two runs
-        of one unit in one branch set would otherwise repoint each other's
-        scratch symlinks mid-build. Different units do not contend."""
+        """Above the profile and above the environment, because both are what
+        it guards: a worktree has one symlink per scratch path, so two runs of
+        one unit in one branch set would repoint each other's mid-build
+        whether they differ by profile or by where they run. Different units
+        do not contend."""
         return (
             self.marker
             / "build"
@@ -185,16 +228,25 @@ class WorkspaceLayout:
             / f"{self._segment(unit, 'build unit')}.lock"
         )
 
-    def dist_dir(self, branch_set: str, profile: str) -> PurePath:
-        """The assembled SDK - the install target of every `build.py`."""
+    def dist_dir(self, branch_set: str, environment: str, profile: str) -> PurePath:
+        """The assembled SDK - the install target of every `build.py`.
+
+        Keyed by the environment for `build_dir`'s reason, and more sharply:
+        the same workspace built on a Mac and in a container installs
+        `darwin_arm64` and `linux_aarch64` binaries under the same prefix, and
+        one `bin/cjc` cannot be both.
+        """
         return (
             self.marker
             / "dist"
             / flatten_branch_set(branch_set)
+            / self._segment(environment, "environment")
             / self._segment(profile, "profile")
         )
 
-    def sdk_path(self, branch_set: str, profile: str) -> tuple[PurePath, ...]:
+    def sdk_path(
+        self, branch_set: str, environment: str, profile: str
+    ) -> tuple[PurePath, ...]:
         """What `envsetup.sh` puts on `PATH`, in its order.
 
         The SDK under construction is what the next unit builds *with*, so
@@ -203,20 +255,20 @@ class WorkspaceLayout:
         these two are one contract - `bin` without `tools/bin` is a PATH that
         works until the first `cjpm` invocation.
         """
-        dist = self.dist_dir(branch_set, profile)
+        dist = self.dist_dir(branch_set, environment, profile)
         return (dist / "bin", dist / "tools" / "bin")
 
     def sdk_library_path(
-        self, branch_set: str, profile: str, target: str
+        self, branch_set: str, environment: str, profile: str, target: str
     ) -> tuple[PurePath, ...]:
         """And what it puts on `LD_LIBRARY_PATH`."""
-        dist = self.dist_dir(branch_set, profile)
+        dist = self.dist_dir(branch_set, environment, profile)
         return (
             dist / "runtime" / "lib" / f"{self._segment(target, 'target')}_cjnative",
             dist / "tools" / "lib",
         )
 
-    def stdx_dir(self, branch_set: str, profile: str) -> PurePath:
+    def stdx_dir(self, branch_set: str, environment: str, profile: str) -> PurePath:
         """Where `cangjie_stdx` installs, inside the shared dist.
 
         Inside it rather than left in its own build directory, so that
@@ -224,13 +276,15 @@ class WorkspaceLayout:
         `CANGJIE_STDX_PATH` is read by whatever uses that SDK, not only by the
         build.
         """
-        return self.dist_dir(branch_set, profile) / "third_party" / "stdx"
+        return self.dist_dir(branch_set, environment, profile) / "third_party" / "stdx"
 
-    def stdx_lib_dir(self, branch_set: str, profile: str, target: str) -> PurePath:
+    def stdx_lib_dir(
+        self, branch_set: str, environment: str, profile: str, target: str
+    ) -> PurePath:
         """What `CANGJIE_STDX_PATH` points at: the static libraries `cjpm`
         links against, under the target directory stdx's cmake derives."""
         return (
-            self.stdx_dir(branch_set, profile)
+            self.stdx_dir(branch_set, environment, profile)
             / f"{self._segment(target, 'target')}_cjnative"
             / "static"
             / "stdx"

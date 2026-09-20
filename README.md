@@ -24,7 +24,7 @@ pip install cjdev
 - `cjdev status` - what the workspace holds: branch sets, projects and their git state.
 - `cjdev config show` - the effective configuration: the bundled manifest with the
   workspace's `.cjdev/config.toml` layered over it (`-v` names the layer each value
-  came from).
+  came from), and where its builds run.
 
 ### Branch sets
 
@@ -59,18 +59,64 @@ cjdev build compiler -- --no-tests   # from the flag on, passed to the script
   machine. There is no `--workspace`: the cwd names the branch set too.
 
 Artefacts never land in the worktree. Each unit's scratch directories are symlinked
-into `.cjdev/build/<branch set>/<profile>/<unit>/`, so two branch sets never share a
-build and switching `-p debug` to `-p release` costs no reconfigure. Output is teed to
-`.cjdev/log/<branch set>/<unit>.log` while it runs, so a long build can be tailed.
+into `.cjdev/build/<branch set>/<environment>/<profile>/<unit>/`, so two branch sets
+never share a build and switching `-p debug` to `-p release` costs no reconfigure.
+Output is teed to `.cjdev/log/<branch set>/<unit>.log` while it runs, so a long build
+can be tailed.
 
-Every unit installs into one shared `.cjdev/dist/<branch set>/<profile>`, and each unit
-builds *with* what the ones before it installed: cjdev sets up the same environment
+Every unit installs into one shared `.cjdev/dist/<branch set>/<environment>/<profile>`,
+and each unit builds *with* what the ones before it installed: cjdev sets up the same
+environment
 `source <sdk>/envsetup.sh` would - `CANGJIE_HOME`, `CANGJIE_STDX_PATH`, the SDK's `bin`
-directories on `PATH` and its runtime libraries on the library path - so nothing has to
-be sourced by hand.
+directories on `PATH` and its runtime libraries on the library path - so nothing has
+to be sourced by hand.
 
 `ccache` is used when it is installed - through a shim directory first on `PATH`,
-because the upstream scripts overwrite `CC` and `CXX` with their own lookup.
+because the upstream scripts overwrite `CC` and `CXX` with their own lookup. The store
+is shared across branch sets and across environments; ccache hashes the compiler
+binary, so a host entry and a container entry coexist rather than collide.
+
+### The environment
+
+Where a build runs is a property of the workspace, answered once at `cjdev init` and
+kept in `.cjdev/config.toml`:
+
+```toml
+[environment]
+mode = "container"  # or "host", which is the default
+runtime = "docker"  # or "podman"
+```
+
+`cjdev init --env container --runtime podman` answers it from a script. A workspace
+that never says anything builds on this machine, exactly as before.
+
+The environment is part of the build and dist paths, so a workspace that predates this
+gets a fresh tree on its first build: the scratch symlinks are repointed for you and the
+result is right, but the previous `.cjdev/build/<branch set>/<profile>/` and
+`.cjdev/dist/<branch set>/<profile>/` are orphaned rather than reused, and nothing
+reclaims them. Switching modes later is the same trade, and the same one switching
+profiles has always been: a rebuild, and both trees kept.
+
+In container mode every build command runs as its own `docker run --rm`, with the
+workspace mounted at the same absolute path it has here - which is what lets the
+scratch symlinks resolve on both sides and a host editor read a `compile_commands.json`
+written inside. What the build writes belongs to you: cjdev passes `--user` under
+docker and `--userns=keep-id` under rootless podman.
+
+```bash
+cjdev env build                    # build the image, from the Dockerfile cjdev ships
+cjdev env run -- cmake --version   # one command, with the build's environment
+cjdev env shell                    # the same environment, with a prompt
+cjdev env rm                       # the image is the only state this leaves behind
+```
+
+`cjdev env run` is the debugging half: a build records the full argv of everything it
+ran, and this is how you run one of those again by hand, with the same mount, the same
+working directory and the same variables. It works in host mode too, running here.
+
+The image is cjdev's own - a Dockerfile in the wheel rather than something pulled from
+a registry - and its tag carries that file's hash, so a cjdev upgrade that changes the
+recipe is a new tag rather than a stale image nobody notices.
 
 ### Test
 

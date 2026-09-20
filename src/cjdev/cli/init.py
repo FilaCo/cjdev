@@ -4,6 +4,7 @@ from pathlib import Path
 from typer import Argument, Exit, Option, Typer
 
 from cjdev.application.runner import DEFAULT_NETWORK_JOBS
+from cjdev.domain.environment import Mode, Runtime
 from cjdev.errors import InputRequiredError
 
 from ._console import DETAIL, OK, console, diagnostics
@@ -19,6 +20,17 @@ cli = Typer(cls=CjdevGroup)
 def init(
     ctx: CjdevContext,
     path: Path = Argument(Path(), help="Where to create the workspace."),
+    env: Mode | None = Option(
+        None,
+        "--env",
+        help="Where builds run. Answers the wizard; asked only when the "
+        "workspace config is created.",
+    ),
+    runtime: Runtime | None = Option(
+        None,
+        "--runtime",
+        help="Which container runtime to use. Asked only under --env container.",
+    ),
     dry_run: bool = Option(False, "--dry-run", help="Print commands, run none."),
     verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
 ) -> None:
@@ -52,7 +64,9 @@ def init(
     ctx.obj.report_step = progress.step
     if not dry_run:
         ctx.obj.journal(root, ["init", str(path)])
-    use_case = ctx.obj.init_workspace(dry_run=dry_run, verbose=verbose, start=root)
+    use_case = ctx.obj.init_workspace(
+        dry_run=dry_run, verbose=verbose, start=root, mode=env, runtime=runtime
+    )
 
     plan = use_case.agree(use_case.plan(root), root)
     labels = [p.name for p in plan.to_provision + plan.to_remove]

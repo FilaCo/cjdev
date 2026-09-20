@@ -5,26 +5,41 @@ one. Kept out of `cli/` so that a test, and later a CI entry point, can
 assemble the same graph without going through Typer.
 """
 
+import os
 import sys
 from collections.abc import Callable, Sequence
 from functools import cached_property
 from pathlib import Path
 from typing import final
 
-from cjdev.application.build_units import BuildUnits
+from cjdev.application.build_units import BuildUnits, HostProvider
 from cjdev.application.init_workspace import InitWorkspace
+from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.report_status import ReportStatus
 from cjdev.application.workspace import find_root
 from cjdev.domain.config import LayeredManifest, WorkspaceConfig, layer
+from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
+from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest
 from cjdev.infra.config import (
     load_bundled_manifest,
+    load_environment,
     load_workspace_config,
     render_workspace_config,
 )
+from cjdev.infra.container import (
+    ContainerSpec,
+    build_spec,
+    bundled_dockerfile,
+    detect_container_host,
+    image_tag,
+    provision_image,
+    remove_image,
+)
 from cjdev.infra.executor import build_executor
+from cjdev.infra.executor.container import ContainerExecutor
 from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
     add_checkout,
@@ -102,6 +117,21 @@ class Container:
         # would add.
         return load_workspace_config(root)
 
+    def environment(self, start: Path | None = None) -> Environment:
+        """Where the nearest workspace's builds run.
+
+        Its own method rather than a field of `manifest()`: it overrides
+        nothing, so it is not part of the layering that method composes.
+        Outside a workspace it is the default, which is also what `config
+        show` from a shell prompt has to print.
+        """
+        if start is None:
+            return DEFAULT_ENVIRONMENT
+        root = find_root(start)
+        if root is None:
+            return DEFAULT_ENVIRONMENT
+        return load_environment(root)
+
     @cached_property
     def _bundled(self) -> Manifest:
         return load_bundled_manifest()
@@ -163,7 +193,13 @@ class Container:
         return layer(self._bundled, override).effective
 
     def init_workspace(
-        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+        self,
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        start: Path,
+        mode: Mode | None = None,
+        runtime: Runtime | None = None,
     ) -> InitWorkspace:
         return InitWorkspace(
             manifest=lambda: self.manifest_for_init(start),
@@ -177,6 +213,12 @@ class Container:
             provision=provision_object_store,
             remove=remove_object_store,
             render_config=render_workspace_config,
+            # `start` rather than a walk up, for `manifest_for_init`'s reason:
+            # the workspace being created answers for itself, and an
+            # enclosing one's mode is not an answer about this one.
+            environment=load_environment(start),
+            mode=mode,
+            runtime=runtime,
         )
 
     def new_branch_set(
@@ -199,15 +241,98 @@ class Container:
     ) -> BuildUnits:
         """No `Prompt`: a build creates and overwrites only what cjdev owns,
         so there is nothing to ask consent for."""
+        environment = self.environment(start)
+        executor, host = self._where_builds_run(
+            environment, start, dry_run=dry_run, verbose=verbose
+        )
         return BuildUnits(
             manifest=lambda: self.manifest(start),
-            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            executor=executor,
             file_system=self.file_system(dry_run=dry_run),
-            host=detect_host(),
+            host=host,
             # A dry run leaves no lock file behind: it starts no build, so
             # there is nothing for a second one to collide with.
             lock=no_lock if dry_run else file_lock,
+            environment=environment,
         )
+
+    def manage_environment(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> ManageEnvironment:
+        """`cjdev env`. Two executors, because the image is built out here and
+        the command lands in there; in host mode they are the same one."""
+        environment = self.environment(start)
+        outside = self.executor(dry_run=dry_run, verbose=verbose)
+        inside, host = self._where_builds_run(
+            environment, start, dry_run=dry_run, verbose=verbose
+        )
+        spec = self._spec(environment, start)
+        return ManageEnvironment(
+            outside=outside,
+            inside=inside,
+            file_system=self.file_system(dry_run=dry_run),
+            host=host,
+            environment=environment,
+            build_image=lambda executor, file_system, layout: provision_image(
+                executor,
+                file_system,
+                layout,
+                spec=self._require_spec(spec),
+                dockerfile=bundled_dockerfile(),
+            ),
+            remove_image=lambda executor: remove_image(
+                executor, spec=self._require_spec(spec)
+            ),
+            # The image's shell, or the caller's own when the build is this
+            # machine's: `env shell` is the build environment with a prompt in
+            # it, and which prompt is a property of where it runs.
+            shell=("/bin/bash",)
+            if spec is not None
+            else (os.environ.get("SHELL") or "/bin/sh",),
+        )
+
+    def _where_builds_run(
+        self,
+        environment: Environment,
+        start: Path,
+        *,
+        dry_run: bool,
+        verbose: bool,
+    ) -> tuple[Executor, HostProvider]:
+        """The executor a build's commands go through, and what the machine
+        they land on contributes.
+
+        The probe keeps the *unwrapped* executor on purpose: `info` and `image
+        inspect` are asked of the runtime on this machine, and a probe that
+        went through the container executor would be a container asking a
+        daemon about itself.
+        """
+        probe = self.executor(dry_run=dry_run, verbose=verbose)
+        spec = self._spec(environment, start)
+        if spec is None:
+            return probe, detect_host
+        return ContainerExecutor(probe, spec), lambda: detect_container_host(
+            probe, spec
+        )
+
+    def _spec(self, environment: Environment, start: Path) -> ContainerSpec | None:
+        """`None` in host mode, which is what every caller branches on rather
+        than asking the environment twice."""
+        if environment.mode is Mode.HOST:
+            return None
+        return build_spec(
+            environment.runtime,
+            root=start,
+            home=WorkspaceLayout(start).home_dir,
+            tag=image_tag(bundled_dockerfile()),
+        )
+
+    @staticmethod
+    def _require_spec(spec: ContainerSpec | None) -> ContainerSpec:
+        """The use case refuses host mode before it reaches here; this is what
+        makes that refusal the only one a reader has to find."""
+        assert spec is not None
+        return spec
 
     def report_status(
         self, *, verbose: bool = False, manifest: Manifest
