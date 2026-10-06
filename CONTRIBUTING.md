@@ -91,6 +91,22 @@ the issue first, then the pull request, and link the pair with a closing keyword
 in the PR body): the merge closes the issue automatically, and the issue keeps the *why*
 while the PR keeps the *how*. The issue and PR templates take care of the shape.
 
+## Architecture decisions
+
+A change that weighed real alternatives and took one records the decision in an ADR:
+one per file, ≤ 1 page, in [`docs/adr/`](docs/adr), **numbered by the issue whose
+resolution it is** ([ADR-0024](docs/adr/0024-adrs-numbered-by-issue.md)) - the number
+is allocated when the issue is created, so parallel pull requests cannot collide on
+it. The index, `docs/adr/README.md`, is generated:
+
+```bash
+python tools/adr_index.py        # regenerate after adding an ADR; commit both
+```
+
+Never edit the index by hand - a test fails CI when it is stale. When a change
+deserves an ADR, and when it writes nothing, is in
+[`docs/README.md`](docs/README.md).
+
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/), enforced by

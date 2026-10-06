@@ -124,7 +124,12 @@ recipe is a new tag rather than a stale image nobody notices.
 
 ## Documentation
 
-The command line reference documentation can be viewed with `cjdev -h`
+The command line reference documentation can be viewed with `cjdev -h`.
+
+The docs live in [`docs/`](docs/README.md): [architecture.md](docs/architecture.md)
+for the rules the code holds to, [conventions.md](docs/conventions.md) for the
+vocabulary, and [adr/](docs/adr/README.md) for the decisions taken - one per issue,
+with a generated index.
 
 ## License
 
