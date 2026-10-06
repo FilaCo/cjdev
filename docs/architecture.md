@@ -269,7 +269,7 @@ Every command that has it prints the same envelope - `schema`, `command`, `ok`, 
 `errors`. Fields are added and never repurposed; anything else bumps the number in
 `cli/_output.py`.
 
-Today that is `status`, `branch new` and `build`. `init` has no `--json`, because the machine-facing way
+Today that is `status`, `branch new`, `build` and `config show`. `init` has no `--json`, because the machine-facing way
 to answer its wizard is still an open question, and an envelope with no way to supply the
 project set would only look like a working non-interactive path. The envelope is where it
 lands when that is settled; nothing else changes.
@@ -380,10 +380,9 @@ The price is that `tomlkit` returns `TOMLDocument`, not `dict`. Keep it inside `
 `config.py` converts to the `domain/` dataclasses at the boundary, and no `TOMLDocument`
 reaches `application/` or `domain/`.
 
-Be aware of what that file is today: `init` writes it, and **nothing reads it back**. The
-manifest comes from the copy bundled in the wheel, every time. Layering a workspace's
-overrides on top of it is the next thing `infra/config.py` gains, and until then the file
-is a placeholder rather than configuration.
+Be aware of what that file is today: `init` writes it, and a command inside a workspace
+layers it over the bundled manifest (ADR-0013), with `config show` printing the effective
+result.
 
 ## Bundled data
 
