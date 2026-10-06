@@ -117,3 +117,16 @@ def test_a_missing_status_line_is_refused(
     )
     with pytest.raises(ValueError, match=r"0031-decision\.md"):
         generator.render_index()
+
+
+def test_a_duplicated_number_is_refused_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generator, _ = load_generator(monkeypatch, tmp_path)
+    # Two files with the same number: a copy-paste or rename mistake, and the
+    # old dict-based index silently dropped one. The refusal must name both
+    # files, because one of them has to go or be renumbered.
+    (tmp_path / "0031-decision.md").write_text(VALID, encoding="utf-8")
+    (tmp_path / "0031-duplicate.md").write_text(VALID, encoding="utf-8")
+    with pytest.raises(ValueError, match=r"0031-decision\.md and 0031-duplicate\.md"):
+        generator.render_index()

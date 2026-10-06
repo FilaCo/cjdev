@@ -78,17 +78,32 @@ def parse(path: Path) -> tuple[str, str, str]:
 
 def render_index() -> str:
     """The index document: the header, then one table row per ADR, by number."""
-    parsed = {path.stem.split("-", 1)[0]: path for path in ADR_DIR.glob("????-*.md")}
+    by_number: dict[str, list[Path]] = {}
+    for path in ADR_DIR.glob("????-*.md"):
+        by_number.setdefault(path.stem.split("-", 1)[0], []).append(path)
+    # A number is the deciding issue's, so it is unique by construction - and
+    # a copy-paste or rename mistake breaks exactly that. Fail naming both
+    # files instead of silently dropping one from the table.
+    duplicates = [files for files in by_number.values() if len(files) > 1]
+    if duplicates:
+        raise ValueError(
+            "duplicate ADR numbers: "
+            + "; ".join(
+                f"ADR-{files[0].stem.split('-', 1)[0]} in "
+                + " and ".join(sorted(f.name for f in files))
+                for files in duplicates
+            )
+        )
     rows = sorted(
         (number, *rest)
-        for number, rest in ((n, parse(p)[1:]) for n, p in parsed.items())
+        for number, rest in ((n, parse(paths[0])[1:]) for n, paths in by_number.items())
     )
     table = [
         "| # | Decision | Status |",
         "| --- | --- | --- |",
     ]
     for number, title, cell in rows:
-        table.append(f"| [{number}]({parsed[number].name}) | {title} | {cell} |")
+        table.append(f"| [{number}]({by_number[number][0].name}) | {title} | {cell} |")
     return HEADER + "\n" + "\n".join(table) + "\n"
 
 
