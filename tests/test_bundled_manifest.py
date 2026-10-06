@@ -229,6 +229,16 @@ class TestBuildData:
         for name in ("compiler", "stdlib", "stdx"):
             assert all(isinstance(step, RunStep) for step in bundled.unit(name).install)
 
+    def test_cjpm_does_not_redirect_what_the_build_wipes(self, bundled):
+        # `build/build.py:36-37` rmtree's `cpp/out` before every build and
+        # recreates it in the same run, so nothing persists there for a
+        # redirect to carry - and a redirect breaks the wipe (`rmtree`
+        # refuses a symlink). `cpp/build` survives and stays redirected.
+        scratch = bundled.unit("cjpm").scratch
+
+        assert PurePosixPath("cpp/out") not in scratch
+        assert PurePosixPath("cpp/build") in scratch
+
     def test_cjpm_cannot_be_scheduled_before_stdx(self, bundled: Manifest):
         # It refuses to build without CANGJIE_STDX_PATH.
         order = [unit.name for unit in bundled.build_order(["cjpm"])]

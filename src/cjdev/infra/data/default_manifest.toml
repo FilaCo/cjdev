@@ -199,7 +199,16 @@ install = ["python3", "build.py", "install", "--prefix", "{dist}/third_party/std
 project = "cangjie_tools"
 path = "cjpm"
 depends_on = ["compiler", "runtime", "stdlib", "stdx"]
-scratch = ["build/bin", "cpp/build", "cpp/out", "dist"]
+# `cpp/out` is deliberately absent: `build/build.py:36-37` rmtree's it before
+# every build and recreates it in the same run (`build_fswatcher` moves the
+# freshly built archives in), so nothing persists there for a redirect to
+# carry - and a redirect breaks the wipe itself (`rmtree` refuses a symlink,
+# the runtime's CMakebuild story, issue #29). `cpp/build` survives and stays
+# redirected. Note: cjpm ships no .gitignore for `cpp/out`, and the
+# info/exclude entries derive from this scratch list, so in workspaces
+# created fresh the directory shows up untracked after a build - upstream
+# ignoring it, or an ignore list beside `scratch` here, is the follow-up.
+scratch = ["build/bin", "cpp/build", "dist"]
 build = ["python3", "build/build.py", "build", "-t", "{profile}"]
 
 # Two destinations, because cjpm resolves `cangjie-repo.toml` from
