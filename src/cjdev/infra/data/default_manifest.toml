@@ -145,7 +145,14 @@ install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 project = "cangjie_runtime"
 path = "runtime"
 depends_on = []
-scratch = ["output", "CMakebuild", "build/cjthread_build"]
+# `CMakebuild` is deliberately absent: upstream's build.py wipes it with
+# `shutil.rmtree` before every build (runtime/build.py:76-87), so nothing
+# persists there for a redirect to carry - and a redirect would break the
+# wipe itself (`rmtree` refuses a symlink, issue #29). `output` and
+# `build/cjthread_build` survive the wipe and stay redirected; the wipe of
+# `output/temp` deletes a real directory through the `output/` link, which
+# is why that one works.
+scratch = ["output", "build/cjthread_build"]
 build = ["python3", "build.py", "build", "-t", "{profile}", "--prefix", "{dist}/common"]
 install = ["python3", "build.py", "install"]
 
