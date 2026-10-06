@@ -198,6 +198,28 @@ class TestBuildData:
         for name in ("runtime", "stdx"):
             assert PurePosixPath("build") not in bundled.unit(name).scratch
 
+    def test_the_runtime_unit_installs_straight_into_the_dist(self, bundled):
+        # `runtime/build.py:363` replaces CMAKE_INSTALL_PREFIX with whatever
+        # `--prefix` carries, so the per-mode segment a configure-time prefix
+        # bakes in is dropped at install time either way. With `{dist}` the
+        # relative destinations land at `{dist}/lib/<triple>` - where stdlib's
+        # CANGJIE_HOME fallback reads them - and at `{dist}/runtime/lib/<triple>`,
+        # where the sdk_library_path environment points. A `common/` segment
+        # produced a directory nothing downstream looks at (#34). The install
+        # step must carry the prefix itself: without it, install keeps the
+        # configure-baked value and the override never happens.
+        unit = bundled.unit("runtime")
+
+        for step in unit.install:
+            assert isinstance(step, RunStep)
+            index = step.argv.index("--prefix")
+
+            assert step.argv[index + 1] == "{dist}"
+
+        build_index = unit.build.index("--prefix")
+
+        assert unit.build[build_index + 1] == "{dist}"
+
     def test_the_runtime_unit_does_not_redirect_what_upstream_wipes(self, bundled):
         # `runtime/build.py:76-87` rmtree's `CMakebuild` before every build,
         # and `rmtree` refuses a symlink (#29): nothing persists there, so

@@ -152,9 +152,21 @@ depends_on = []
 # `build/cjthread_build` survive the wipe and stay redirected; the wipe of
 # `output/temp` deletes a real directory through the `output/` link, which
 # is why that one works.
+#
+# `--prefix {dist}` on BOTH steps, and the install one matters more:
+# `runtime/build.py:363` *replaces* CMAKE_INSTALL_PREFIX with whatever
+# `--prefix` carries, so the per-mode segment a configure-time prefix bakes
+# in (`linux_<profile>_<arch>`) is dropped at install time either way. The
+# install destinations are relative (`lib/${TARGET_ARCH}`,
+# `runtime/lib/${TARGET_ARCH}` - `runtime/CMakeLists.txt:450,489`, with
+# `TARGET_ARCH = linux_<arch>_cjnative`, `config.cmake:455`), so they land
+# at `{dist}/lib/...` and `{dist}/runtime/lib/...`: the path stdlib's
+# `CANGJIE_HOME` fallback reads (`stdlib/CMakeLists.txt:62`) and the
+# `sdk_library_path` environment cjdev itself exports. A `common/` segment
+# here produced a directory nothing downstream looks at (issue #34).
 scratch = ["output", "build/cjthread_build"]
-build = ["python3", "build.py", "build", "-t", "{profile}", "--prefix", "{dist}/common"]
-install = ["python3", "build.py", "install"]
+build = ["python3", "build.py", "build", "-t", "{profile}", "--prefix", "{dist}"]
+install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 
 [build_units.stdlib]
 project = "cangjie_runtime"
