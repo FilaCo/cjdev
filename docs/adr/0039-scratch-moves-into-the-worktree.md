@@ -30,8 +30,9 @@ switching profiles costs no rebuild.
 is written before anything moves in and removed after everything moves out. A run killed
 in between leaves it, and the next run moves that profile's scratch back before its own
 moves in. A real directory with no marker is still a refusal. A symlink that resolves
-under `.cjdev/build` is an old redirect and is removed: its target is the directory the
-move uses.
+under `.cjdev/build` is an old redirect, and it is removed together with its target: cmake
+configured that directory through the link, recorded its path under `.cjdev/build`, and
+keeps writing there from the worktree.
 
 Rejected: building in tree (loses the profile key), bind mounts in the container (fix
 walk-up only, and only in one environment), cjdev-planted walk-up links (per-script
@@ -40,9 +41,11 @@ build-dir flag (four repositories, and a stopgap needed anyway).
 
 ## Consequences
 
-The wiped paths are scratch again. Build directories configured under the symlink scheme
-recorded their physical path under `.cjdev/build`, and cmake refuses a cache moved from
-where it was created; such a build directory is rebuilt once. Ctrl-C reaches the build in
+The wiped paths are scratch again. A workspace built under the symlinks rebuilds each unit
+once, from ccache where the compiler is concerned, and a wiped path upstream recreated as
+a real directory in the worktree is removed by hand once. A script that writes to its
+scratch's home path during the build makes the move out a refusal rather than a merge.
+Ctrl-C reaches the build in
 its own process group and the move out waits for it to exit; only a killed cjdev leaves
 scratch in the worktree, and `info/exclude` keeps that state clean to git until the next
 run.

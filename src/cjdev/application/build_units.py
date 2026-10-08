@@ -87,6 +87,8 @@ class Seen:
     state: ScratchState
     target: PurePosixPath | None = None
     """Where a link points, to tell our old redirects from somebody's link."""
+    resolves: bool = False
+    """Whether that target exists."""
 
 
 @final
@@ -150,7 +152,7 @@ class UnitPlan:
     marker: PurePath
     moved: str
     stale: tuple[PurePath, ...]
-    """Old redirect symlinks, removed before anything moves."""
+    """Old redirect symlinks and their targets, removed before anything moves."""
     recover: tuple[Move, ...]
     """What a build that died left in the worktree, going back where it lives."""
     scratch: tuple[Move, ...]
@@ -458,8 +460,12 @@ def _install_step(
 def _stale(
     layout: WorkspaceLayout, branch_set: str, unit: BuildUnit, observed: Observed
 ) -> tuple[PurePath, ...]:
-    """Redirect symlinks from before scratch was moved. Their targets are the
-    directories a move uses, so removing the link loses nothing."""
+    """Redirect symlinks from before scratch was moved, and what they point at.
+
+    The target was configured through the link, so cmake recorded its path
+    under `.cjdev/build` and would keep writing there from the worktree. It is
+    rebuilt once rather than moved in.
+    """
     stale = []
     for seen in observed.scratch.get(unit.name, ()):
         if seen.state is not ScratchState.LINKED or seen.target is None:
@@ -474,6 +480,8 @@ def _stale(
                 remedy=f"remove {link}",
             )
         stale.append(link)
+        if seen.resolves:
+            stale.append(resolved)
     return tuple(stale)
 
 
@@ -606,7 +614,12 @@ def _seen(
 ) -> Seen:
     link = Path(layout.worktree(branch_set, unit.project) / unit.path / scratch)
     if link.is_symlink():
-        return Seen(scratch, ScratchState.LINKED, PurePosixPath(link.readlink()))
+        return Seen(
+            scratch,
+            ScratchState.LINKED,
+            PurePosixPath(link.readlink()),
+            resolves=link.exists(),
+        )
     if link.exists():
         return Seen(scratch, ScratchState.PRESENT)
     return Seen(scratch, ScratchState.ABSENT)
@@ -722,8 +735,8 @@ class BuildUnits:
         def build() -> float:
             began = time.monotonic()
             with self._lock(unit.lock):
-                for link in unit.stale:
-                    self._fs.remove(link)
+                for path in unit.stale:
+                    self._fs.remove(path)
                 for move in unit.recover:
                     self._fs.move(move.source, move.destination)
                 # Written before anything moves in, so that whatever is in the

@@ -238,22 +238,25 @@ class TestScratch:
             destination=PurePath("/ws/main/alpha/cjpm/cpp/out"),
         )
 
-    def test_an_old_redirect_symlink_is_removed(self):
-        # Arrange: its target is the directory the move uses.
+    def test_an_old_redirect_goes_with_the_build_it_points_at(self):
+        # Arrange: cmake recorded the target's own path, and would keep
+        # writing there from the worktree.
         compiler = unit("compiler", scratch=("build",))
-        old = "../../.cjdev/build/main/host/debug/compiler/build"
-
-        # Act
-        plan = plan_of(
-            compiler,
-            state=observed(
-                compiler,
-                scratch={"compiler": (seen("build", ScratchState.LINKED, old),)},
-            ),
+        old = Seen(
+            PurePosixPath("build"),
+            ScratchState.LINKED,
+            PurePosixPath("../../.cjdev/build/main/host/debug/compiler/build"),
+            resolves=True,
         )
 
+        # Act
+        plan = plan_of(compiler, state=observed(compiler, scratch={"compiler": (old,)}))
+
         # Assert
-        assert plan.units[0].stale == (PurePath("/ws/main/alpha/build"),)
+        assert plan.units[0].stale == (
+            PurePath("/ws/main/alpha/build"),
+            PurePath("/ws/.cjdev/build/main/host/debug/compiler/build"),
+        )
 
     def test_a_symlink_cjdev_did_not_write_is_refused(self):
         # Arrange
@@ -852,7 +855,7 @@ class TestAgainstARealTree:
         assert (debug / "debug").is_file()
         assert not marker.exists()
 
-    def test_an_old_redirect_keeps_its_build(self, workspace: Path):
+    def test_an_old_redirect_and_its_build_are_replaced(self, workspace: Path):
         # Arrange
         layout = WorkspaceLayout(workspace)
         home = Path(
@@ -861,7 +864,7 @@ class TestAgainstARealTree:
             )
         )
         home.mkdir(parents=True)
-        (home / "kept").write_text("kept", encoding="utf-8")
+        (home / "configured").write_text("through the link", encoding="utf-8")
         (workspace / SET / "alpha" / "output").symlink_to(
             PurePosixPath("../../.cjdev/build/main/host/release/compiler/output")
         )
@@ -873,8 +876,8 @@ class TestAgainstARealTree:
 
         # Assert
         assert report.ok, report.rows[0].error
-        assert (home / "kept").is_file()
-        assert not (workspace / SET / "alpha" / "output").is_symlink()
+        assert sorted(p.name for p in home.iterdir()) == ["build", "install"]
+        assert not (workspace / SET / "alpha" / "output").exists()
 
     def test_a_second_build_of_one_unit_refuses_rather_than_waits(
         self, workspace: Path
