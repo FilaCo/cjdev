@@ -7,6 +7,7 @@ from pathlib import Path, PurePath
 from typing import final
 
 from cjdev.application.ports import FileSystem
+from cjdev.errors import PreconditionError
 
 
 @final
@@ -42,6 +43,19 @@ class HostFileSystem:
         # looks rebuilt to everything that compares timestamps.
         shutil.copy2(source, destination / Path(source).name)
 
+    def move(self, source: PurePath, destination: PurePath) -> None:
+        origin, there = Path(source), Path(destination)
+        if not origin.exists() and not origin.is_symlink():
+            return
+        if there.exists() or there.is_symlink():
+            raise PreconditionError(
+                f"{there} is already there; moving {origin} onto it would mix "
+                f"two builds.",
+                remedy=f"delete whichever of {origin} and {there} is stale",
+            )
+        there.parent.mkdir(parents=True, exist_ok=True)
+        origin.rename(there)
+
 
 @final
 class DryRunFileSystem:
@@ -62,6 +76,9 @@ class DryRunFileSystem:
 
     def copy(self, source: PurePath, into: PurePath) -> None:
         self._emit(f"cp {source} {into}/")
+
+    def move(self, source: PurePath, destination: PurePath) -> None:
+        self._emit(f"mv {source} {destination}")
 
 
 def build_file_system(*, dry_run: bool, emit: Callable[[str], None]) -> FileSystem:

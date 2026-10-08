@@ -64,21 +64,6 @@ def flatten_branch_set(name: str) -> str:
     return check_branch_name(name).replace("/", "-")
 
 
-def relative_target(link: PurePath, real: PurePath) -> PurePosixPath:
-    """The body of a scratch symlink: `../../.cjdev/build/...`.
-
-    Relative rather than absolute because an absolute target breaks the moment
-    the workspace is mounted at a different path, which is exactly what the
-    container executor will do. Computed rather than taken from
-    `os.path.relpath` so that this module keeps having no `os` in it.
-    """
-    here, there = link.parent.parts, real.parts
-    shared = 0
-    while shared < min(len(here), len(there)) and here[shared] == there[shared]:
-        shared += 1
-    return PurePosixPath(*[".."] * (len(here) - shared), *there[shared:])
-
-
 @final
 @dataclass(frozen=True)
 class WorkspaceLayout:
@@ -208,19 +193,30 @@ class WorkspaceLayout:
         unit: str,
         scratch: PurePosixPath,
     ) -> PurePath:
-        """The real directory a scratch path in the worktree points at.
+        """Where a scratch directory lives while its profile is not building.
 
         Nested under the build directory rather than flattened into one
         segment, so that `build/bin` and `build-bin` cannot collide.
         """
         return self.build_dir(branch_set, environment, profile, unit) / scratch
 
+    def scratch_marker(self, branch_set: str, unit: str) -> PurePath:
+        """Which environment and profile have their scratch moved into the
+        worktree. Beside the lock, for the lock's reason: the worktree holds
+        one profile's scratch at a time, whichever it is."""
+        return (
+            self.marker
+            / "build"
+            / flatten_branch_set(branch_set)
+            / f"{self._segment(unit, 'build unit')}.moved"
+        )
+
     def build_lock(self, branch_set: str, unit: str) -> PurePath:
         """Above the profile and above the environment, because both are what
-        it guards: a worktree has one symlink per scratch path, so two runs of
-        one unit in one branch set would repoint each other's mid-build
-        whether they differ by profile or by where they run. Different units
-        do not contend."""
+        it guards: a worktree holds one profile's scratch at a time, so two
+        runs of one unit in one branch set would move each other's out
+        mid-build whether they differ by profile or by where they run.
+        Different units do not contend."""
         return (
             self.marker
             / "build"

@@ -1,16 +1,18 @@
-"""Building the SDK: one unit at a time, out of tree, keyed by profile.
+"""Building the SDK: one unit at a time, keyed by profile.
 
 Three things make this more than "run the script in the worktree".
 
-**The artefacts have to leave the worktree, and no upstream script takes a flag
-for it.** Every one of them derives its output directory from `__file__`, so the
-redirect is a symlink from the worktree into `.cjdev/build/<set>/<profile>/`.
-Which paths are scratch is per unit and comes from the manifest, because
-`build/` is tracked source in two of the projects.
+**No upstream script takes a flag for where its artefacts go.** Every one of
+them derives its output directory from `__file__`, and wipes it, or walks up out
+of it with `..`, on the assumption that it is a real directory in the worktree.
+So it is one, for the length of the build: the profile's scratch directories
+are moved in from `.cjdev/build/<set>/<env>/<profile>/` before the unit builds
+and moved back after. Which paths are scratch is per unit and comes from the
+manifest, because `build/` is tracked source in two of the projects.
 
-**That makes a worktree stateful** - "currently wired to release" - so the links
-are verified before every build, repointed atomically and all of a unit's links
-together, under a lock per (branch set, unit).
+**That makes a worktree stateful while a unit builds**, so a marker names the
+profile whose scratch is in it, and a run that died before moving it back is
+finished by the next one. All of it happens under a lock per (branch set, unit).
 
 **Units do not overlap.** Each script already takes the whole machine, so
 `Runner(jobs=1, fail_fast=True)` over `build_order()` is the schedule: at one
@@ -42,7 +44,7 @@ from cjdev.domain.build import (
     substitute,
 )
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode
-from cjdev.domain.layout import WorkspaceLayout, relative_target
+from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import BuildUnit, Manifest
 from cjdev.errors import PreconditionError, UsageError
 
@@ -67,30 +69,33 @@ finds - and nothing upstream takes a cmake launcher flag."""
 
 @final
 @unique
-class LinkState(Enum):
-    """What is at a scratch path in the worktree right now."""
+class ScratchState(Enum):
+    """What is at a scratch path in the worktree before a build."""
 
     ABSENT = auto()
+    PRESENT = auto()
+    """A real file or directory. Ours when the marker says a build left it
+    there; otherwise somebody built here by hand, and it is a refusal."""
     LINKED = auto()
-    OCCUPIED = auto()
-    """A real file or directory: somebody built here by hand. Deleting it would
-    throw away their artefacts, so it is a refusal."""
+    """A symlink, which is what scratch was before it was moved instead."""
 
 
 @final
 @dataclass(frozen=True)
 class Seen:
     scratch: PurePosixPath
-    state: LinkState
-    target: PurePosixPath | None
-    """Where an existing link points, for the comparison that decides whether
-    it has to be repointed."""
+    state: ScratchState
+    target: PurePosixPath | None = None
+    """Where a link points, to tell our old redirects from somebody's link."""
 
 
 @final
 @dataclass(frozen=True)
 class Observed:
-    links: Mapping[str, tuple[Seen, ...]]
+    scratch: Mapping[str, tuple[Seen, ...]]
+    moved: Mapping[str, str]
+    """Per unit, the marker of a build that has not moved its scratch back:
+    `<environment>/<profile>`. Absent for a unit with nothing moved in."""
     excludes: Mapping[str, str]
     """One project's current `info/exclude`, empty when it has none."""
     worktrees: frozenset[str]
@@ -98,13 +103,9 @@ class Observed:
 
 @final
 @dataclass(frozen=True)
-class Redirect:
-    link: PurePath
-    real: PurePath
-    target: PurePosixPath
-    linked: bool
-    """Already pointing where it should. Repointing is idempotent, so this only
-    keeps a correct build from rewriting six links it has just verified."""
+class Move:
+    source: PurePath
+    destination: PurePath
 
 
 @final
@@ -146,7 +147,14 @@ class UnitPlan:
     directory: PurePath
     log: PurePath
     lock: PurePath
-    redirects: tuple[Redirect, ...]
+    marker: PurePath
+    moved: str
+    stale: tuple[PurePath, ...]
+    """Old redirect symlinks, removed before anything moves."""
+    recover: tuple[Move, ...]
+    """What a build that died left in the worktree, going back where it lives."""
+    scratch: tuple[Move, ...]
+    """Into the worktree before the build; reversed after it."""
     steps: tuple[Step, ...]
 
 
@@ -248,11 +256,16 @@ def observe(
     layout: WorkspaceLayout, branch_set: str, units: Sequence[BuildUnit]
 ) -> Observed:
     return Observed(
-        links={
+        scratch={
             unit.name: tuple(
                 _seen(layout, branch_set, unit, scratch) for scratch in unit.scratch
             )
             for unit in units
+        },
+        moved={
+            unit.name: marker
+            for unit in units
+            if (marker := _read(Path(layout.scratch_marker(branch_set, unit.name))))
         },
         excludes={
             unit.project: _read(
@@ -279,7 +292,7 @@ def decide(
     environment: Environment = DEFAULT_ENVIRONMENT,
     passthrough: Sequence[str] = (),
 ) -> BuildPlan:
-    """The whole run, settled before the first symlink moves."""
+    """The whole run, settled before the first directory moves."""
     if passthrough and len(units) != 1:
         raise UsageError(
             f"arguments after `--` reach one build script, and this selection "
@@ -311,7 +324,7 @@ def decide(
             # The container is told to use a home inside the mount, because
             # the image has no passwd entry for the uid it runs as.
             *(() if environment.mode is Mode.HOST else (layout.home_dir,)),
-            *(r.real for plan in planned for r in plan.redirects),
+            *(plan.marker.parent for plan in planned),
             # `write_text` writes one file and creates no directory, and a
             # store whose `info/` is missing is otherwise a FileNotFoundError
             # on the way into a build.
@@ -382,7 +395,19 @@ def _unit_plan(
         directory=directory,
         log=log,
         lock=layout.build_lock(branch_set, unit.name),
-        redirects=_redirects(layout, branch_set, where, profile, unit, observed),
+        marker=layout.scratch_marker(branch_set, unit.name),
+        moved=f"{where}/{profile.value}",
+        stale=_stale(layout, branch_set, unit, observed),
+        recover=_recover(layout, branch_set, unit, observed),
+        scratch=tuple(
+            Move(
+                source=layout.scratch_dir(
+                    branch_set, where, profile.value, unit.name, scratch
+                ),
+                destination=directory / scratch,
+            )
+            for scratch in unit.scratch
+        ),
         steps=(
             Command(
                 argv=(
@@ -430,37 +455,54 @@ def _install_step(
     )
 
 
-def _redirects(
-    layout: WorkspaceLayout,
-    branch_set: str,
-    where: str,
-    profile: Profile,
-    unit: BuildUnit,
-    observed: Observed,
-) -> tuple[Redirect, ...]:
-    redirects = []
-    for seen in observed.links.get(unit.name, ()):
+def _stale(
+    layout: WorkspaceLayout, branch_set: str, unit: BuildUnit, observed: Observed
+) -> tuple[PurePath, ...]:
+    """Redirect symlinks from before scratch was moved. Their targets are the
+    directories a move uses, so removing the link loses nothing."""
+    stale = []
+    for seen in observed.scratch.get(unit.name, ()):
+        if seen.state is not ScratchState.LINKED or seen.target is None:
+            continue
         link = layout.worktree(branch_set, unit.project) / unit.path / seen.scratch
-        real = layout.scratch_dir(
-            branch_set, where, profile.value, unit.name, seen.scratch
-        )
-        target = relative_target(link, real)
-        if seen.state is LinkState.OCCUPIED:
+        resolved = PurePath(os.path.normpath(link.parent / seen.target))
+        if not resolved.is_relative_to(layout.marker / "build"):
             raise PreconditionError(
-                f"{link} is a real directory, not a cjdev symlink; a build "
-                f"here would write into the worktree.",
+                f"{link} is a symlink cjdev did not write; a build would write "
+                f"through it.",
                 subject=unit.name,
-                remedy=f"move or delete {link}",
+                remedy=f"remove {link}",
             )
-        redirects.append(
-            Redirect(
-                link=link,
-                real=real,
-                target=target,
-                linked=seen.state is LinkState.LINKED and seen.target == target,
+        stale.append(link)
+    return tuple(stale)
+
+
+def _recover(
+    layout: WorkspaceLayout, branch_set: str, unit: BuildUnit, observed: Observed
+) -> tuple[Move, ...]:
+    marker = observed.moved.get(unit.name)
+    recover = []
+    for seen in observed.scratch.get(unit.name, ()):
+        if seen.state is not ScratchState.PRESENT:
+            continue
+        here = layout.worktree(branch_set, unit.project) / unit.path / seen.scratch
+        if marker is None:
+            raise PreconditionError(
+                f"{here} is a real directory no cjdev build left there; moving "
+                f"this profile's scratch in would mix the two.",
+                subject=unit.name,
+                remedy=f"move or delete {here}",
+            )
+        where, _, profile = marker.strip().partition("/")
+        recover.append(
+            Move(
+                source=here,
+                destination=layout.scratch_dir(
+                    branch_set, where, profile, unit.name, seen.scratch
+                ),
             )
         )
-    return tuple(redirects)
+    return tuple(recover)
 
 
 def build_environment(
@@ -529,10 +571,10 @@ def _exclusions(
     """The scratch paths, written into each object store's `info/exclude`.
 
     Two of the projects do not gitignore what their build writes, so without
-    this the redirect symlinks show up as untracked: `cjdev status` calls the
-    worktree dirty and `git worktree remove` refuses. `info/exclude` is shared
-    by every worktree of a store, so one write covers every branch set, and no
-    tracked file is touched.
+    this the scratch a build leaves behind shows up as untracked: `cjdev
+    status` calls the worktree dirty and `git worktree remove` refuses.
+    `info/exclude` is shared by every worktree of a store, so one write covers
+    every branch set, and no tracked file is touched.
     """
     exclusions = []
     for project in dict.fromkeys(unit.project for unit in units):
@@ -564,10 +606,10 @@ def _seen(
 ) -> Seen:
     link = Path(layout.worktree(branch_set, unit.project) / unit.path / scratch)
     if link.is_symlink():
-        return Seen(scratch, LinkState.LINKED, PurePosixPath(link.readlink()))
+        return Seen(scratch, ScratchState.LINKED, PurePosixPath(link.readlink()))
     if link.exists():
-        return Seen(scratch, LinkState.OCCUPIED, None)
-    return Seen(scratch, LinkState.ABSENT, None)
+        return Seen(scratch, ScratchState.PRESENT)
+    return Seen(scratch, ScratchState.ABSENT)
 
 
 def _read(path: Path) -> str:
@@ -680,20 +722,38 @@ class BuildUnits:
         def build() -> float:
             began = time.monotonic()
             with self._lock(unit.lock):
-                # Inside the lock, and all of a unit's links together: a build
-                # whose `build/` and `output/` ended up on different profiles
-                # would be neither.
-                for redirect in unit.redirects:
-                    if not redirect.linked:
-                        self._fs.symlink(redirect.link, redirect.target)
-                for step in unit.steps:
-                    if isinstance(step, Copy):
-                        self._fs.copy(step.source, step.into)
-                    else:
-                        self._executor.run(step)
+                for link in unit.stale:
+                    self._fs.remove(link)
+                for move in unit.recover:
+                    self._fs.move(move.source, move.destination)
+                # Written before anything moves in, so that whatever is in the
+                # worktree from here on is attributed to this profile.
+                self._fs.write_text(unit.marker, unit.moved)
+                for move in unit.scratch:
+                    self._fs.move(move.source, move.destination)
+                # Ctrl-C lands in the main thread, not here: the build gets the
+                # signal too, and this waits for it to exit before moving
+                # anything. Only a killed cjdev leaves scratch behind, and the
+                # marker is how the next run finds it.
+                try:
+                    self._steps(unit)
+                finally:
+                    self._move_out(unit)
             return time.monotonic() - began
 
         return build
+
+    def _steps(self, unit: UnitPlan) -> None:
+        for step in unit.steps:
+            if isinstance(step, Copy):
+                self._fs.copy(step.source, step.into)
+            else:
+                self._executor.run(step)
+
+    def _move_out(self, unit: UnitPlan) -> None:
+        for move in reversed(unit.scratch):
+            self._fs.move(move.destination, move.source)
+        self._fs.remove(unit.marker)
 
 
 def _unique(paths: Iterable[PurePath]) -> tuple[PurePath, ...]:

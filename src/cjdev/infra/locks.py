@@ -1,9 +1,9 @@
 """One build at a time per (branch set, build unit).
 
-A worktree's scratch paths are symlinks keyed by profile, so they carry state:
-two `cjdev build compiler` runs at different profiles in one branch set would
-repoint each other's links mid-build. Different units share nothing, so the
-lock is no wider than that.
+A worktree holds one profile's scratch while a unit builds: two `cjdev build
+compiler` runs at different profiles in one branch set would move each other's
+out mid-build. Different units share nothing, so the lock is no wider than
+that.
 """
 
 from collections.abc import Iterator

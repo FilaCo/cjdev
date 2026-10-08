@@ -192,22 +192,11 @@ class TestBuildData:
         assert all(unit.build for unit in bundled.build_units)
         assert all(unit.scratch for unit in bundled.build_units)
 
-    def test_the_projects_that_track_build_do_not_redirect_it(self, bundled: Manifest):
+    def test_the_projects_that_track_build_do_not_scratch_it(self, bundled: Manifest):
         # `cangjie_runtime/runtime/build` and `cangjie_stdx/build` hold cmake
-        # toolchain files, so a uniform `build` entry would delete them.
+        # toolchain files, so a uniform `build` entry would move them away.
         for name in ("runtime", "stdx"):
             assert PurePosixPath("build") not in bundled.unit(name).scratch
-
-    def test_the_runtime_unit_does_not_redirect_what_upstream_wipes(self, bundled):
-        # `runtime/build.py:76-87` rmtree's `CMakebuild` before every build,
-        # and `rmtree` refuses a symlink (#29): nothing persists there, so
-        # there is nothing a redirect could carry. The paths that do survive
-        # the wipe stay redirected.
-        scratch = bundled.unit("runtime").scratch
-
-        assert PurePosixPath("CMakebuild") not in scratch
-        assert PurePosixPath("output") in scratch
-        assert PurePosixPath("build/cjthread_build") in scratch
 
     def test_the_compiler_is_told_the_profile_and_the_job_count(
         self, bundled: Manifest

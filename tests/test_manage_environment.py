@@ -59,6 +59,8 @@ class FakeFileSystem:
 
     def copy(self, source: PurePath, into: PurePath) -> None: ...
 
+    def move(self, source: PurePath, destination: PurePath) -> None: ...
+
 
 def fake_build_image(
     executor: Executor, fs: FileSystem, layout: WorkspaceLayout

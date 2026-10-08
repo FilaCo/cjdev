@@ -81,8 +81,8 @@ class ContainerSpec:
     tag: str
     root: PurePath
     """The workspace root, mounted at the same absolute path inside. Everything
-    cjdev owns is under it by construction, and the scratch symlinks are
-    relative, so one mount is the whole workspace on both sides."""
+    cjdev owns is under it by construction, so one mount is the whole
+    workspace on both sides."""
     home: PurePath
     """`HOME` inside. Under the mount, because the image has no passwd entry
     for the uid it is told to run as and an unwritable home breaks anything

@@ -136,7 +136,7 @@ def check_template(text: str, where: str) -> None:
 def check_inside(path: PurePosixPath, where: str, what: str = "scratch path") -> None:
     """A path the build joins to a worktree directory.
 
-    A scratch path is where a symlink gets written and later removed, and a
+    A scratch path is what gets moved in and out of the worktree, and a
     copy's source is read from the same tree, so a name that escapes it is the
     whole risk here. `what` names the key, because the two refusals are
     otherwise indistinguishable to whoever has to fix the file.

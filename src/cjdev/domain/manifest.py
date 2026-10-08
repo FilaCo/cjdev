@@ -66,7 +66,7 @@ class BuildUnit:
 
     Per unit rather than a constant, because `build/` is *tracked source* in
     `cangjie_runtime/runtime` and in `cangjie_stdx`: a uniform `build/`
-    redirect would delete those projects' toolchain files.
+    entry would move those projects' toolchain files away.
     """
     build: tuple[str, ...] = ()
     """The argv that builds it, `{token}`s and all. Empty for a unit whose
@@ -238,9 +238,8 @@ class Manifest:
 
     @staticmethod
     def _reject_nested_scratch(unit: BuildUnit) -> None:
-        """One scratch path inside another cannot both be redirected: the
-        outer one is a symlink, so the inner one is not a path in the worktree
-        at all."""
+        """One scratch path inside another would be moved twice: the outer
+        one's move already carries it."""
         for outer in unit.scratch:
             for inner in unit.scratch:
                 if inner != outer and outer in inner.parents:

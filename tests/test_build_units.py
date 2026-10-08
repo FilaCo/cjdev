@@ -1,8 +1,8 @@
 """`cjdev build`: the decision, and then the same build against a real tree.
 
-The decision is asserted with no filesystem in sight. The redirects are not:
-they are built on what a symlink does to a script that derives its output
-directory from `__file__`, which only a real tree can be trusted about.
+The decision is asserted with no filesystem in sight. The moves are not:
+they exist for what a script that derives its output directory from
+`__file__` does to it, which only a real tree can be trusted about.
 """
 
 import os
@@ -19,8 +19,9 @@ from cjdev.application.build_units import (
     BuildPlan,
     BuildUnits,
     Copy,
-    LinkState,
+    Move,
     Observed,
+    ScratchState,
     Seen,
     decide,
     observe,
@@ -30,7 +31,7 @@ from cjdev.application.ports import Command, Completed
 from cjdev.application.runner import Outcome
 from cjdev.domain.build import CopyStep, Host, Profile, RunStep, native_target
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode
-from cjdev.domain.layout import WorkspaceLayout, relative_target
+from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole
 from cjdev.errors import CommandError, PreconditionError, UsageError
 from cjdev.infra.executor import build_executor
@@ -97,7 +98,7 @@ def manifest(
 
 
 def seen(
-    scratch: str, state: LinkState = LinkState.ABSENT, target: str | None = None
+    scratch: str, state: ScratchState = ScratchState.ABSENT, target: str | None = None
 ) -> Seen:
     return Seen(
         scratch=PurePosixPath(scratch),
@@ -108,14 +109,16 @@ def seen(
 
 def observed(
     *units: BuildUnit,
-    links: dict[str, tuple[Seen, ...]] | None = None,
+    scratch: dict[str, tuple[Seen, ...]] | None = None,
+    moved: dict[str, str] | None = None,
     excludes: dict[str, str] | None = None,
     worktrees: frozenset[str] | None = None,
 ) -> Observed:
     return Observed(
-        links=links
-        if links is not None
+        scratch=scratch
+        if scratch is not None
         else {u.name: tuple(seen(str(s)) for s in u.scratch) for u in units},
+        moved=moved or {},
         excludes=excludes or {},
         worktrees=worktrees
         if worktrees is not None
@@ -211,19 +214,15 @@ class TestSelection:
             select_units(graph, ["beta"])
 
 
-class TestRedirects:
-    def test_a_scratch_path_points_out_of_the_worktree_relatively(self):
+class TestScratch:
+    def test_a_scratch_path_moves_in_from_the_profiles_build_directory(self):
         # Act
         plan = plan_of(unit("compiler"))
 
         # Assert
-        build = plan.units[0].redirects[0]
-        assert build.link == PurePath("/ws/main/alpha/build")
-        assert build.real == PurePath(
-            "/ws/.cjdev/build/main/host/release/compiler/build"
-        )
-        assert build.target == PurePosixPath(
-            "../../.cjdev/build/main/host/release/compiler/build"
+        assert plan.units[0].scratch[0] == Move(
+            source=PurePath("/ws/.cjdev/build/main/host/release/compiler/build"),
+            destination=PurePath("/ws/main/alpha/build"),
         )
 
     def test_a_nested_scratch_path_keeps_its_shape_on_both_sides(self):
@@ -234,45 +233,45 @@ class TestRedirects:
         plan = plan_of(cjpm)
 
         # Assert
-        redirect = plan.units[0].redirects[0]
-        assert redirect.link == PurePath("/ws/main/alpha/cjpm/cpp/out")
-        assert redirect.real == PurePath(
-            "/ws/.cjdev/build/main/host/release/cjpm/cpp/out"
+        assert plan.units[0].scratch[0] == Move(
+            source=PurePath("/ws/.cjdev/build/main/host/release/cjpm/cpp/out"),
+            destination=PurePath("/ws/main/alpha/cjpm/cpp/out"),
         )
 
-    def test_a_link_already_on_this_profile_is_left_alone(self):
-        # Arrange
-        target = "../../.cjdev/build/main/host/release/compiler/build"
+    def test_an_old_redirect_symlink_is_removed(self):
+        # Arrange: its target is the directory the move uses.
         compiler = unit("compiler", scratch=("build",))
+        old = "../../.cjdev/build/main/host/debug/compiler/build"
 
         # Act
         plan = plan_of(
             compiler,
             state=observed(
-                compiler, links={"compiler": (seen("build", LinkState.LINKED, target),)}
+                compiler,
+                scratch={"compiler": (seen("build", ScratchState.LINKED, old),)},
             ),
         )
 
         # Assert
-        assert plan.units[0].redirects[0].linked
+        assert plan.units[0].stale == (PurePath("/ws/main/alpha/build"),)
 
-    def test_a_link_on_another_profile_is_repointed(self):
+    def test_a_symlink_cjdev_did_not_write_is_refused(self):
         # Arrange
         compiler = unit("compiler", scratch=("build",))
-        debug = "../../.cjdev/build/main/host/debug/compiler/build"
 
-        # Act
-        plan = plan_of(
-            compiler,
-            state=observed(
-                compiler, links={"compiler": (seen("build", LinkState.LINKED, debug),)}
-            ),
-        )
+        # Act / Assert
+        with pytest.raises(PreconditionError, match="did not write"):
+            plan_of(
+                compiler,
+                state=observed(
+                    compiler,
+                    scratch={
+                        "compiler": (seen("build", ScratchState.LINKED, "/mnt/b"),)
+                    },
+                ),
+            )
 
-        # Assert
-        assert not plan.units[0].redirects[0].linked
-
-    def test_a_real_directory_where_the_link_belongs_is_refused(self):
+    def test_a_real_directory_no_build_left_is_refused(self):
         # Arrange: somebody built here by hand, and their artefacts are theirs.
         compiler = unit("compiler", scratch=("build",))
 
@@ -282,10 +281,34 @@ class TestRedirects:
                 compiler,
                 state=observed(
                     compiler,
-                    links={"compiler": (seen("build", LinkState.OCCUPIED),)},
+                    scratch={"compiler": (seen("build", ScratchState.PRESENT),)},
                 ),
             )
         assert refused.value.remedy == "move or delete /ws/main/alpha/build"
+
+    def test_what_a_dead_build_left_goes_back_to_its_own_profile(self):
+        # Arrange
+        compiler = unit("compiler", scratch=("build",))
+
+        # Act
+        plan = plan_of(
+            compiler,
+            state=observed(
+                compiler,
+                scratch={"compiler": (seen("build", ScratchState.PRESENT),)},
+                moved={"compiler": "container/debug"},
+            ),
+        )
+
+        # Assert
+        assert plan.units[0].recover == (
+            Move(
+                source=PurePath("/ws/main/alpha/build"),
+                destination=PurePath(
+                    "/ws/.cjdev/build/main/container/debug/compiler/build"
+                ),
+            ),
+        )
 
     def test_a_missing_worktree_names_the_command_that_makes_one(self):
         # Arrange
@@ -539,6 +562,8 @@ class FakeFileSystem:
         self.links: list[tuple[PurePath, PurePath]] = []
         self.copied: list[tuple[PurePath, PurePath]] = []
         self.written: list[PurePath] = []
+        self.removed: list[PurePath] = []
+        self.moved: list[tuple[PurePath, PurePath]] = []
 
     def mkdir(self, path: PurePath) -> None:
         self.made.append(path)
@@ -548,13 +573,16 @@ class FakeFileSystem:
         self.written.append(path)
 
     def remove(self, path: PurePath) -> None:
-        del path
+        self.removed.append(path)
 
     def symlink(self, link: PurePath, target: PurePath) -> None:
         self.links.append((link, target))
 
     def copy(self, source: PurePath, into: PurePath) -> None:
         self.copied.append((source, into))
+
+    def move(self, source: PurePath, destination: PurePath) -> None:
+        self.moved.append((source, destination))
 
 
 def use_case(
@@ -599,29 +627,30 @@ class TestApply:
             Outcome.CANCELLED,
         ]
 
-    def test_only_the_links_that_are_wrong_are_rewritten(self):
+    def test_the_scratch_moves_in_for_the_build_and_back_out_after_it(self):
         # Arrange
-        compiler = unit("compiler", scratch=("build", "output"))
-        state = observed(
-            compiler,
-            links={
-                "compiler": (
-                    seen(
-                        "build",
-                        LinkState.LINKED,
-                        "../../.cjdev/build/main/host/release/compiler/build",
-                    ),
-                    seen("output"),
-                )
-            },
-        )
+        compiler = unit("compiler", scratch=("build",))
         executor, fs = FakeExecutor(), FakeFileSystem()
 
         # Act
-        use_case(manifest(compiler), executor, fs).apply(plan_of(compiler, state=state))
+        use_case(manifest(compiler), executor, fs).apply(plan_of(compiler))
 
         # Assert
-        assert [str(link) for link, _ in fs.links] == ["/ws/main/alpha/output"]
+        home = PurePath("/ws/.cjdev/build/main/host/release/compiler/build")
+        here = PurePath("/ws/main/alpha/build")
+        assert fs.moved == [(home, here), (here, home)]
+        assert fs.removed == [PurePath("/ws/.cjdev/build/main/compiler.moved")]
+
+    def test_a_failed_build_moves_its_scratch_out_too(self):
+        # Arrange
+        compiler = unit("compiler", scratch=("build",))
+        executor, fs = FakeExecutor(failing="build"), FakeFileSystem()
+
+        # Act
+        use_case(manifest(compiler), executor, fs).apply(plan_of(compiler))
+
+        # Assert
+        assert len(fs.moved) == 2
 
     def test_a_copy_install_goes_through_the_port(self):
         # Arrange: a `cp` in the manifest would route a tree mutation around
@@ -654,7 +683,19 @@ open(os.path.join(here, "output", step), "w").write(step)
 print("ran", step, flush=True)
 """
 """A stand-in for an upstream `build.py`: it derives its output directory from
-`__file__`, which is the whole reason the redirect is a symlink."""
+`__file__`, which is the whole reason scratch is moved rather than flagged."""
+
+WIPES_AND_WALKS_UP = """\
+import os, shutil
+here = os.path.dirname(os.path.abspath(__file__))
+output = os.path.join(here, "output")
+if os.path.exists(output):
+    shutil.rmtree(output)
+os.makedirs(output)
+open(os.path.join(here, "source"), "w").write("source")
+os.chdir(output)
+open("walked", "w").write(open("../source").read())
+"""
 
 
 @pytest.fixture
@@ -705,19 +746,31 @@ class TestAgainstARealTree:
             )
         )
         assert sorted(p.name for p in real.iterdir()) == ["build", "install"]
-        assert Path(workspace / SET / "alpha" / "output").is_symlink()
+        assert not (workspace / SET / "alpha" / "output").exists()
 
-    def test_the_symlink_is_relative_so_the_tree_can_be_mounted_elsewhere(
+    def test_a_script_that_wipes_and_walks_up_sees_a_real_directory(
         self, workspace: Path
     ):
-        # Act
-        real_build(workspace, manifest(REAL)).perform(
-            workspace, SET, profile=Profile.RELEASE
+        # Arrange: what runtime, stdlib, stdx and cjpm do, and what a symlink
+        # broke - `rmtree` refuses one, and `..` from inside one lands in
+        # `.cjdev/build`.
+        (workspace / SET / "alpha" / "build.py").write_text(
+            WIPES_AND_WALKS_UP, encoding="utf-8"
         )
+        build = real_build(workspace, manifest(REAL))
+        build.perform(workspace, SET, profile=Profile.RELEASE)
+
+        # Act
+        report = build.perform(workspace, SET, profile=Profile.RELEASE)
 
         # Assert
-        link = workspace / SET / "alpha" / "build"
-        assert not link.readlink().is_absolute()
+        assert report.ok, report.rows[0].error
+        output = Path(
+            WorkspaceLayout(workspace).scratch_dir(
+                SET, "host", "release", "compiler", PurePosixPath("output")
+            )
+        )
+        assert (output / "walked").read_text(encoding="utf-8") == "source"
 
     def test_switching_profile_repoints_and_keeps_the_other_profiles_work(
         self, workspace: Path
@@ -738,12 +791,6 @@ class TestAgainstARealTree:
                 )
             )
             assert (kept / "build").is_file()
-        assert (workspace / SET / "alpha" / "build").readlink() == Path(
-            relative_target(
-                layout.worktree(SET, "alpha") / "build",
-                layout.build_dir(SET, "host", "debug", "compiler") / "build",
-            )
-        )
 
     def test_the_output_is_teed_into_the_units_log_while_it_runs(self, workspace: Path):
         # Act
@@ -770,9 +817,7 @@ class TestAgainstARealTree:
         )
         assert "/build" in exclude.read_text(encoding="utf-8").splitlines()
 
-    def test_a_worktree_directory_where_a_link_belongs_stops_the_build(
-        self, workspace: Path
-    ):
+    def test_a_worktree_directory_no_build_left_stops_the_build(self, workspace: Path):
         # Arrange
         (workspace / SET / "alpha" / "build").mkdir()
 
@@ -781,6 +826,55 @@ class TestAgainstARealTree:
             real_build(workspace, manifest(REAL)).perform(
                 workspace, SET, profile=Profile.RELEASE
             )
+
+    def test_the_next_run_returns_what_a_killed_one_left(self, workspace: Path):
+        # Arrange: debug was moved in and never moved back.
+        layout = WorkspaceLayout(workspace)
+        left = workspace / SET / "alpha" / "output"
+        left.mkdir()
+        (left / "debug").write_text("debug", encoding="utf-8")
+        marker = Path(layout.scratch_marker(SET, "compiler"))
+        marker.parent.mkdir(parents=True)
+        marker.write_text("host/debug", encoding="utf-8")
+
+        # Act
+        report = real_build(workspace, manifest(REAL)).perform(
+            workspace, SET, profile=Profile.RELEASE
+        )
+
+        # Assert
+        assert report.ok, report.rows[0].error
+        debug = Path(
+            layout.scratch_dir(
+                SET, "host", "debug", "compiler", PurePosixPath("output")
+            )
+        )
+        assert (debug / "debug").is_file()
+        assert not marker.exists()
+
+    def test_an_old_redirect_keeps_its_build(self, workspace: Path):
+        # Arrange
+        layout = WorkspaceLayout(workspace)
+        home = Path(
+            layout.scratch_dir(
+                SET, "host", "release", "compiler", PurePosixPath("output")
+            )
+        )
+        home.mkdir(parents=True)
+        (home / "kept").write_text("kept", encoding="utf-8")
+        (workspace / SET / "alpha" / "output").symlink_to(
+            PurePosixPath("../../.cjdev/build/main/host/release/compiler/output")
+        )
+
+        # Act
+        report = real_build(workspace, manifest(REAL)).perform(
+            workspace, SET, profile=Profile.RELEASE
+        )
+
+        # Assert
+        assert report.ok, report.rows[0].error
+        assert (home / "kept").is_file()
+        assert not (workspace / SET / "alpha" / "output").is_symlink()
 
     def test_a_second_build_of_one_unit_refuses_rather_than_waits(
         self, workspace: Path
@@ -817,33 +911,38 @@ class TestAgainstARealTree:
         # Assert
         assert sorted(p.name for p in (workspace / SET / "alpha").iterdir()) == before
         assert not Path(WorkspaceLayout(workspace).marker / "build").exists()
-        assert any(line.startswith("ln -sfn") for line in printed)
+        assert any(line.startswith("mv ") for line in printed)
         assert any("build.py build" in line for line in printed)
 
 
 class TestObserve:
-    def test_it_reads_the_link_state_off_the_disk(self, workspace: Path):
+    def test_it_reads_the_scratch_and_the_marker_off_the_disk(self, workspace: Path):
         # Arrange
+        layout = WorkspaceLayout(workspace)
         link = workspace / SET / "alpha" / "build"
         link.symlink_to(
             PurePosixPath("../../.cjdev/build/main/host/debug/compiler/build")
         )
         (workspace / SET / "alpha" / "output").mkdir()
+        marker = Path(layout.scratch_marker(SET, "compiler"))
+        marker.parent.mkdir(parents=True)
+        marker.write_text("host/debug", encoding="utf-8")
 
         # Act
-        state = observe(WorkspaceLayout(workspace), SET, (unit("compiler"),))
+        state = observe(layout, SET, (unit("compiler"),))
 
         # Assert
-        assert [s.state for s in state.links["compiler"]] == [
-            LinkState.LINKED,
-            LinkState.OCCUPIED,
+        assert [s.state for s in state.scratch["compiler"]] == [
+            ScratchState.LINKED,
+            ScratchState.PRESENT,
         ]
+        assert state.moved == {"compiler": "host/debug"}
         assert state.worktrees == frozenset({"alpha"})
 
 
 def test_one_build_per_unit_and_set_is_what_the_lock_guards(tmp_path: Path):
-    # Arrange: two runs of one unit would otherwise repoint each other's
-    # scratch symlinks mid-build.
+    # Arrange: two runs of one unit would otherwise move each other's scratch
+    # out mid-build.
     layout = WorkspaceLayout(tmp_path)
     held = threading.Event()
     refused: list[Exception] = []
@@ -952,17 +1051,6 @@ class TestAgainstRealGit:
         )
         return root
 
-    def test_a_trailing_slash_pattern_does_not_cover_the_symlink(self, enrolled: Path):
-        # Arrange
-        worktree = Path(WorkspaceLayout(enrolled).worktree(SET, "alpha"))
-
-        # Act
-        (worktree / "output").symlink_to(PurePosixPath("../../.cjdev/build/x"))
-
-        # Assert: a symlink is not a directory to git, which is why the build
-        # cannot rely on the project's own ignore file.
-        assert _status(worktree) == ["?? output"]
-
     def test_the_build_leaves_the_worktree_clean(self, enrolled: Path):
         # Arrange
         alpha = unit(
@@ -980,7 +1068,6 @@ class TestAgainstRealGit:
         # Assert
         assert report.ok, report.rows[0].error
         worktree = Path(WorkspaceLayout(enrolled).worktree(SET, "alpha"))
-        assert (worktree / "output").is_symlink()
         assert _status(worktree) == []
 
     def test_the_exclude_is_shared_by_every_branch_set_of_the_store(
@@ -989,7 +1076,7 @@ class TestAgainstRealGit:
         # Arrange
         layout = WorkspaceLayout(enrolled)
         alpha = unit(
-            "alpha", scratch=("output",), build=("python3", "build.py"), install=()
+            "alpha", scratch=("out",), build=("python3", "build.py"), install=()
         )
         real_build(enrolled, manifest(alpha)).perform(
             enrolled, SET, profile=Profile.RELEASE
@@ -1007,7 +1094,8 @@ class TestAgainstRealGit:
             str(other),
             "refs/remotes/upstream/main",
         )
-        (other / "output").symlink_to(PurePosixPath("../../.cjdev/build/y"))
+        (other / "out").mkdir()
+        (other / "out" / "left").write_text("mid-build", encoding="utf-8")
 
         # Assert: one write covered it, because `info/exclude` belongs to the
         # store rather than to a worktree.
@@ -1066,7 +1154,7 @@ class TestWhereTheBuildRuns:
 
         # Assert
         assert plan.dist == PurePath("/ws/.cjdev/dist/main/container/release")
-        assert plan.units[0].redirects[0].real == PurePath(
+        assert plan.units[0].scratch[0].source == PurePath(
             "/ws/.cjdev/build/main/container/release/compiler/build"
         )
 
@@ -1103,8 +1191,8 @@ class TestWhereTheBuildRuns:
         )
 
     def test_the_lock_stays_above_the_environment(self):
-        # Arrange / Act: a worktree has one symlink per scratch path, so the
-        # two environments contend exactly as two profiles do.
+        # Arrange / Act: a worktree holds one profile's scratch at a time, so
+        # the two environments contend exactly as two profiles do.
         assert (
             plan_of(unit("compiler"), environment=CONTAINER).units[0].lock
             == plan_of(unit("compiler")).units[0].lock

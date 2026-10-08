@@ -124,12 +124,20 @@ class FileSystem(Protocol):
     def symlink(self, link: PurePath, target: PurePath) -> None:
         """Point `link` at `target`, replacing whatever link is there.
 
-        Atomic, because a build directory is repointed between profiles while
-        another build may be reading it: a link that briefly does not exist is
-        a build that briefly writes into the worktree.
+        Atomic, because a shared link may be read by another build while it
+        is replaced.
         """
         ...
 
     def copy(self, source: PurePath, into: PurePath) -> None:
         """One file into one directory, which is created if it is missing."""
+        ...
+
+    def move(self, source: PurePath, destination: PurePath) -> None:
+        """Rename `source` to `destination`, creating the parent it needs.
+
+        A missing source is nothing to move: a scratch directory exists only
+        once a build has made it. An existing destination is a refusal, since
+        moving onto it would merge two builds into one directory.
+        """
         ...

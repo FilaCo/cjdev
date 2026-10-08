@@ -30,7 +30,7 @@ src/cjdev/
     runner.py              # fan-out, -j, output ordering, cancellation
     workspace.py           # finding the workspace root, and what it holds
     init_workspace.py      # `cjpm init` use case file
-    build_units.py         # scratch redirects, the chain, and the build env
+    build_units.py         # scratch moves, the chain, and the build env
     ...                    # other use case files
 
   infra/                   # the only layer that touches the outside world
@@ -129,28 +129,31 @@ their lines to a project without ticking anything.
 
 ## Builds happen out of tree, and the worktree is what carries the state
 
-Every upstream `build.py` derives its output directory from `__file__` and takes no flag
-for it, so the only way out of the worktree is a symlink from the worktree into
-`.cjdev/build/<set>/<profile>/<unit>/`. Five consequences, and they are the whole design:
+Every upstream `build.py` derives its output directory from `__file__`, takes no flag for
+it, and wipes it or walks up out of it with `..` on the assumption that it is a real
+directory in the worktree. So it is one, for the length of the build: a unit's scratch
+directories live in `.cjdev/build/<set>/<env>/<profile>/<unit>/` and are renamed into the
+worktree before it builds and back after (ADR-0039). Five consequences, and they are the
+whole design:
 
 - **Which paths are scratch is manifest data.** `build/` is tracked source in
-  `cangjie_runtime/runtime` and in `cangjie_stdx`, so a uniform `build` redirect would
-  delete those projects' cmake toolchains.
-- **The links are relative.** An absolute target breaks the moment the workspace is
-  mounted at a different path, which is exactly what the container executor will do.
-- **A worktree therefore has a profile.** The links are verified before every build,
-  repointed atomically (`symlink` stages beside the link and replaces it) and all of a
-  unit's links together, under an flock per (branch set, build unit). A real directory
-  where a link belongs is a refusal, not a silent delete of somebody's artefacts.
-- **The links have to be excluded, and the project's own `.gitignore` will not do it.**
-  A symlink is not a directory to git, so a pattern written `output/` does not match one -
-  `runtime`, `stdx` and `cjpm` all leave their scratch paths visible that way, and
-  `status` would call the worktree dirty while `git worktree remove` refused. cjdev writes
-  the paths into the object store's `info/exclude`, which every worktree of that store
-  shares, so one write covers every branch set and no tracked file is touched.
-- **cjdev owns removing them.** Upstream `clean` calls `rmtree` on what is now a symlink
-  and raises; the real directory under `.cjdev/build/` is ours to remove. There is no
-  command for it yet, for the naming reason under Questions, answers and consent.
+  `cangjie_runtime/runtime` and in `cangjie_stdx`, so a uniform `build` entry would move
+  those projects' cmake toolchains away.
+- **A move is a rename.** The worktree and `.cjdev` are under one root, so on one
+  filesystem, and switching profiles costs nothing however large the build directory is.
+- **The worktree has a profile while a unit builds.** A marker beside the build lock
+  names it, written before anything moves in and removed after everything moves out, all
+  under an flock per (branch set, build unit). A run killed in between leaves the marker,
+  and the next run moves that profile's scratch back first. A real directory with no
+  marker is a refusal, not a silent delete of somebody's artefacts.
+- **Scratch has to be excluded, and the project's own `.gitignore` will not do it.**
+  cjpm ignores none of its scratch, and a killed build leaves it in the worktree, where
+  `status` would call the worktree dirty and `git worktree remove` would refuse. cjdev
+  writes the paths into the object store's `info/exclude`, which every worktree of that
+  store shares, so one write covers every branch set and no tracked file is touched.
+- **cjdev owns removing them.** The directories under `.cjdev/build/` are ours to remove.
+  There is no command for it yet, for the naming reason under Questions, answers and
+  consent.
 
 ## Ports, and what earns one
 
@@ -169,9 +172,9 @@ supposed to only describe, because the executor covers subprocesses and `Path.mk
 not one. Anything that changes the tree goes through the port; anything that only reads it
 does not, since a probe has to be real or the plan is built on guesses.
 
-That rule is also why `symlink` and `copy` are on the port rather than done with
-`shutil`: the build redirects scratch directories out of the worktree and cjpm installs
-by copying two files, and both are tree mutations a dry run has to decline. The build
+That rule is also why `move` and `copy` are on the port rather than done with
+`shutil`: the build moves scratch directories in and out of the worktree and cjpm
+installs by copying two files, and both are tree mutations a dry run has to decline. The build
 lock is **not** a port by the same test - its second implementation is a dry run's no-op,
 so it travels as a callable argument the way `jobs` travels as a default.
 
@@ -253,8 +256,8 @@ itself.
 **The environment is a key in the path**, beside the profile: `build/<set>/<env>/<profile>/`
 and `dist/<set>/<env>/<profile>/`. Two environments are two targets from two toolchains,
 and one `bin/cjc` cannot be both. The build lock stays above them both, because a worktree
-has one symlink per scratch path and the two environments contend for it exactly as two
-profiles do. The ccache shim is keyed the same way - it names a binary that exists in one
+holds one profile's scratch at a time and the two environments contend for it exactly as
+two profiles do. The ccache shim is keyed the same way - it names a binary that exists in one
 of the two - and the ccache store is not, because ccache hashes the compiler.
 
 **Only `build` crosses the boundary.** git stays here, all of it: credential helpers, the
