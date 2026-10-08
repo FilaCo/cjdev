@@ -12,6 +12,33 @@ from pathlib import Path
 
 import pytest
 
+REPOSITORY_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_DIR",
+    "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+)
+"""`git rev-parse --local-env-vars`. git sets `GIT_DIR` for the hooks it
+runs, and `pre-push` runs this suite: every repository a test builds in
+`tmp_path` would otherwise be this checkout."""
+
+
+@pytest.fixture(autouse=True)
+def _no_repository_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in REPOSITORY_ENV:
+        monkeypatch.delenv(name, raising=False)
+
 
 @pytest.fixture(scope="session")
 def git_available() -> None:
