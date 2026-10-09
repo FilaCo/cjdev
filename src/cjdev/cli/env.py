@@ -16,10 +16,13 @@ cli = Typer(
 )
 
 PROFILE = Option(
-    Profile.RELEASE.value,
+    None,
     "-p",
     "--profile",
-    help="Whose build environment to use. Each profile has its own SDK.",
+    help=(
+        "Whose build environment to use. Each profile has its own SDK. "
+        "Default: the branch set's, from its last full build."
+    ),
 )
 
 
@@ -82,7 +85,7 @@ def run(
         None,
         help="The command to run. Put `--` before it, or its flags become cjdev's.",
     ),
-    profile: Profile = PROFILE,
+    profile: Profile | None = PROFILE,
     dry_run: bool = Option(False, "--dry-run", help="Print the command, run none."),
     verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
 ) -> None:
@@ -99,7 +102,7 @@ def run(
 @cli.command(cls=CjdevCommand)
 def shell(
     ctx: CjdevContext,
-    profile: Profile = PROFILE,
+    profile: Profile | None = PROFILE,
     dry_run: bool = Option(False, "--dry-run", help="Print the command, run none."),
     verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
 ) -> None:
@@ -110,7 +113,7 @@ def shell(
 def _inside(
     ctx: CjdevContext,
     what: str,
-    profile: Profile,
+    profile: Profile | None,
     argv: tuple[str, ...],
     dry_run: bool,
     verbose: bool,
@@ -124,8 +127,11 @@ def _inside(
     if not dry_run:
         ctx.obj.journal(root, [*what.split(), *argv])
 
+    chosen = ctx.obj.branch_set_profile(dry_run=dry_run, start=root).resolve(
+        root, branch_set, profile
+    )
     code = ctx.obj.manage_environment(dry_run=dry_run, verbose=verbose, start=root).run(
-        root, branch_set, profile=profile, cwd=cwd, argv=argv
+        root, branch_set, profile=chosen, cwd=cwd, argv=argv
     )
 
     if dry_run:

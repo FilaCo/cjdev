@@ -15,11 +15,13 @@ from rich.text import Text
 
 from cjdev.application.build_units import BuildReport
 from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
+from cjdev.application.run_tests import TestReport
 from cjdev.application.runner import Outcome, RunReport
 from cjdev.domain.build import CopyStep, InstallStep
 from cjdev.domain.config import BUNDLED, WORKSPACE, LayeredManifest
 from cjdev.domain.environment import Environment
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
+from cjdev.domain.testing import FAIL, PASS
 
 from ._console import CANCELLED, DETAIL, MARKS, WAITING
 from ._progress import format_duration
@@ -210,6 +212,59 @@ def build_payload(report: BuildReport) -> dict[str, object]:
             for row in report.rows
         ],
     }
+
+
+def render_tests(console: Console, report: TestReport) -> None:
+    """One line per suite, then its failures by cause.
+
+    A case that failed because a tool is missing says something about the
+    machine, not the code, so those are counted per tool rather than listed:
+    a hundred of them must not bury the one real regression beside them.
+    """
+    root = report.plan.root
+    for outcome in report.suites:
+        console.print()
+        result = outcome.result
+        if result is None:
+            mark, style = MARKS[Outcome.FAILED]
+            console.print(
+                Text(
+                    f"{mark} {outcome.suite}: no results "
+                    f"(the framework exited {outcome.exit_code})",
+                    style=style,
+                )
+            )
+            continue
+        failed = result.failed > 0 or outcome.exit_code != 0
+        mark, style = MARKS[Outcome.FAILED if failed else Outcome.DONE]
+        others = "".join(
+            f", {count} {status.lower()}"
+            for status, count in result.counts.items()
+            if status not in (PASS, FAIL) and count
+        )
+        console.print(
+            Text(
+                f"{mark} {outcome.suite}: {result.passed} passed, "
+                f"{result.failed} failed{others}",
+                style=style,
+            )
+        )
+        for tools, cases in result.missing_tools().items():
+            console.print(
+                f"  {len(cases)} failed for want of {', '.join(tools)}",
+                style=CANCELLED,
+                highlight=False,
+                soft_wrap=True,
+            )
+        for failure in result.other_failures():
+            console.print(
+                Text(f"  {MARKS[Outcome.FAILED][0]} {failure.case}"),
+                highlight=False,
+                soft_wrap=True,
+            )
+            if failure.log is not None:
+                _detail(console, [str(failure.log.relative_to(root))], indent="    ")
+        _detail(console, [f"results: {outcome.results.relative_to(root)}"], "  ")
 
 
 def render_status(console: Console, status: WorkspaceStatus) -> None:

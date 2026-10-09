@@ -9,15 +9,17 @@ import os
 import sys
 from collections.abc import Callable, Sequence
 from functools import cached_property
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import final
 
+from cjdev.application.branch_set_profile import BranchSetProfile
 from cjdev.application.build_units import BuildUnits, HostProvider
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Prompt
 from cjdev.application.report_status import ReportStatus
+from cjdev.application.run_tests import RunTests
 from cjdev.application.workspace import find_root
 from cjdev.domain.config import LayeredManifest, WorkspaceConfig, layer
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
@@ -53,10 +55,18 @@ from cjdev.infra.host import detect_host
 from cjdev.infra.journal import CommandJournal, open_journal
 from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
+from cjdev.infra.record import read_record, render_record
 
 
 def _ignore(_: str) -> None:
     pass
+
+
+def _read_file(path: PurePath) -> str | None:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
 
 
 @final
@@ -253,6 +263,34 @@ class Container:
             # A dry run leaves no lock file behind: it starts no build, so
             # there is nothing for a second one to collide with.
             lock=no_lock if dry_run else file_lock,
+            environment=environment,
+        )
+
+    def branch_set_profile(
+        self, *, dry_run: bool = False, start: Path
+    ) -> BranchSetProfile:
+        return BranchSetProfile(
+            manifest=lambda: self.manifest(start),
+            file_system=self.file_system(dry_run=dry_run),
+            read=read_record,
+            render=render_record,
+            environment=self.environment(start),
+        )
+
+    def run_tests(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> RunTests:
+        """The build's executor and host: the tests run where the SDK under
+        test was built, against the target it was built for."""
+        environment = self.environment(start)
+        executor, host = self._where_builds_run(
+            environment, start, dry_run=dry_run, verbose=verbose
+        )
+        return RunTests(
+            executor=executor,
+            file_system=self.file_system(dry_run=dry_run),
+            host=host,
+            read_results=(lambda _: None) if dry_run else _read_file,
             environment=environment,
         )
 
