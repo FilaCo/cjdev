@@ -12,6 +12,7 @@ import pytest
 
 from cjdev.domain.build import CopyStep, RunStep
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
+from cjdev.domain.manifest import ProjectRole
 from cjdev.errors import ManifestError
 from cjdev.infra.config import (
     SUPPORTED_SCHEMA_VERSION,
@@ -166,6 +167,47 @@ class TestWrongTypes:
                 '[projects.a]\nupstream = ["https://example.invalid/a.git"]\n',
                 source="config.toml",
             )
+
+    @pytest.mark.parametrize(
+        ("toml", "expected"),
+        [
+            ('schema_version = "2"\n', "schema_version must be an integer, not String"),
+            ("schema_version = 2.0\n", "schema_version must be an integer, not Float"),
+            ("schema_version = true\n", "schema_version must be an integer, not bool"),
+            (
+                '[projects.a]\nrole = ["buildable"]\n',
+                "project a role must be a string, not Array",
+            ),
+            (
+                "[projects.a]\nrole = 5\n",
+                "project a role must be a string, not Integer",
+            ),
+            (
+                'default_group = ["minimal"]\n',
+                "default_group must be a string, not Array",
+            ),
+        ],
+    )
+    def test_a_mistyped_scalar_is_refused_as_mistyped(self, toml: str, expected: str):
+        # Compared or coerced first, these read as a version to upgrade past,
+        # an unknown role or an undeclared group - none of which is the typo.
+        with pytest.raises(ManifestError, match=rf"^config\.toml: {expected}\.$"):
+            parse_workspace_config(toml, source="config.toml")
+
+    def test_well_typed_scalars_still_load(self):
+        # Act
+        config = parse_workspace_config(
+            f"schema_version = {SUPPORTED_SCHEMA_VERSION}\n"
+            'default_group = "tiny"\n'
+            '[groups]\ntiny = ["a"]\n'
+            '[projects.a]\nrole = "test_data"\n',
+            source="config.toml",
+        )
+
+        # Assert
+        assert config.schema_version == SUPPORTED_SCHEMA_VERSION
+        assert config.default_group == "tiny"
+        assert config.projects["a"].role == ProjectRole.TEST_DATA
 
 
 class TestUnreadableFiles:

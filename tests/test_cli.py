@@ -592,6 +592,37 @@ class TestTheEnvelope:
         # from a bad one is better served by nothing.
         assert failure["remedy"] is None
 
+    @pytest.mark.parametrize(
+        "toml",
+        [
+            'schema_version = "2"\n',
+            "schema_version = 2.0\n",
+            '[projects.cangjie_compiler]\nrole = ["buildable"]\n',
+            "[projects.cangjie_compiler]\nrole = 5\n",
+        ],
+    )
+    def test_a_mistyped_config_value_is_a_manifest_failure_in_the_document(
+        self,
+        toml: str,
+        empty_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys,
+    ):
+        # Arrange
+        Path(WorkspaceLayout(empty_workspace).config_file).write_text(toml)
+        monkeypatch.setattr(
+            sys, "argv", ["cjdev", "config", "show", str(empty_workspace), "--json"]
+        )
+
+        # Act
+        with pytest.raises(SystemExit):
+            main()
+
+        # Assert
+        failure = json.loads(capsys.readouterr().out)["errors"][0]
+        assert failure["code"] == "manifest"
+        assert "must be" in failure["message"]
+
     def test_the_same_failure_reads_as_a_line_when_nobody_asked_for_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):

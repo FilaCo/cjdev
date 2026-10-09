@@ -124,6 +124,8 @@ def parse_manifest(text: str, *, source: str) -> Manifest:
         source,
     )
     version = _require(document, "schema_version", source)
+    _reject_mistyped(document, "schema_version", f"{source}:", int, "an integer")
+    _reject_mistyped(document, "default_group", f"{source}:", str, "a string")
     if version != SUPPORTED_SCHEMA_VERSION:
         raise ManifestError(
             f"{source} declares schema_version {version}, but this cjdev "
@@ -179,6 +181,8 @@ def parse_workspace_config(text: str, *, source: str) -> WorkspaceConfig:
         },
         source,
     )
+    _reject_mistyped(document, "schema_version", f"{source}:", int, "an integer")
+    _reject_mistyped(document, "default_group", f"{source}:", str, "a string")
     version: int | None = None
     if "schema_version" in document:
         if document["schema_version"] != SUPPORTED_SCHEMA_VERSION:
@@ -232,6 +236,7 @@ def _project(name: str, body: Any, source: str) -> Project:
     """A bundled-manifest project: total, not partial."""
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    _reject_mistyped(body, "role", where, str, "a string")
     _reject_mistyped(body, "upstream", where, str, "a string")
     _reject_mistyped(body, "default_branch", where, str, "a string")
     role = str(_require(body, "role", where))
@@ -309,6 +314,7 @@ def _copy_step(entry: Any, where: str) -> CopyStep:
 def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    _reject_mistyped(body, "role", where, str, "a string")
     _reject_mistyped(body, "upstream", where, str, "a string")
     _reject_mistyped(body, "default_branch", where, str, "a string")
     if not body:
@@ -395,10 +401,15 @@ def _reject_mistyped(body: Any, key: str, where: str, want: type, what: str) -> 
     Coerced through `str()`, an array in a scalar's place becomes a
     plausible-looking wrong value ("['a']" as a path) that fails far from the
     line that caused it; a string in an array's place is iterated one
-    character at a time and multiplies into failures just as far away."""
-    if key in body and not isinstance(body[key], want):
+    character at a time and multiplies into failures just as far away.
+
+    `bool` is an `int` to Python, but `true` is not a version."""
+    if key not in body:
+        return
+    value = body[key]
+    if not isinstance(value, want) or (isinstance(value, bool) and want is int):
         raise ManifestError(
-            f"{where} {key} must be {what}, not {type(body[key]).__name__}."
+            f"{where} {key} must be {what}, not {type(value).__name__}."
         )
 
 
