@@ -122,6 +122,19 @@ recipe is a new tag rather than a stale image nobody notices.
 
 ### Git/GitCode stuff
 
+```bash
+cd fix-parser-ice/cangjie_compiler
+cjdev issue new cangjie_compiler -t bug-report             # draft in $EDITOR, then file it
+cjdev issue new cangjie_compiler -t bug-report --dry-run   # print the request instead
+```
+
+- `cjdev issue new PROJECT -t FORM` - file an issue on the project's upstream from its
+  own `.gitcode/ISSUE_TEMPLATE/FORM.yml`: one Markdown section per field, `cjc -v` of
+  the branch set's dist filled in, required fields checked before sending. A refused
+  draft is kept and resumed by the next run; `--body-file PATH` sends a filled one
+  without an editor. The token is `GITCODE_TOKEN`, else git's stored credential for
+  gitcode.com.
+
 ## Documentation
 
 The command line reference documentation can be viewed with `cjdev -h`.

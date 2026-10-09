@@ -48,7 +48,7 @@ def require_branch_set(root: Path, cwd: Path) -> str:
         if directory.parent == root:
             return directory.name
     raise PreconditionError(
-        f"{cwd} is not inside a branch set of {root}, so there is nothing to build.",
+        f"{cwd} is not inside a branch set of {root}.",
         remedy="cd into a branch set",
     )
 

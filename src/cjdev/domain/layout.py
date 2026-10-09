@@ -303,6 +303,17 @@ class WorkspaceLayout:
         """
         return self.log_dir(branch_set) / f"{self._segment(unit, 'build unit')}.log"
 
+    def issue_draft(self, branch_set: str, project: str, template: str) -> PurePath:
+        """An issue draft the forge has not taken yet, kept so that a refusal
+        does not cost the text. One per form, so the next run resumes it."""
+        return (
+            self.marker
+            / "drafts"
+            / flatten_branch_set(branch_set)
+            / self._segment(project, "project")
+            / f"{self._segment(template, 'template')}.md"
+        )
+
     @staticmethod
     def _segment(name: str, what: str) -> str:
         """One path component, checked before it is joined to the root.

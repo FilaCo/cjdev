@@ -1,11 +1,16 @@
-"""Asking, or declining to ask, through `questionary`."""
+"""Asking, or declining to ask, through `questionary` and `$EDITOR`."""
 
+import os
+import shlex
+import subprocess
+import tempfile
 from collections.abc import Sequence
+from pathlib import Path
 from typing import final
 
 import questionary
 
-from cjdev.errors import AbortedError, InputRequiredError
+from cjdev.errors import AbortedError, InputRequiredError, PreconditionError
 
 
 @final
@@ -42,6 +47,30 @@ class InteractivePrompt:
         if chosen is None:
             raise AbortedError(question)
         return str(chosen)
+
+    def edit(self, draft: str, *, remedy: str) -> str:  # noqa: ARG002
+        editor = shlex.split(
+            os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+        )
+        # Kept on a refusal: the text is the person's, and a crash or a
+        # failing editor must not be the end of it.
+        with tempfile.NamedTemporaryFile(
+            "w", prefix="cjdev-", suffix=".md", delete=False, encoding="utf-8"
+        ) as file:
+            file.write(draft)
+        path = Path(file.name)
+        try:
+            exited = subprocess.run([*editor, str(path)], check=False).returncode
+        except OSError as exc:
+            raise PreconditionError(
+                f"cannot start the editor {editor[0]}: {exc.strerror}.",
+                remedy="set EDITOR",
+            ) from None
+        if exited:
+            raise AbortedError(f"{editor[0]} exited {exited}; the draft is in {path}")
+        edited = path.read_text(encoding="utf-8")
+        path.unlink()
+        return edited
 
 
 @final
@@ -88,3 +117,9 @@ class NonInteractivePrompt:
         keeps the value already in force, which is the one this argument
         carries. Only consent refuses in the dark."""
         return default
+
+    def edit(self, draft: str, *, remedy: str) -> str:  # noqa: ARG002
+        raise InputRequiredError(
+            "the text to send needs an editor, and there is no terminal.",
+            remedy=remedy,
+        )

@@ -24,9 +24,11 @@ src/cjdev/
     layout.py              # workspace path algebra, parameterised by root
     branch.py              # whether a string may be a git branch name
     state.py               # branch / SHA / dirty / ahead-behind
+    forge.py               # repository, the issue to file and the one filed
+    issue_form.py          # an issue form, its Markdown draft, the required check
 
   application/             # orchestration and policy; one module per command
-    ports.py               # Executor, FileSystem, Prompt - nothing else
+    ports.py               # Executor, FileSystem, Prompt, Forge - nothing else
     runner.py              # fan-out, -j, output ordering, cancellation
     workspace.py           # finding the workspace root, and what it holds
     init_workspace.py      # `cjpm init` use case file
@@ -43,6 +45,8 @@ src/cjdev/
     prompt.py              # questionary, or the refusal to ask
     journal.py             # the workspace log, .cjdev/log/cjdev.log
     config.py              # manifest loading and the schema-version gate
+    gitcode.py             # the GitCode API and its token (ADR-0044)
+    issue_template.py      # .gitcode/ISSUE_TEMPLATE/*.yml into an IssueForm
     data/default_manifest.toml      # the shipped manifest; travels in the wheel
 
   cli/                     # Typer wiring
@@ -157,13 +161,12 @@ whole design:
 
 ## Ports, and what earns one
 
-A port is earned by a second implementation that will actually exist. There are three:
-`Executor` (this machine, or a container), `FileSystem` (real, or dry-run) and `Prompt` (a
-terminal, or a pipe/`--dry-run`). `Forge` will be the fourth once the gitcode work starts; it
-is absent from `ports.py` rather than stubbed, because an empty protocol tells a reader
-nothing and invites guessing.
+A port is earned by a second implementation that will actually exist. There are four:
+`Executor` (this machine, or a container), `FileSystem` (real, or dry-run), `Prompt` (a
+terminal, or a pipe/`--dry-run`) and `Forge` (GitCode, or the request `--dry-run` prints).
+Every command that talks to GitCode goes through `Forge`; a second client is the bug.
 
-Note what the three have in common: their second implementation is a flag the user passes,
+Note what the four have in common: their second implementation is a flag the user passes,
 not a seam invented for tests. **If a proposed port's second implementation only ever
 appears in a test file, it is not a port.**
 
@@ -183,6 +186,10 @@ once - worktrees, `rerere`, `--force-with-lease` and the credential helpers all 
 documented only there - and that binary is reached through `Executor` already; a second
 abstraction over the same subprocess is a tax with no payer. `infra/git.py` builds argv and
 parses output, and is tested against real git in a `tmp_path`.
+
+The one git call that bypasses `Executor` is `git credential fill`: **a command whose
+output is a secret never goes through `Executor`**, because the workspace log and `-v`
+record what a command printed.
 
 ## The workspace log
 
@@ -325,6 +332,7 @@ nothing; everything else asks at a terminal or refuses.
 | `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
 | `build` | nothing - it creates and overwrites only what cjdev owns | none; `--dry-run` asks nothing |
 | `env` | nothing - the image is cjdev's, and `rm` removes only what `build` made | none; `--dry-run` asks nothing |
+| `issue new` | the issue text, in `$EDITOR` | `--body-file`; `--dry-run` still opens the editor, because the text is the plan it prints |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two

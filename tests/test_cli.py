@@ -25,6 +25,7 @@ from cjdev.domain.environment import (
     Mode,
     Runtime,
 )
+from cjdev.domain.issue_form import render_draft
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
 from cjdev.errors import (
@@ -36,8 +37,10 @@ from cjdev.errors import (
 from cjdev.infra.config import SUPPORTED_SCHEMA_VERSION, render_workspace_config
 from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.git import provision_object_store
+from cjdev.infra.issue_template import TEMPLATE_DIR, load_form
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
 from conftest import make_upstream
+from test_issue_form import BUG_FORM
 
 runner = CliRunner()
 
@@ -974,3 +977,62 @@ class TestEnv:
 
         # Assert
         assert isinstance(result.exception, PreconditionError)
+
+
+class TestIssue:
+    """`cjdev issue new`: the form is the checkout's, so the cwd is a branch set."""
+
+    @pytest.fixture
+    def worktree(self, empty_workspace: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        worktree = Path(
+            WorkspaceLayout(empty_workspace).worktree("main", "cangjie_compiler")
+        )
+        forms = worktree / TEMPLATE_DIR
+        forms.mkdir(parents=True)
+        (forms / "bug-report.yml").write_text(BUG_FORM, encoding="utf-8")
+        monkeypatch.chdir(worktree)
+        return worktree
+
+    def test_a_dry_run_prints_the_request_and_sends_nothing(
+        self, worktree: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Arrange: no token anywhere, so a send would refuse rather than reach out.
+        monkeypatch.delenv("GITCODE_TOKEN", raising=False)
+        form = load_form(worktree / TEMPLATE_DIR / "bug-report.yml")
+        draft = (
+            render_draft(form, {})
+            .replace("# [Bug]: ", "# [Bug]: sema crashes")
+            .replace("\n\n### 其他", "It crashes.\n\n### 其他", 1)
+            .replace("\n\n### 领域", "cjc 1.0\n\n### 领域", 1)
+            .replace("- [ ] main", "- [x] main")
+        )
+        body = worktree / "draft.md"
+        body.write_text(draft, encoding="utf-8")
+
+        # Act
+        result = runner.invoke(
+            cli,
+            [
+                *("issue", "new", "cangjie_compiler", "-t", "bug-report"),
+                *("--body-file", str(body), "--dry-run"),
+            ],
+        )
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert (
+            "POST https://api.gitcode.com/api/v5/repos/Cangjie/issues" in result.output
+        )
+        assert "title: [Bug]: sema crashes" in result.output
+
+    def test_no_terminal_and_no_body_file_is_a_refusal_naming_the_flag(
+        self, worktree: Path
+    ):
+        # Act
+        result = runner.invoke(
+            cli, ["issue", "new", "cangjie_compiler", "-t", "bug-report"]
+        )
+
+        # Assert
+        assert isinstance(result.exception, InputRequiredError)
+        assert result.exception.remedy == "pass --body-file PATH"

@@ -37,3 +37,4 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0021](0021-one-run-per-command.md) | One docker run --rm per command, and the environment is a workspace property | accepted; Supersedes, in part, this issue's own FR-2 |
 | [0024](0024-adrs-numbered-by-issue.md) | ADRs are numbered by their issue, and the index is generated | accepted |
 | [0039](0039-scratch-moves-into-the-worktree.md) | Scratch is moved into the worktree for the build, not symlinked out of it | accepted; Supersedes, in part, ADR-0017: its symlink redirect |
+| [0044](0044-gitcode-client-and-token.md) | GitCode is a `Forge` port over urllib, and the token is GITCODE_TOKEN, then git's credential | accepted |
