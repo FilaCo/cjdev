@@ -187,14 +187,11 @@ def test_unit_names_are_the_flat_token_the_cli_takes(bundled: Manifest):
 
 class TestBuildData:
     def test_the_stdlib_unit_points_at_the_runtime_through_the_dist(self, bundled):
-        # Without `--target-lib`, stdlib's cmake globs nothing and falls back
-        # to `$ENV{CANGJIE_HOME}/lib/<dir2>` - a directory the runtime never
-        # fills (#34). The runtime's cjthread build installs
-        # `libcangjie-aio.a` under `{dist}/common/linux_<profile>_<arch>/...`,
-        # which is `<lib_path>/common/<dir1>/lib/<dir2>` for `{dist}`
-        # (`stdlib/CMakeLists.txt:60`).
+        # Arrange: the runtime's libraries are under `{dist}/common`, which
+        # stdlib looks in only when told.
         unit = bundled.unit("stdlib")
 
+        # Act / Assert
         assert "--target-lib" in unit.build
         assert unit.build[unit.build.index("--target-lib") + 1] == "{dist}"
 

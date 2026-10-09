@@ -124,10 +124,7 @@ default_branch = "main"
 # worktree of that store.
 #
 # WHAT IS NOT HERE: machine-specific flags such as `--target-lib $OPENSSL_PATH`
-# (stdlib, stdx). Those paths carry a target triple that no token spells, so
-# they belong in a workspace's own `extra_args`. stdlib's runtime-side
-# `--target-lib` is here now - its value is `{dist}`, no token was missing;
-# see the stdlib unit below.
+# (stdlib, stdx). They belong in a workspace's own `extra_args`.
 
 [build_units.compiler]
 project = "cangjie_compiler"
@@ -162,15 +159,9 @@ project = "cangjie_runtime"
 path = "stdlib"
 depends_on = ["compiler", "runtime"]
 scratch = ["build", "output"]
-# `--target-lib {dist}`: without it, stdlib's cmake globs nothing and falls
-# back to `$ENV{CANGJIE_HOME}/lib/<dir2>` (`stdlib/CMakeLists.txt:62`) - a
-# directory the runtime never fills. The runtime's cjthread build installs
-# `libcangjie-aio.a` under the configure-time prefix
-# (`src/CJThread/src/CMakeLists.txt:142`), which is
-# `{dist}/common/linux_<profile>_<arch>/lib/<dir2>` - exactly
-# `<lib_path>/common/<dir1>/lib/<dir2>` for `--target-lib {dist}`
-# (`stdlib/CMakeLists.txt:60`). Machine-specific `--target-lib` entries
-# (OpenSSL) still belong in a workspace's `extra_args`; this one is not.
+# `--target-lib {dist}`: the runtime installs its libraries under
+# `{dist}/common/linux_<profile>_<arch>/`, which stdlib finds only through
+# it. Without it, stdlib falls back to `$CANGJIE_HOME/lib` and the link fails.
 build = ["python3", "build.py", "build", "-t", "{profile}", "-j", "{jobs}", "--target-lib", "{dist}"]
 install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 
