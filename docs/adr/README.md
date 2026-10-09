@@ -37,3 +37,4 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0021](0021-one-run-per-command.md) | One docker run --rm per command, and the environment is a workspace property | accepted; Supersedes, in part, this issue's own FR-2 |
 | [0024](0024-adrs-numbered-by-issue.md) | ADRs are numbered by their issue, and the index is generated | accepted |
 | [0039](0039-scratch-moves-into-the-worktree.md) | Scratch is moved into the worktree for the build, not symlinked out of it | accepted; Supersedes, in part, ADR-0017: its symlink redirect |
+| [0046](0046-branch-set-remembers-its-profile.md) | A branch set remembers its profile, and `cjdev test` runs against its dist | accepted |

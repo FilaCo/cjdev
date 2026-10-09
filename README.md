@@ -120,6 +120,23 @@ recipe is a new tag rather than a stale image nobody notices.
 
 ### Test
 
+A branch set remembers the profile of its last full build, in
+`.cjdev/state/<branch set>.toml`. `build`, `env run`, `env shell` and `test` default to
+it, and `-p` still overrides. Building one unit in another profile is refused while the
+rest of the SDK is not built there, because that dist could not compile anything.
+
+```bash
+cd fix-parser-ice/cangjie_test/testsuites/LLT
+cjdev test compiler/CJMP/objc               # against the branch set's dist
+cjdev test compiler -- --timeout=180        # from the flag on, passed to main.py
+```
+
+- `cjdev test PATH...` - run `cangjie_test_framework` on cases or directories of LLT or
+  HLT, inside the build environment, with the suite's test list and config for this
+  host and `-pFAIL --fail-verbose`. Scratch, logs and results go to
+  `.cjdev/build/<branch set>/test/`. The summary is per suite, and failures caused by a
+  missing tool (`command not found`) are counted per tool apart from the rest.
+
 ### Git/GitCode stuff
 
 ## Documentation

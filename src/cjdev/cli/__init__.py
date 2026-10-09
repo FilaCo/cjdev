@@ -9,6 +9,7 @@ from .config import cli as config_cli
 from .env import cli as env_cli
 from .init import cli as init_cli
 from .status import cli as status_cli
+from .test import cli as test_cli
 
 cli = Typer(
     cls=CjdevGroup,
@@ -22,6 +23,7 @@ cli.add_typer(init_cli, cls=CjdevGroup)
 cli.add_typer(status_cli, cls=CjdevGroup)
 cli.add_typer(config_cli, cls=CjdevGroup)
 cli.add_typer(env_cli, cls=CjdevGroup)
+cli.add_typer(test_cli, cls=CjdevGroup)
 
 
 @cli.callback(invoke_without_command=True)

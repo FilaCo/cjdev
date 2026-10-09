@@ -325,6 +325,7 @@ nothing; everything else asks at a terminal or refuses.
 | `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
 | `build` | nothing - it creates and overwrites only what cjdev owns | none; `--dry-run` asks nothing |
 | `env` | nothing - the image is cjdev's, and `rm` removes only what `build` made | none; `--dry-run` asks nothing |
+| `test` | nothing - it writes only under `.cjdev/build/<set>/test/` | none; `--dry-run` asks nothing |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two

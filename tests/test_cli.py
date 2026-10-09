@@ -905,6 +905,38 @@ class TestBuild:
         log = Path(WorkspaceLayout(branch_set).command_log).read_text()
         assert "build.py build release" in log
 
+    def test_the_branch_set_s_profile_is_the_default(self, branch_set: Path):
+        # Arrange: its last full build was debug.
+        record = Path(WorkspaceLayout(branch_set).record("main"))
+        record.parent.mkdir(parents=True)
+        record.write_text('[build]\nprofile = "debug"\n')
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        scratch = WorkspaceLayout(branch_set).scratch_dir(
+            "main", "host", "debug", "compiler", PurePosixPath("build")
+        )
+        assert Path(scratch / "build").read_text() == "build debug"
+
+    def test_one_unit_in_a_profile_the_rest_is_not_built_in_is_refused(
+        self, branch_set: Path
+    ):
+        # Arrange
+        record = Path(WorkspaceLayout(branch_set).record("main"))
+        record.parent.mkdir(parents=True)
+        record.write_text('[build]\nprofile = "debug"\n')
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler", "-p", "release"])
+
+        # Assert: a release dist with a fresh cjc and no stdlib compiles
+        # nothing, and every test run against it would say so a thousand times.
+        assert isinstance(result.exception, PreconditionError)
+        assert "runtime, stdlib, stdx, cjpm" in str(result.exception)
+
 
 class TestPassthroughSplit:
     def test_the_first_flag_starts_the_passthrough(self):
@@ -974,3 +1006,76 @@ class TestEnv:
 
         # Assert
         assert isinstance(result.exception, PreconditionError)
+
+
+FRAMEWORK_STAND_IN = """\
+import json, sys
+args = sys.argv[1:]
+out = args[args.index("--json_output") + 1]
+print("ran", *args)
+json.dump([{"name": "x", "total": 3, "PASS": 1, "FAIL": 2, "tests": [
+    {"name": "objc/a.cj", "result": "FAIL", "log_file": "a_cj",
+     "output": [{"stdout": "", "stderr": "bash: gnustep-config: command not found"}]},
+    {"name": "sema/b.cj", "result": "FAIL", "log_file": "b_cj",
+     "output": [{"stdout": "", "stderr": "error: expected"}]},
+]}], open(out, "w"))
+"""
+
+
+class TestTest:
+    """`cjdev test`: the framework, against the dist of the branch set you
+    stand in."""
+
+    @pytest.fixture
+    def branch_set(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        # Arrange: a stand-in main.py that writes results the way the real
+        # one does, a suite directory, and a debug dist.
+        layout = WorkspaceLayout(tmp_path)
+        Path(layout.marker).mkdir()
+        framework = Path(layout.worktree("main", "cangjie_test_framework"))
+        framework.mkdir(parents=True)
+        (framework / "main.py").write_text(FRAMEWORK_STAND_IN, encoding="utf-8")
+        suite = Path(layout.worktree("main", "cangjie_test")) / "testsuites/LLT"
+        (suite / "compiler").mkdir(parents=True)
+        Path(layout.dist_dir("main", "host", "debug")).mkdir(parents=True)
+        record = Path(layout.record("main"))
+        record.parent.mkdir(parents=True)
+        record.write_text('[build]\nprofile = "debug"\n')
+        monkeypatch.chdir(suite)
+        return tmp_path
+
+    def test_failures_for_want_of_a_tool_are_counted_apart(self, branch_set: Path):
+        # Act
+        result = runner.invoke(cli, ["test", "compiler"])
+
+        # Assert
+        assert result.exit_code == 1, result.output
+        assert "1 failed for want of gnustep-config" in result.stdout
+        assert "sema/b.cj" in result.stdout
+        assert "objc/a.cj" not in result.stdout
+
+    def test_a_dry_run_runs_nothing_and_reads_no_old_results(self, branch_set: Path):
+        # Arrange: a previous run's results, which a dry run must not report.
+        results = Path(
+            WorkspaceLayout(branch_set).test_dir("main", "host", "debug", "LLT")
+        )
+        results.mkdir(parents=True)
+        (results / "results.json").write_text("[]")
+
+        # Act
+        result = runner.invoke(cli, ["test", "compiler", "--dry-run"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert "-pFAIL --fail-verbose" in result.stdout
+        assert "Dry run: nothing ran." in result.stdout
+        assert (results / "results.json").exists()
+
+    def test_arguments_after_a_double_dash_reach_main_py(self, branch_set: Path):
+        # Act
+        result = runner.invoke(
+            cli, ["test", "compiler", "--dry-run", "--", "--timeout=180"]
+        )
+
+        # Assert
+        assert "--timeout=180" in result.stdout
