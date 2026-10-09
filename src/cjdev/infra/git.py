@@ -6,12 +6,18 @@ subprocess would have no second implementation to justify it. Tests point this
 at a real repository in a `tmp_path`, which is fast enough not to need a fake.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import final
 
+from cjdev.application.commit_branch_set import Message, Pending
+from cjdev.application.commit_branch_set import Probe as CommitProbe
 from cjdev.application.new_branch_set import Action, Enrolment, Held, Probe
 from cjdev.application.ports import Command, Executor, FileSystem
+from cjdev.application.push_branch_set import Probe as PushProbe
+from cjdev.application.push_branch_set import Push, Unpushed
+from cjdev.application.wire_origin import Remotes
 from cjdev.domain.manifest import Project
 from cjdev.domain.state import Checkout, StaleRegistration, StoreReading, Tracking
 from cjdev.errors import PreconditionError
@@ -69,6 +75,114 @@ class Git:
     def remotes(self, store: Path) -> tuple[str, ...]:
         result = self._run(("remote",), cwd=store, mutates=False)
         return tuple(line.strip() for line in result.splitlines() if line.strip())
+
+    def remote_url(self, repository: Path, name: str) -> str | None:
+        url = self._try(
+            ("remote", "get-url", name), cwd=repository, what=f"reading {name}"
+        )
+        return url.strip() if url else None
+
+    def current_branch(self, worktree: Path) -> str | None:
+        """None when detached."""
+        branch = self._try(
+            ("symbolic-ref", "--quiet", "--short", "HEAD"),
+            cwd=worktree,
+            what="reading the branch",
+        )
+        return branch.strip() if branch else None
+
+    def resolve(self, repository: Path, ref: str) -> str | None:
+        sha = self._try(
+            ("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"),
+            cwd=repository,
+            what=f"resolving {ref}",
+        )
+        return sha.strip() if sha else None
+
+    def count(self, repository: Path, tip: str, base: str | None) -> int:
+        """Commits reachable from `tip` and not from `base`, or all of them."""
+        return int(
+            self._run(
+                ("rev-list", "--count", f"{base}..{tip}" if base else tip),
+                cwd=repository,
+                mutates=False,
+                what="counting commits",
+            ).strip()
+        )
+
+    def has_upstream(self, worktree: Path, branch: str) -> bool:
+        return (
+            self._try(
+                ("rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"),
+                cwd=worktree,
+                what="reading the tracking branch",
+            )
+            is not None
+        )
+
+    def has_staged(self, worktree: Path) -> bool:
+        # `--quiet` exits 1 for "there are changes"; a real failure would
+        # exit higher, and is not something to commit on either.
+        result = self._executor.run(
+            Command(
+                argv=("git", "diff", "--cached", "--quiet"),
+                cwd=worktree,
+                mutates=False,
+                what="checking the index",
+            ),
+            check=False,
+        )
+        return result.exit_code == 1
+
+    def commit(
+        self, worktree: Path, message: str, *, everything: bool, signoff: bool
+    ) -> None:
+        self._run(
+            (
+                "commit",
+                "--quiet",
+                *(("--all",) if everything else ()),
+                *(("--signoff",) if signoff else ()),
+                "--message",
+                message,
+            ),
+            cwd=worktree,
+            what="committing",
+        )
+
+    def push(
+        self,
+        worktree: Path,
+        branch: str,
+        *,
+        set_upstream: bool,
+        lease: str | None,
+    ) -> str:
+        """What the remote said, which is where a forge puts its PR link.
+
+        The refspec is spelled out so the push cannot fall back to
+        `push.default` and land on another branch of the remote.
+        """
+        ref = f"refs/heads/{branch}"
+        result = self._executor.run(
+            Command(
+                argv=(
+                    "git",
+                    "push",
+                    *(("--set-upstream",) if set_upstream else ()),
+                    *(
+                        (f"--force-with-lease={ref}:{lease}",)
+                        if lease is not None
+                        else ()
+                    ),
+                    ORIGIN,
+                    f"{ref}:{ref}",
+                ),
+                cwd=worktree,
+                what=f"pushing to {ORIGIN}",
+            )
+        )
+        return result.stderr
 
     def linked_worktrees(self, store: Path) -> tuple[Linked, ...]:
         """The worktrees linked to this store, excluding the store itself.
@@ -266,9 +380,8 @@ def provision_object_store(executor: Executor, store: Path, project: Project) ->
     default branch back from, and nothing to fast-forward the local default
     branch *from*.
 
-    `origin` is not wired here: creating or discovering a user's fork is a
-    later milestone, and guessing its URL from a username would be wrong for
-    anyone whose fork is named differently.
+    `origin` is not wired here but by `WireOrigin`, which runs across every
+    store and reports an existing `origin` rather than replacing it.
     """
     git = Git(executor)
     fresh = not (store / "HEAD").is_file()
@@ -498,6 +611,105 @@ def _stale_registration(store: Path, entry: Linked) -> StaleRegistration:
         fact=f"the directory is gone from it ({moved})",
         remedy=command("prune"),
     )
+
+
+def read_remotes(executor: Executor, store: PurePath, project: str) -> Remotes:
+    git = Git(executor)
+    return Remotes(
+        project=project,
+        store=store,
+        upstream=git.remote_url(Path(store), UPSTREAM),
+        origin=git.remote_url(Path(store), ORIGIN),
+    )
+
+
+def add_origin(executor: Executor, store: PurePath, url: str) -> None:
+    Git(executor).add_remote(Path(store), ORIGIN, url)
+
+
+def _default_branch(git: Git, store: Path) -> str | None:
+    ref = git.default_branch_ref(store, UPSTREAM)
+    return ref.removeprefix(f"refs/remotes/{UPSTREAM}/") if ref else None
+
+
+def inspect_commit(executor: Executor, probe: CommitProbe) -> Pending:
+    git = Git(executor)
+    worktree = Path(probe.worktree)
+    return Pending(
+        project=probe.project,
+        worktree=probe.worktree,
+        branch=git.current_branch(worktree),
+        default_branch=_default_branch(git, Path(probe.store)),
+        changes=git.is_dirty(worktree)
+        if probe.everything
+        else git.has_staged(worktree),
+    )
+
+
+def commit_checkout(executor: Executor, worktree: PurePath, message: Message) -> str:
+    """The new HEAD, for the report."""
+    git = Git(executor)
+    git.commit(
+        Path(worktree),
+        message.text,
+        everything=message.everything,
+        signoff=message.signoff,
+    )
+    return git.resolve(Path(worktree), "HEAD") or ""
+
+
+def inspect_push(executor: Executor, probe: PushProbe) -> Unpushed:
+    """No fetch first: the lease is what guards a push against a fork that
+    moved since, and a fetch per project would put the network in a read."""
+    git = Git(executor)
+    store, worktree = Path(probe.store), Path(probe.worktree)
+    branch = git.current_branch(worktree)
+    default = git.default_branch_ref(store, UPSTREAM)
+    origin_head = (
+        git.resolve(store, f"refs/remotes/{ORIGIN}/{branch}") if branch else None
+    )
+    ahead = behind = 0
+    if branch is not None:
+        tip = f"refs/heads/{branch}"
+        ahead = git.count(store, tip, origin_head or default)
+        behind = git.count(store, origin_head, tip) if origin_head else 0
+    return Unpushed(
+        project=probe.project,
+        worktree=probe.worktree,
+        branch=branch,
+        default_branch=_default_branch(git, store),
+        upstream_url=git.remote_url(store, UPSTREAM),
+        origin_url=git.remote_url(store, ORIGIN),
+        origin_head=origin_head,
+        ahead=ahead,
+        behind=behind,
+        tracked=branch is not None and git.has_upstream(worktree, branch),
+    )
+
+
+def send_push(executor: Executor, push: Push) -> tuple[str, ...]:
+    said = Git(executor).push(
+        Path(push.worktree),
+        push.branch,
+        set_upstream=push.set_upstream,
+        lease=push.lease,
+    )
+    return _remote_links(said)
+
+
+def _remote_links(said: str) -> tuple[str, ...]:
+    """The links in the `remote:` lines git relays from the server - where
+    GitHub, GitLab and their kin say how to open a PR for what was pushed."""
+    return tuple(
+        match.group(0)
+        for line in said.splitlines()
+        if line.startswith("remote:")
+        for match in [_URL.search(line)]
+        if match is not None
+    )
+
+
+_URL = re.compile(r"https?://\S+")
 
 
 def _drift(git: Git, worktree: Path, branch: str) -> tuple[Tracking, ...]:

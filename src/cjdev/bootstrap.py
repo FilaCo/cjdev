@@ -13,11 +13,14 @@ from pathlib import Path
 from typing import final
 
 from cjdev.application.build_units import BuildUnits, HostProvider
+from cjdev.application.commit_branch_set import CommitBranchSet
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Prompt
+from cjdev.application.push_branch_set import PushBranchSet
 from cjdev.application.report_status import ReportStatus
+from cjdev.application.wire_origin import WireOrigin
 from cjdev.application.workspace import find_root
 from cjdev.domain.config import LayeredManifest, WorkspaceConfig, layer
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
@@ -26,7 +29,9 @@ from cjdev.domain.manifest import Manifest
 from cjdev.infra.config import (
     load_bundled_manifest,
     load_environment,
+    load_fork_owner,
     load_workspace_config,
+    record_fork_owner,
     render_workspace_config,
 )
 from cjdev.infra.container import (
@@ -43,11 +48,17 @@ from cjdev.infra.executor.container import ContainerExecutor
 from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
     add_checkout,
+    add_origin,
+    commit_checkout,
     drop_checkout,
     inspect_checkout,
+    inspect_commit,
+    inspect_push,
     provision_object_store,
+    read_remotes,
     read_store,
     remove_object_store,
+    send_push,
 )
 from cjdev.infra.host import detect_host
 from cjdev.infra.journal import CommandJournal, open_journal
@@ -333,6 +344,39 @@ class Container:
         makes that refusal the only one a reader has to find."""
         assert spec is not None
         return spec
+
+    def commit_branch_set(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> CommitBranchSet:
+        return CommitBranchSet(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            inspect=inspect_commit,
+            commit=commit_checkout,
+        )
+
+    def push_branch_set(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> PushBranchSet:
+        return PushBranchSet(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            inspect=inspect_push,
+            send=send_push,
+        )
+
+    def wire_origin(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> WireOrigin:
+        return WireOrigin(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            file_system=self.file_system(dry_run=dry_run),
+            read_remotes=read_remotes,
+            add_origin=add_origin,
+            read_owner=load_fork_owner,
+            record_owner=record_fork_owner,
+        )
 
     def report_status(
         self, *, verbose: bool = False, manifest: Manifest

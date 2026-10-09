@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 
 import tomlkit
 
+from cjdev.application.ports import FileSystem
 from cjdev.domain.build import CopyStep, InstallStep, RunStep
 from cjdev.domain.config import (
     BUNDLED_MANIFEST,
@@ -20,8 +21,9 @@ from cjdev.domain.config import (
     WorkspaceConfig,
 )
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
+from cjdev.domain.fork import check_fork_owner
 from cjdev.domain.manifest import BuildUnit, Manifest, Project
-from cjdev.errors import ManifestError
+from cjdev.errors import ManifestError, UsageError
 
 SUPPORTED_SCHEMA_VERSION = 2
 """2 added the per-unit build data: `scratch`, `build`, `install` and
@@ -176,6 +178,8 @@ def parse_workspace_config(text: str, *, source: str) -> WorkspaceConfig:
             # so it has no place in a layer. Allowed all the same, or the
             # section the same file carries would be refused as a stray key.
             "environment",
+            # A setting like `environment`, read by `load_fork_owner`.
+            "forge",
         },
         source,
     )
@@ -502,3 +506,45 @@ def render_workspace_config(environment: Environment) -> str:
             )
         )
     )
+
+
+def load_fork_owner(root: Any) -> str | None:
+    """`[forge] fork_owner`: whose forks `origin` points at, or None when the
+    workspace has not said - a workspace that only reads upstream needs none."""
+    text = _read_workspace_file(root)
+    if text is None:
+        return None
+    return parse_fork_owner(text, source=WORKSPACE_CONFIG)
+
+
+def parse_fork_owner(text: str, *, source: str) -> str | None:
+    try:
+        document: Any = tomlkit.parse(text)
+    except Exception as exc:  # tomlkit raises a family of parse errors
+        raise ManifestError(f"{source} is not valid TOML: {exc}") from exc
+    where = f"{source}: forge"
+    body = _require_table(document, "forge", source)
+    _reject_unknown_keys(body, {"fork_owner"}, where)
+    if "fork_owner" not in body:
+        return None
+    _reject_mistyped(body, "fork_owner", where, str, "a string")
+    try:
+        return check_fork_owner(str(body["fork_owner"]))
+    except UsageError as exc:
+        raise ManifestError(f"{where}: {exc}") from None
+
+
+def record_fork_owner(fs: FileSystem, root: Any, owner: str) -> None:
+    """Write `owner` into the workspace file, the rest of it untouched.
+
+    Through `tomlkit` for the reason `render_workspace_config` gives: the user
+    edits this file by hand, and their comments outlive the edit.
+    """
+    text = _read_workspace_file(root) or ""
+    if parse_fork_owner(text, source=WORKSPACE_CONFIG) == owner:
+        return
+    document: Any = tomlkit.parse(text)
+    if "forge" not in document:
+        document["forge"] = tomlkit.table()
+    document["forge"]["fork_owner"] = check_fork_owner(owner)
+    fs.write_text(root / ".cjdev" / WORKSPACE_CONFIG, tomlkit.dumps(document))

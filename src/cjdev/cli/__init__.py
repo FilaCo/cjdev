@@ -5,9 +5,11 @@ from cjdev.bootstrap import Container
 from ._context import CjdevContext, CjdevGroup
 from .branch import cli as branch_cli
 from .build import cli as build_cli
+from .commit import cli as commit_cli
 from .config import cli as config_cli
 from .env import cli as env_cli
 from .init import cli as init_cli
+from .push import cli as push_cli
 from .status import cli as status_cli
 
 cli = Typer(
@@ -20,6 +22,8 @@ cli.add_typer(branch_cli, cls=CjdevGroup)
 cli.add_typer(build_cli, cls=CjdevGroup)
 cli.add_typer(init_cli, cls=CjdevGroup)
 cli.add_typer(status_cli, cls=CjdevGroup)
+cli.add_typer(commit_cli, cls=CjdevGroup)
+cli.add_typer(push_cli, cls=CjdevGroup)
 cli.add_typer(config_cli, cls=CjdevGroup)
 cli.add_typer(env_cli, cls=CjdevGroup)
 

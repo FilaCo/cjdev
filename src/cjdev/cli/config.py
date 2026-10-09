@@ -1,11 +1,14 @@
 from pathlib import Path
 
-from typer import Argument, Option, Typer
+from typer import Argument, Exit, Option, Typer
+
+from cjdev.application.workspace import require_root
 
 from ._console import console
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
 from ._output import begin
-from ._render import config_payload, render_config_show
+from ._progress import Transcript
+from ._render import config_payload, render_config_show, render_origin
 
 cli = Typer(
     cls=CjdevGroup,
@@ -38,3 +41,36 @@ def show(
         out.document(config_payload(layered, environment))
     else:
         render_config_show(console, layered, environment, verbose=verbose)
+
+
+@cli.command(cls=CjdevCommand)
+def origin(
+    ctx: CjdevContext,
+    owner: str | None = Argument(
+        None,
+        help="Whose forks origin points at; recorded as [forge] fork_owner. "
+        "Defaults to the recorded one.",
+    ),
+    path: Path | None = Option(
+        None, "--workspace", "-w", help="The workspace. Defaults to the cwd."
+    ),
+    dry_run: bool = Option(False, "--dry-run", help="Print commands, run none."),
+    verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
+) -> None:
+    """Point origin at OWNER's forks.
+
+    In every project that has no origin yet, derived from its upstream. An
+    origin that points elsewhere is reported, never replaced.
+    """
+    begin("config origin")
+    root = require_root((path or Path.cwd()).resolve())
+    transcript = Transcript()
+    ctx.obj.emit = transcript.emit
+    if not dry_run:
+        ctx.obj.journal(root, ["config", "origin", *([owner] if owner else [])])
+    report = ctx.obj.wire_origin(dry_run=dry_run, verbose=verbose, start=root).perform(
+        root, owner, observer=transcript
+    )
+    render_origin(console, report, lines=transcript.lines)
+    if not report.ok:
+        raise Exit(1)
