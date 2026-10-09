@@ -123,10 +123,8 @@ default_branch = "main"
 # path into the object store's own `info/exclude`, which is shared by every
 # worktree of that store.
 #
-# WHAT IS NOT HERE: cross-unit flags such as stdlib's `--target-lib <runtime
-# output>` and machine-specific ones such as `--target-lib $OPENSSL_PATH`.
-# Those paths carry a target triple that no token spells, so they belong in a
-# workspace's own `extra_args` until there is a verified shape for them.
+# WHAT IS NOT HERE: machine-specific flags such as `--target-lib $OPENSSL_PATH`
+# (stdlib, stdx). They belong in a workspace's own `extra_args`.
 
 [build_units.compiler]
 project = "cangjie_compiler"
@@ -161,7 +159,10 @@ project = "cangjie_runtime"
 path = "stdlib"
 depends_on = ["compiler", "runtime"]
 scratch = ["build", "output"]
-build = ["python3", "build.py", "build", "-t", "{profile}", "-j", "{jobs}"]
+# `--target-lib {dist}`: the runtime installs its libraries under
+# `{dist}/common/linux_<profile>_<arch>/`, which stdlib finds only through
+# it. Without it, stdlib falls back to `$CANGJIE_HOME/lib` and the link fails.
+build = ["python3", "build.py", "build", "-t", "{profile}", "-j", "{jobs}", "--target-lib", "{dist}"]
 install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 
 # `build/` is deliberately absent: stdx tracks `build/common/*.cmake` the way

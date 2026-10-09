@@ -186,6 +186,15 @@ def test_unit_names_are_the_flat_token_the_cli_takes(bundled: Manifest):
 
 
 class TestBuildData:
+    def test_the_stdlib_unit_points_at_the_runtime_through_the_dist(self, bundled):
+        # Arrange: the runtime's libraries are under `{dist}/common`, which
+        # stdlib looks in only when told.
+        unit = bundled.unit("stdlib")
+
+        # Act / Assert
+        assert "--target-lib" in unit.build
+        assert unit.build[unit.build.index("--target-lib") + 1] == "{dist}"
+
     def test_every_shipped_unit_can_be_built(self, bundled: Manifest):
         # Arrange / Act / Assert: a unit with no argv is a name `cjdev build`
         # can only refuse.
