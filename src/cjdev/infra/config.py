@@ -19,7 +19,13 @@ from cjdev.domain.config import (
     UnitOverride,
     WorkspaceConfig,
 )
-from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
+from cjdev.domain.environment import (
+    DEFAULT_ENVIRONMENT,
+    Environment,
+    ImagePolicy,
+    Mode,
+    Runtime,
+)
 from cjdev.domain.manifest import BuildUnit, Manifest, Project
 from cjdev.errors import ManifestError
 
@@ -221,10 +227,11 @@ def parse_environment(text: str, *, source: str) -> Environment:
 
     where = f"{source}: environment"
     body = _require_table(document, "environment", source)
-    _reject_unknown_keys(body, {"mode", "runtime"}, where)
+    _reject_unknown_keys(body, {"mode", "runtime", "image"}, where)
     return Environment(
         mode=_word(body, "mode", where, Mode, DEFAULT_ENVIRONMENT.mode),
         runtime=_word(body, "runtime", where, Runtime, DEFAULT_ENVIRONMENT.runtime),
+        image=_word(body, "image", where, ImagePolicy, DEFAULT_ENVIRONMENT.image),
     )
 
 
@@ -475,7 +482,8 @@ WORKSPACE_CONFIG_TEMPLATE = """\
 # "podman", and is read only under "container". These two are settings rather
 # than overrides - nothing is layered under them - and `cjdev init` asks for
 # them once, when it creates this file. Changing the answer afterwards is
-# editing these lines.
+# editing these lines. `image = "refuse"` stops `cjdev build` from building a
+# missing image itself, and names `cjdev env build` instead.
 [environment]
 mode = "{mode}"
 runtime = "{runtime}"

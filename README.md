@@ -103,6 +103,11 @@ scratch symlinks resolve on both sides and a host editor read a `compile_command
 written inside. What the build writes belongs to you: cjdev passes `--user` under
 docker and `--userns=keep-id` under rootless podman.
 
+The first `cjdev build` on a machine builds the image itself, shown as a step of its
+own and logged as `cjdev env build`. `image = "refuse"` under `[environment]` turns
+that into a refusal naming `cjdev env build`, for CI or anywhere a build must not change
+anything outside the workspace.
+
 ```bash
 cjdev env build                    # build the image, from the Dockerfile cjdev ships
 cjdev env run -- cmake --version   # one command, with the build's environment
