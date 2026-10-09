@@ -24,7 +24,13 @@ from pathlib import PurePosixPath
 from typing import Generic, TypeVar, cast, final
 
 from cjdev.domain.build import InstallStep
-from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole
+from cjdev.domain.manifest import (
+    BuildUnit,
+    Manifest,
+    Project,
+    ProjectRole,
+    ThirdParty,
+)
 from cjdev.errors import ManifestError
 
 BUNDLED = "bundled"
@@ -85,6 +91,7 @@ class UnitOverride:
     extra_args: tuple[str, ...] | None = None
     """Where a flag somebody passes every day is written down once. Replaces
     rather than appends, like every other override here."""
+    third_party: tuple[ThirdParty, ...] | None = None
 
 
 @final
@@ -125,6 +132,7 @@ class UnitLayers:
     build: Sourced[tuple[str, ...]]
     install: Sourced[tuple[InstallStep, ...]]
     extra_args: Sourced[tuple[str, ...]]
+    third_party: Sourced[tuple[ThirdParty, ...]]
 
 
 @final
@@ -190,6 +198,7 @@ def layer(base: Manifest, override: WorkspaceConfig) -> LayeredManifest:
                 build=unit.build.value,
                 install=unit.install.value,
                 extra_args=unit.extra_args.value,
+                third_party=unit.third_party.value,
             )
             for unit in units
         ),
@@ -304,6 +313,11 @@ def _layer_units(base: Manifest, override: WorkspaceConfig) -> tuple[UnitLayers,
                 o is not None and o.extra_args is not None,
                 o and o.extra_args,
             ),
+            third_party=_field(
+                unit.third_party,
+                o is not None and o.third_party is not None,
+                o and o.third_party,
+            ),
         )
         for unit in base.build_units
         for o in (override.build_units.get(unit.name),)
@@ -336,6 +350,7 @@ def _layer_units(base: Manifest, override: WorkspaceConfig) -> tuple[UnitLayers,
                 build=Sourced(o.build or (), WORKSPACE),
                 install=Sourced(o.install or (), WORKSPACE),
                 extra_args=Sourced(o.extra_args or (), WORKSPACE),
+                third_party=Sourced(o.third_party or (), WORKSPACE),
             )
         )
     return tuple(layered)

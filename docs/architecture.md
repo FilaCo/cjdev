@@ -263,7 +263,9 @@ of the two - and the ccache store is not, because ccache hashes the compiler.
 **Only `build` crosses the boundary.** git stays here, all of it: credential helpers, the
 ssh agent and the worktree registrations are this machine's, and `cjdev status` must not
 start failing because a daemon is down. The build's *own* git does run inside - cjpm's
-build clones libuv - which is why the image carries git and CA certificates.
+build clones libuv - which is why the image carries git and CA certificates. What a
+configure would clone unchecked is a unit's `third_party` instead: fetched out here
+before the build, and linked by commit at the path the configure looks at (ADR-0027).
 
 ## The machine surface
 

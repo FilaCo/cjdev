@@ -20,7 +20,7 @@ from cjdev.domain.config import (
     WorkspaceConfig,
 )
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
-from cjdev.domain.manifest import BuildUnit, Manifest, Project
+from cjdev.domain.manifest import BuildUnit, Manifest, Project, ThirdParty
 from cjdev.errors import ManifestError
 
 SUPPORTED_SCHEMA_VERSION = 2
@@ -38,6 +38,7 @@ UNIT_KEYS = {
     "build",
     "install",
     "extra_args",
+    "third_party",
 }
 
 WORKSPACE_CONFIG = "config.toml"
@@ -260,6 +261,7 @@ def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
         build=tuple(str(word) for word in body.get("build", [])),
         install=_install(body, where) or (),
         extra_args=tuple(str(word) for word in body.get("extra_args", [])),
+        third_party=_third_party(body, where) or (),
     )
 
 
@@ -272,6 +274,9 @@ def _check_unit_keys(body: Any, where: str) -> None:
     _reject_mistyped(body, "build", where, list, "an argv array")
     _reject_mistyped(body, "install", where, list, "an argv array or copy tables")
     _reject_mistyped(body, "extra_args", where, list, "an array of arguments")
+    _reject_mistyped(
+        body, "third_party", where, list, "tables of path, upstream and ref"
+    )
 
 
 def _install(body: Any, where: str) -> tuple[InstallStep, ...] | None:
@@ -304,6 +309,26 @@ def _copy_step(entry: Any, where: str) -> CopyStep:
         source=PurePosixPath(str(_require(entry, "from", f"{where} install"))),
         into=str(_require(entry, "to", f"{where} install")),
     )
+
+
+def _third_party(body: Any, where: str) -> tuple[ThirdParty, ...] | None:
+    """`None` when the key is absent, so that an explicit `[]` can opt out."""
+    if "third_party" not in body:
+        return None
+    sources = []
+    for entry in body["third_party"]:
+        at = f"{where} third_party"
+        _reject_unknown_keys(entry, {"path", "upstream", "ref"}, at)
+        for key in ("path", "upstream", "ref"):
+            _reject_mistyped(entry, key, at, str, "a string")
+        sources.append(
+            ThirdParty(
+                path=PurePosixPath(str(_require(entry, "path", at))),
+                upstream=str(_require(entry, "upstream", at)),
+                ref=str(_require(entry, "ref", at)),
+            )
+        )
+    return tuple(sources)
 
 
 def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
@@ -367,6 +392,7 @@ def _unit_override(name: str, body: Any, source: str) -> UnitOverride:
             if "extra_args" in body
             else None
         ),
+        third_party=_third_party(body, where),
     )
 
 
