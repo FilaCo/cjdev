@@ -162,7 +162,7 @@ class TestValidation:
 
 class TestBuildData:
     def test_a_scratch_path_that_escapes_the_worktree_is_refused(self):
-        # Arrange / Act / Assert: these paths get symlinked and removed.
+        # Arrange / Act / Assert: these paths get moved in and out.
         with pytest.raises(ManifestError, match="scratch path must be relative"):
             manifest(
                 projects=[project("a")],
@@ -178,8 +178,8 @@ class TestBuildData:
             )
 
     def test_one_scratch_path_inside_another_is_refused(self):
-        # Arrange / Act / Assert: the outer one is a symlink, so the inner one
-        # is not a path in the worktree at all.
+        # Arrange / Act / Assert: the outer one's move already carries the
+        # inner one.
         with pytest.raises(ManifestError, match="inside scratch path"):
             manifest(
                 projects=[project("a")],

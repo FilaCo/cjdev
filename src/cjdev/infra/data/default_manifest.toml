@@ -99,13 +99,13 @@ default_branch = "main"
 # THREE KEYS DESCRIBE THE BUILD, and all three differ per unit, which is why
 # they are data:
 #
-# `scratch` - the directories the build writes into, relative to `path`. cjdev
-# replaces each one in the worktree with a relative symlink into
-# `.cjdev/build/<set>/<profile>/<unit>/`, because every upstream script derives
+# `scratch` - the directories the build writes into, relative to `path`. They
+# live in `.cjdev/build/<set>/<env>/<profile>/<unit>/` and are moved into the
+# worktree only while the unit builds, because every upstream script derives
 # its own output location from `__file__` and takes no flag for it. The lists
 # are per unit and not guessable: `build/` is *tracked source* in
 # cangjie_runtime/runtime and in cangjie_stdx, so a uniform `build` entry would
-# delete those projects' toolchain files.
+# move those projects' toolchain files.
 #
 # `build` and `install` - the argv, with `{profile}`, `{jobs}`, `{dist}` and
 # `{build_dir}` replaced literally. No conditionals: a template that wants an
@@ -115,13 +115,10 @@ default_branch = "main"
 # and `to`, for a unit whose artefacts go to two different places. Only cjpm
 # needs it.
 #
-# A SCRATCH PATH IS ALSO AN IGNORE PROBLEM. A symlink is not a directory to
-# git, so an upstream pattern written `output/` does not match the link cjdev
-# puts there - and `runtime`, `stdx` and `cjpm` all leave their scratch paths
-# visible for that reason (compiler and stdlib write `output` and `build`
-# without the slash, and those do match). cjdev therefore writes every scratch
-# path into the object store's own `info/exclude`, which is shared by every
-# worktree of that store.
+# A SCRATCH PATH IS ALSO AN IGNORE PROBLEM while a build runs, or after one
+# was killed: cjpm ignores none of its own. cjdev writes every scratch path
+# into the object store's `info/exclude`, which every worktree of that store
+# shares.
 #
 # WHAT IS NOT HERE: machine-specific flags such as `--target-lib $OPENSSL_PATH`
 # (stdlib, stdx). They belong in a workspace's own `extra_args`.
@@ -143,14 +140,7 @@ install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 project = "cangjie_runtime"
 path = "runtime"
 depends_on = []
-# `CMakebuild` is deliberately absent: upstream's build.py wipes it with
-# `shutil.rmtree` before every build (runtime/build.py:76-87), so nothing
-# persists there for a redirect to carry - and a redirect would break the
-# wipe itself (`rmtree` refuses a symlink, issue #29). `output` and
-# `build/cjthread_build` survive the wipe and stay redirected; the wipe of
-# `output/temp` deletes a real directory through the `output/` link, which
-# is why that one works.
-scratch = ["output", "build/cjthread_build"]
+scratch = ["output", "CMakebuild", "build/cjthread_build"]
 build = ["python3", "build.py", "build", "-t", "{profile}", "--prefix", "{dist}/common"]
 install = ["python3", "build.py", "install"]
 

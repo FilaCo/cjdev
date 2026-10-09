@@ -2,11 +2,7 @@ from pathlib import Path, PurePath, PurePosixPath
 
 import pytest
 
-from cjdev.domain.layout import (
-    WorkspaceLayout,
-    flatten_branch_set,
-    relative_target,
-)
+from cjdev.domain.layout import WorkspaceLayout, flatten_branch_set
 from cjdev.errors import UsageError
 
 ROOT = Path("/ws")
@@ -215,32 +211,6 @@ class TestBuildPaths:
             layout.build_lock("main", "../../etc")
         with pytest.raises(UsageError):
             layout.unit_log("main", "..")
-
-
-class TestRelativeTargets:
-    def test_a_link_in_a_worktree_reaches_the_build_directory_by_dots(
-        self, layout: WorkspaceLayout
-    ):
-        # Arrange
-        link = layout.worktree("main", COMPILER) / "build"
-        real = layout.build_dir("main", "host", "release", "compiler") / "build"
-
-        # Act / Assert: relative, because an absolute target breaks the moment
-        # the workspace is mounted somewhere else.
-        assert relative_target(link, real) == PurePath(
-            "../../.cjdev/build/main/host/release/compiler/build"
-        )
-
-    def test_a_deeper_link_needs_more_dots(self, layout: WorkspaceLayout):
-        # Arrange
-        link = layout.worktree("main", COMPILER) / "cjpm" / "cpp" / "out"
-        real = layout.build_dir("main", "host", "release", "cjpm") / "cpp" / "out"
-
-        # Act
-        target = relative_target(link, real)
-
-        # Assert
-        assert target.parts[:4] == ("..", "..", "..", "..")
 
 
 class TestSdkEnvironment:

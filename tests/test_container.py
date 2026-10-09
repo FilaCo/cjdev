@@ -354,8 +354,8 @@ class TestAgainstARealRuntime:
         # Act
         result = HostExecutor().run(command)
 
-        # Assert: the scratch symlinks are relative and clangd reads absolute
-        # paths, and both need this to be true.
+        # Assert: the dist and the logs are absolute paths, and clangd reads
+        # absolute paths too.
         assert result.stdout.strip() == "here"
 
     def test_what_it_writes_belongs_to_the_caller(

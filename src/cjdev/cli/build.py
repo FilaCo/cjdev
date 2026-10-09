@@ -63,9 +63,10 @@ def build(
 ) -> None:
     """Build the SDK from the branch set you are standing in.
 
-    One unit at a time, in dependency order, out of tree: each unit's scratch
-    directories are symlinked into `.cjdev/build/<set>/<profile>/`, so
-    switching profiles costs nothing and two branch sets never share a build.
+    One unit at a time, in dependency order: each unit's scratch directories
+    live in `.cjdev/build/<set>/<profile>/` and are moved into the worktree
+    only while it builds, so switching profiles costs nothing and two branch
+    sets never share a build.
 
     There is no --workspace: the cwd names the branch set as well as the
     workspace, and a flag that answered only half of that would be worse than
