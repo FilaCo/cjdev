@@ -236,3 +236,24 @@ class TestBuildData:
     def test_nothing_ships_an_extra_arg(self, bundled: Manifest):
         # Machine-specific flags belong to a workspace, not to the wheel.
         assert all(unit.extra_args == () for unit in bundled.build_units)
+
+
+def test_the_compiler_names_what_its_configure_would_clone(bundled: Manifest):
+    # Upstream checks exactly these paths before cloning, and skips the
+    # clone when something is there.
+    sources = bundled.unit("compiler").third_party
+
+    assert [str(source.path) for source in sources] == [
+        "third_party/boundscheck",
+        "third_party/llvm-project",
+        "third_party/flatbuffers",
+    ]
+    assert all(source.upstream.startswith("https://") for source in sources)
+
+
+def test_no_other_unit_fetches_anything(bundled: Manifest):
+    assert all(
+        unit.third_party == ()
+        for unit in bundled.build_units
+        if unit.name != "compiler"
+    )

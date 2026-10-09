@@ -349,3 +349,45 @@ class TestEnvironment:
     def test_a_workspace_with_no_file_at_all_answers_host(self, tmp_path: Path):
         # Arrange / Act / Assert
         assert load_environment(tmp_path) == DEFAULT_ENVIRONMENT
+
+
+class TestThirdParty:
+    def test_an_empty_list_opts_out_rather_than_inheriting(self):
+        # Arrange / Act
+        config = parse_workspace_config(
+            "[build_units.compiler]\nthird_party = []\n", source="config.toml"
+        )
+
+        # Assert
+        assert config.build_units["compiler"].third_party == ()
+
+    def test_a_table_carries_path_upstream_and_ref(self):
+        # Arrange
+        text = """
+        [[build_units.compiler.third_party]]
+        path = "third_party/llvm-project"
+        upstream = "https://example.invalid/llvm.git"
+        ref = "dev"
+        """
+
+        # Act
+        config = parse_workspace_config(text, source="config.toml")
+
+        # Assert
+        sources = config.build_units["compiler"].third_party
+        assert sources is not None
+        assert [(str(s.path), s.ref) for s in sources] == [
+            ("third_party/llvm-project", "dev")
+        ]
+
+    def test_a_missing_ref_is_refused_naming_the_file(self):
+        # Arrange
+        text = """
+        [[build_units.compiler.third_party]]
+        path = "third_party/llvm-project"
+        upstream = "https://example.invalid/llvm.git"
+        """
+
+        # Act / Assert
+        with pytest.raises(ManifestError, match=r"config.toml.*'ref'"):
+            parse_workspace_config(text, source="config.toml")

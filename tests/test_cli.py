@@ -793,6 +793,7 @@ BUILD_CONFIG = """\
 scratch = ["build"]
 build = ["python3", "build.py", "build", "{profile}"]
 install = ["python3", "build.py", "install", "{dist}"]
+third_party = []
 """
 
 
@@ -904,6 +905,33 @@ class TestBuild:
         # Assert
         log = Path(WorkspaceLayout(branch_set).command_log).read_text()
         assert "build.py build release" in log
+
+    @pytest.mark.usefixtures("git_available")
+    def test_third_party_is_linked_before_the_build_and_its_fetch_logged(
+        self, branch_set: Path
+    ):
+        # Arrange
+        url = make_upstream(branch_set / "upstreams" / "dep")
+        layout = WorkspaceLayout(branch_set)
+        Path(layout.config_file).write_text(
+            BUILD_CONFIG.replace("third_party = []\n", "")
+            + "[[build_units.compiler.third_party]]\n"
+            + f'path = "third_party/dep"\nupstream = "{url}"\nref = "main"\n',
+            encoding="utf-8",
+        )
+        worktree = Path(layout.worktree("main", "cangjie_compiler"))
+        (worktree / "third_party").mkdir()
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert (worktree / "third_party" / "dep").is_symlink()
+        assert (worktree / "third_party" / "dep" / "README").read_text() == "hello"
+        log = Path(layout.command_log).read_text()
+        assert "git ls-remote" in log
+        assert "git fetch --quiet --depth 1" in log
 
 
 class TestPassthroughSplit:

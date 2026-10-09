@@ -382,6 +382,17 @@ def config_payload(
                 "extra_args": sourced(
                     list(unit.extra_args.value), unit.extra_args.layer
                 ),
+                "third_party": sourced(
+                    [
+                        {
+                            "path": str(source.path),
+                            "upstream": source.upstream,
+                            "ref": source.ref,
+                        }
+                        for source in unit.third_party.value
+                    ],
+                    unit.third_party.layer,
+                ),
             }
             for unit in layered.build_units
         ],
@@ -498,6 +509,15 @@ def render_config_show(
             "    extra_args",
             " ".join(unit.extra_args.value) or "-",
             unit.extra_args.layer,
+        )
+        add_row(
+            "    third_party",
+            "; ".join(
+                f"{source.path} <- {source.upstream} {source.ref}"
+                for source in unit.third_party.value
+            )
+            or "-",
+            unit.third_party.layer,
         )
 
     add_row("", "")

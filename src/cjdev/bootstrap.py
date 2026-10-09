@@ -44,10 +44,12 @@ from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
     add_checkout,
     drop_checkout,
+    fetch_commit,
     inspect_checkout,
     provision_object_store,
     read_store,
     remove_object_store,
+    resolve_ref,
 )
 from cjdev.infra.host import detect_host
 from cjdev.infra.journal import CommandJournal, open_journal
@@ -245,6 +247,7 @@ class Container:
         executor, host = self._where_builds_run(
             environment, start, dry_run=dry_run, verbose=verbose
         )
+        outside = self.executor(dry_run=dry_run, verbose=verbose)
         return BuildUnits(
             manifest=lambda: self.manifest(start),
             executor=executor,
@@ -254,6 +257,10 @@ class Container:
             # there is nothing for a second one to collide with.
             lock=no_lock if dry_run else file_lock,
             environment=environment,
+            resolve=lambda cwd, upstream, ref: resolve_ref(outside, cwd, upstream, ref),
+            fetch=lambda into, upstream, commit: fetch_commit(
+                outside, into, upstream, commit
+            ),
         )
 
     def manage_environment(

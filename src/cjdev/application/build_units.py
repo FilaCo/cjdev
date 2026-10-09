@@ -24,11 +24,12 @@ import os
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto, unique
 from pathlib import Path, PurePath, PurePosixPath
 from typing import final
 
+from cjdev.application import third_party as sources
 from cjdev.application.ports import Command, Executor, FileSystem
 from cjdev.application.report_status import ManifestProvider
 from cjdev.application.runner import Outcome, Runner, RunObserver, RunReport, Work
@@ -101,6 +102,7 @@ class Observed:
     excludes: Mapping[str, str]
     """One project's current `info/exclude`, empty when it has none."""
     worktrees: frozenset[str]
+    third_party: Mapping[str, tuple[sources.Seen, ...]] = field(default_factory=dict)
 
 
 @final
@@ -158,6 +160,8 @@ class UnitPlan:
     scratch: tuple[Move, ...]
     """Into the worktree before the build; reversed after it."""
     steps: tuple[Step, ...]
+    third_party: tuple[sources.Provision, ...] = ()
+    """Fetched and linked before anything moves in."""
 
 
 @final
@@ -280,6 +284,9 @@ def observe(
             for unit in units
             if Path(layout.worktree(branch_set, unit.project)).is_dir()
         ),
+        third_party={
+            unit.name: sources.observe(layout, branch_set, unit) for unit in units
+        },
     )
 
 
@@ -431,6 +438,9 @@ def _unit_plan(
                 _install_step(step, directory, env, log, unit.name, values)
                 for step in unit.install
             ),
+        ),
+        third_party=sources.decide(
+            layout, branch_set, unit, observed.third_party.get(unit.name, ())
         ),
     )
 
@@ -642,6 +652,8 @@ class BuildUnits:
         host: HostProvider,
         lock: Lock,
         environment: Environment = DEFAULT_ENVIRONMENT,
+        resolve: sources.Resolve | None = None,
+        fetch: sources.Fetch | None = None,
     ) -> None:
         # A provider rather than a Manifest: the workspace layer is resolved
         # when the command runs, from where the caller stands - not when the
@@ -652,6 +664,10 @@ class BuildUnits:
         self._host = host
         self._lock = lock
         self._environment = environment
+        # Not through `executor`: under a container that one runs inside, and
+        # fetching stays on this machine, with its credentials.
+        self._resolve = resolve
+        self._fetch = fetch
 
     def plan(
         self,
@@ -735,6 +751,15 @@ class BuildUnits:
         def build() -> float:
             began = time.monotonic()
             with self._lock(unit.lock):
+                for provision in unit.third_party:
+                    assert self._resolve is not None and self._fetch is not None
+                    sources.provide(
+                        provision,
+                        resolve=self._resolve,
+                        fetch=self._fetch,
+                        file_system=self._fs,
+                        lock=self._lock,
+                    )
                 for path in unit.stale:
                     self._fs.remove(path)
                 for move in unit.recover:
