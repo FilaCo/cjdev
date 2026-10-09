@@ -13,6 +13,9 @@ The code uses one vocabulary verbatim, and these are the words:
 | **object store** | the bare repository behind a project, fetched once and shared by every worktree |
 | **manifest** | the project set and the build-unit graph, as data |
 | **executor** | how an external command is run: on the host, or later in a container |
+| **upstream** | the canonical repository of a project: fetched, never pushed to |
+| **origin** | the user's fork of a project, the only remote `push` writes to |
+| **fork owner** | the forge account `origin` belongs to; one per workspace, and every fork URL is derived from it |
 
 Mixing up **project** and **build unit** is the single easiest way to write a wrong
 function: `cangjie_runtime` is one project holding two units, so anything that says "for
