@@ -41,9 +41,9 @@ def build(
         None,
         help=(
             "Build units or projects to build, with their dependencies. "
-            "Default: the whole SDK. After `--`, a flag and everything "
-            "following it are passed to the build script, and then exactly "
-            "one unit may be named."
+            "Default: every unit the branch set holds. After `--`, a flag "
+            "and everything following it are passed to the build script, "
+            "and then exactly one unit may be named."
         ),
     ),
     profile: Profile = Option(

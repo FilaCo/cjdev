@@ -37,6 +37,7 @@ from cjdev.domain.build import (
     DIST,
     JOBS,
     PROFILE,
+    TARGET,
     CopyStep,
     Host,
     Profile,
@@ -254,6 +255,25 @@ def select_units(
     return manifest.build_order(selection)
 
 
+def held_by_branch_set(
+    manifest: Manifest, units: Sequence[BuildUnit], present: frozenset[str]
+) -> tuple[BuildUnit, ...]:
+    """An implicit selection, narrowed to the projects the branch set holds.
+
+    Most workspaces never clone cangjie_multiplatform_interop, and the whole-SDK
+    build must not start refusing for a unit nobody asked for. What a kept unit
+    depends on stays even when absent, so the refusal names the missing project
+    rather than a later build failing on what it never got.
+    """
+    needed = {
+        unit.name
+        for unit in manifest.build_order(
+            unit.name for unit in units if unit.project in present
+        )
+    }
+    return tuple(unit for unit in units if unit.name in needed)
+
+
 def observe(
     layout: WorkspaceLayout, branch_set: str, units: Sequence[BuildUnit]
 ) -> Observed:
@@ -390,6 +410,7 @@ def _unit_plan(
         JOBS: str(host.jobs),
         DIST: str(layout.dist_dir(branch_set, where, profile.value)),
         BUILD_DIR: str(layout.build_dir(branch_set, where, profile.value, unit.name)),
+        TARGET: host.target,
     }
     return UnitPlan(
         unit=unit.name,
@@ -665,7 +686,18 @@ class BuildUnits:
     ) -> BuildPlan:
         """Everything `apply` would do, decided without doing any of it."""
         layout = WorkspaceLayout(root)
-        units = select_units(self._manifest(), names, downstream=downstream)
+        manifest = self._manifest()
+        units = select_units(manifest, names, downstream=downstream)
+        if not names:
+            units = held_by_branch_set(
+                manifest,
+                units,
+                frozenset(
+                    project.name
+                    for project in manifest.projects
+                    if Path(layout.worktree(branch_set, project.name)).is_dir()
+                ),
+            )
         if not units:
             raise PreconditionError(
                 "the manifest declares no build units, so there is nothing to build."

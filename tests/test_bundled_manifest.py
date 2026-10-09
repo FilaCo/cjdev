@@ -27,7 +27,15 @@ PROJECTS = [
     "cangjie_multiplatform_interop",
 ]
 
-UNITS = ["compiler", "runtime", "stdlib", "stdx", "cjpm"]
+UNITS = [
+    "compiler",
+    "runtime",
+    "stdlib",
+    "stdx",
+    "cjpm",
+    "objc-interoplib",
+    "objc-interop-gen",
+]
 
 
 @pytest.fixture
@@ -56,9 +64,11 @@ def test_ships_only_the_units_whose_edges_are_settled(bundled: Manifest):
     assert [u.name for u in bundled.build_units] == UNITS
 
 
-def test_the_interop_project_contributes_no_edges_yet(bundled: Manifest):
-    # It is still cloned and branched like any other project.
-    assert bundled.units_of("cangjie_multiplatform_interop") == ()
+def test_the_interop_project_holds_the_objc_units(bundled: Manifest):
+    assert [u.name for u in bundled.units_of("cangjie_multiplatform_interop")] == [
+        "objc-interoplib",
+        "objc-interop-gen",
+    ]
 
 
 def test_one_project_can_hold_several_build_units(bundled: Manifest):
@@ -69,7 +79,16 @@ def test_one_project_can_hold_several_build_units(bundled: Manifest):
 
 
 def test_the_whole_sdk_builds_in_dependency_order(bundled: Manifest):
-    assert [u.name for u in bundled.build_order()] == UNITS
+    # ObjCInteropGen depends on nothing, so manifest order lets it go early.
+    assert [u.name for u in bundled.build_order()] == [
+        "compiler",
+        "runtime",
+        "objc-interop-gen",
+        "stdlib",
+        "stdx",
+        "objc-interoplib",
+        "cjpm",
+    ]
 
 
 def test_build_unit_paths_locate_their_build_script(bundled: Manifest):
@@ -236,3 +255,60 @@ class TestBuildData:
     def test_nothing_ships_an_extra_arg(self, bundled: Manifest):
         # Machine-specific flags belong to a workspace, not to the wheel.
         assert all(unit.extra_args == () for unit in bundled.build_units)
+
+
+class TestObjcUnits:
+    def test_the_interoplib_builds_with_the_sdk_it_installs_into(
+        self, bundled: Manifest
+    ):
+        # `cjc` compiles it against std's `.cjo` and links against the runtime.
+        assert bundled.unit("objc-interoplib").depends_on == (
+            "compiler",
+            "runtime",
+            "stdlib",
+        )
+
+    def test_the_interoplib_installs_under_the_target_of_this_machine(
+        self, bundled: Manifest
+    ):
+        # Arrange: `%import_objc_interop` looks in `<target>_cjnative`, which
+        # the script derives from `--target`.
+        unit = bundled.unit("objc-interoplib")
+        (install,) = unit.install
+
+        # Act / Assert
+        assert isinstance(install, RunStep)
+        for argv in (unit.build, install.argv):
+            assert argv[argv.index("--target") + 1] == "{target}"
+        assert install.argv[install.argv.index("--prefix") + 1] == "{dist}"
+
+    def test_the_generator_is_the_scripts_other_mode(self, bundled: Manifest):
+        # Without `--target` the same script builds ObjCInteropGen instead.
+        unit = bundled.unit("objc-interop-gen")
+        (install,) = unit.install
+
+        assert isinstance(install, RunStep)
+        assert "--target" not in unit.build
+        assert "--target" not in install.argv
+
+    def test_the_two_units_of_one_script_share_no_scratch(self, bundled: Manifest):
+        # Both run in `objc/`: a shared path would be moved by two units, and
+        # the second would find the first one's directory with no marker.
+        lib = set(bundled.unit("objc-interoplib").scratch)
+        gen = set(bundled.unit("objc-interop-gen").scratch)
+
+        assert (
+            bundled.unit("objc-interoplib").path
+            == bundled.unit("objc-interop-gen").path
+        )
+        assert lib.isdisjoint(gen)
+
+    def test_the_tracked_build_directory_is_not_scratch(self, bundled: Manifest):
+        # `objc/build/` holds `build.py` itself.
+        for name in ("objc-interoplib", "objc-interop-gen"):
+            assert PurePosixPath("build") not in bundled.unit(name).scratch
+
+    def test_the_interop_project_is_in_no_group(self, bundled: Manifest):
+        # Its interoplib needs GNUstep, which a host build rarely has.
+        for members in bundled.groups.values():
+            assert "cangjie_multiplatform_interop" not in members

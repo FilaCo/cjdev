@@ -29,8 +29,8 @@ schema_version = 2
 # nothing and cangjie_test is data for it, so a workspace holding only those
 # two has a test runner and no SDK to point it at.
 #
-# cangjie_multiplatform_interop is in no group until its build edges are
-# established.
+# cangjie_multiplatform_interop is in no group: its interoplib links against
+# GNUstep, which the image carries and a host rarely does.
 #
 # Both keys are document-level and must stay above the first table: a TOML key
 # written after one belongs to that table, which is silently a different thing.
@@ -86,9 +86,7 @@ role = "test_data"
 upstream = "https://gitcode.com/Cangjie/cangjie_test.git"
 default_branch = "main"
 
-# Buildable in principle, but its units and edges are not established yet.
-# It is cloned and branched like any other project and
-# simply contributes nothing to the build graph until that is answered.
+# Its objc units are below; `java/` has none yet (#52).
 [projects.cangjie_multiplatform_interop]
 role = "buildable"
 upstream = "https://gitcode.com/Cangjie/cangjie_multiplatform_interop.git"
@@ -107,9 +105,9 @@ default_branch = "main"
 # cangjie_runtime/runtime and in cangjie_stdx, so a uniform `build` entry would
 # move those projects' toolchain files.
 #
-# `build` and `install` - the argv, with `{profile}`, `{jobs}`, `{dist}` and
-# `{build_dir}` replaced literally. No conditionals: a template that wants an
-# `if` belongs in code.
+# `build` and `install` - the argv, with `{profile}`, `{jobs}`, `{dist}`,
+# `{build_dir}` and `{target}` replaced literally. No conditionals: a
+# template that wants an `if` belongs in code.
 #
 # `install` has a second shape, a list of `[[...install]]` tables with `from`
 # and `to`, for a unit whose artefacts go to two different places. Only cjpm
@@ -203,3 +201,34 @@ to = "{dist}/tools/bin"
 [[build_units.cjpm.install]]
 from = "dist/cangjie-repo.toml"
 to = "{dist}/tools/config"
+
+# The two objc units share one script, `objc/build/build.py`: `--target` makes
+# it build the interoplib, no `--target` makes it build ObjCInteropGen.
+#
+# The interoplib installs `objc.internal` and `objc.lang` where
+# `%import_objc_interop` looks: `lib/<target>_cjnative` (static),
+# `runtime/lib/<target>_cjnative` (shared) and `modules/<target>_cjnative`
+# (`.cjo`, beside std's). `-t` is not passed: the script ignores it here.
+#
+# `build/logs` is not scratch: upstream already ignores it, and both units
+# write into it, so declaring it twice would have two units move one path.
+[build_units.objc-interoplib]
+project = "cangjie_multiplatform_interop"
+path = "objc"
+depends_on = ["compiler", "runtime", "stdlib"]
+scratch = ["src/interoplib/output"]
+build = ["python3", "build/build.py", "build", "--target", "{target}"]
+install = ["python3", "build/build.py", "install", "--target", "{target}", "--prefix", "{dist}"]
+
+# The mirror generator the ObjC interop tests run, installed into `tools/bin`,
+# which the build environment puts on PATH. It builds against the system
+# libclang (`libclang-dev`), as its Readme says for Ubuntu, so it needs no
+# other unit. Its `third_party/tinytoml` is cloned on first build and is not
+# scratch: upstream ignores it and it does not differ per profile.
+[build_units.objc-interop-gen]
+project = "cangjie_multiplatform_interop"
+path = "objc"
+depends_on = []
+scratch = ["src/ObjCInteropGen/build/build"]
+build = ["python3", "build/build.py", "build", "-t", "{profile}"]
+install = ["python3", "build/build.py", "install", "--prefix", "{dist}"]
