@@ -310,6 +310,23 @@ def _daemon(executor: Executor, spec: ContainerSpec) -> tuple[str, str, int]:
     return fields[0], fields[1], int(fields[2])
 
 
+def image_present(executor: Executor, spec: ContainerSpec) -> bool:
+    """`image ls` rather than a failed `image inspect`: an empty answer is
+    the absence, where the inspect failing would have to be told from a
+    daemon failing by the wording of its error."""
+    result = _read(
+        executor,
+        Command(
+            argv=(spec.program, "image", "ls", "--quiet", spec.tag),
+            cwd=Path(spec.root),
+            mutates=False,
+            what=f"looking for {spec.tag}",
+        ),
+        remedy=f"start {spec.program} and try again",
+    )
+    return bool(result.stdout.strip())
+
+
 def _image(executor: Executor, spec: ContainerSpec) -> tuple[str, PurePath | None]:
     result = _read(
         executor,

@@ -40,10 +40,28 @@ class Runtime(Enum):
 
 
 @final
+@unique
+class ImagePolicy(Enum):
+    """What a build does when the image for this cjdev's Dockerfile is missing.
+
+    Building it is the default because nothing about it is the caller's to
+    choose: the recipe ships with cjdev and the tag is its hash. Refusing is
+    for a run that must not change anything outside the workspace, CI first.
+    """
+
+    BUILD = "build"
+    REFUSE = "refuse"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@final
 @dataclass(frozen=True)
 class Environment:
     mode: Mode = Mode.HOST
     runtime: Runtime = Runtime.DOCKER
+    image: ImagePolicy = ImagePolicy.BUILD
 
 
 DEFAULT_ENVIRONMENT = Environment()

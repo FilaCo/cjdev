@@ -26,6 +26,7 @@ from cjdev.infra.container import (
     containerise,
     detect_container_host,
     image_command,
+    image_present,
     image_tag,
     remove_image_command,
     require_runtime,
@@ -266,6 +267,26 @@ class TestWhatTheEnvironmentAnswers:
         with pytest.raises(PreconditionError) as refusal:
             detect_container_host(executor, spec())
         assert refusal.value.remedy == "cjdev env build"
+
+    def test_an_image_that_is_there_is_found_by_its_tag(self):
+        # Arrange
+        executor = FakeExecutor("0123456789ab\n")
+
+        # Act
+        present = image_present(executor, spec())
+
+        # Assert: a read, so a dry run asks it for real.
+        assert present
+        assert executor.ran[0].argv == ("docker", "image", "ls", "--quiet", TAG)
+        assert not executor.ran[0].mutates
+
+    def test_an_empty_answer_is_the_absence(self):
+        # Arrange: measured - `image ls` of a missing tag exits 0 and prints
+        # nothing, where `image inspect` fails like a dead daemon would.
+        executor = FakeExecutor("")
+
+        # Act / Assert
+        assert not image_present(executor, spec())
 
     def test_nonsense_from_info_is_refused_rather_than_parsed(self):
         # Arrange

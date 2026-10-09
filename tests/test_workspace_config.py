@@ -11,7 +11,13 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from cjdev.domain.build import CopyStep, RunStep
-from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
+from cjdev.domain.environment import (
+    DEFAULT_ENVIRONMENT,
+    Environment,
+    ImagePolicy,
+    Mode,
+    Runtime,
+)
 from cjdev.errors import ManifestError
 from cjdev.infra.config import (
     SUPPORTED_SCHEMA_VERSION,
@@ -318,7 +324,30 @@ class TestEnvironment:
     def test_an_unknown_key_names_the_file(self):
         # Arrange / Act / Assert
         with pytest.raises(ManifestError, match=r"config\.toml.*environment"):
-            parse_environment('[environment]\nimage = "x"\n', source="config.toml")
+            parse_environment('[environment]\nshell = "x"\n', source="config.toml")
+
+    def test_the_image_policy_defaults_to_building(self):
+        # Arrange / Act
+        environment = parse_environment(
+            '[environment]\nmode = "container"\n', source="config.toml"
+        )
+
+        # Assert: a fresh machine needs one command, not two.
+        assert environment.image is ImagePolicy.BUILD
+
+    def test_refuse_is_read(self):
+        # Arrange / Act
+        environment = parse_environment(
+            '[environment]\nimage = "refuse"\n', source="config.toml"
+        )
+
+        # Assert
+        assert environment.image is ImagePolicy.REFUSE
+
+    def test_a_misspelled_image_policy_is_refused_with_the_vocabulary(self):
+        # Arrange / Act / Assert
+        with pytest.raises(ManifestError, match="build, refuse"):
+            parse_environment('[environment]\nimage = "pull"\n', source="config.toml")
 
     def test_a_mistyped_mode_is_refused_where_the_file_is_named(self):
         # Arrange / Act / Assert
