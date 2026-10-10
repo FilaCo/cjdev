@@ -912,6 +912,10 @@ class TestBuild:
         assert "--no-tests" in log.read_text()
 
     def test_a_passthrough_needs_the_selection_to_be_one_unit(self, branch_set: Path):
+        # Arrange: the whole SDK is what the branch set holds, so it needs a
+        # second project to be more than the compiler.
+        Path(WorkspaceLayout(branch_set).worktree("main", "cangjie_runtime")).mkdir()
+
         # Act: no unit named, so the selection is the whole SDK.
         result = runner.invoke(cli, ["build", "--", "--no-tests"])
 

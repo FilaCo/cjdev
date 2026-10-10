@@ -83,6 +83,58 @@ RUN apt-get update && apt-get install --no-install-recommends --yes \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# GNUstep, for the objc-interoplib unit and for the ObjC interop tests that link
+# against it (`gnustep-config --objc-flags` / `--base-libs`). Built from source
+# because the interop calls libobjc2's API (`objc_msgSend`, `objc_retain`,
+# `objc_autoreleasePoolPush`), and Ubuntu's gnustep-base is built on gcc's
+# libobjc, which has none of it. Two runtimes in one process do not mix, so
+# gnustep-base is rebuilt on libobjc2 too. gnustep-corebase is linked by some
+# integration tests (`-lgnustep-corebase`); it has had no release since 2012, so
+# it is pinned by commit, and built without GCD (libdispatch), which its configure
+# otherwise demands and none of those tests use. Everything is pinned: a moving source is a different
+# image under the same tag.
+#
+# `llvm-dev` is for the ObjCInteropGen unit: its Readme asks only for `clang`
+# and `libclang-dev`, but their ClangConfig.cmake loads LLVMConfig.cmake.
+ARG LIBOBJC2_TAG=v2.2.1
+ARG GNUSTEP_MAKE_TAG=make-2_9_3
+ARG GNUSTEP_BASE_TAG=base-1_31_1
+ARG GNUSTEP_COREBASE_COMMIT=8117c092db139904ae08dc5d4b4b3c5553f2aa5a
+RUN apt-get update && apt-get install --no-install-recommends --yes \
+        libffi-dev \
+        libgnutls28-dev \
+        libicu-dev \
+        libxml2-dev \
+        libxslt1-dev \
+        llvm-dev \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir /usr/src/gnustep && cd /usr/src/gnustep \
+    && git clone --depth 1 --branch "${LIBOBJC2_TAG}" --recurse-submodules \
+        --shallow-submodules https://github.com/gnustep/libobjc2.git \
+    && cmake -S libobjc2 -B libobjc2/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+        -DTESTS=OFF -DGNUSTEP_INSTALL_TYPE=NONE \
+    && cmake --build libobjc2/build && cmake --install libobjc2/build && ldconfig \
+    && git clone --depth 1 --branch "${GNUSTEP_MAKE_TAG}" \
+        https://github.com/gnustep/tools-make.git \
+    && (cd tools-make \
+        && CC=clang CXX=clang++ ./configure --with-library-combo=ng-gnu-gnu \
+            --with-runtime-abi=gnustep-2.2 \
+        && make install) \
+    && git clone --depth 1 --branch "${GNUSTEP_BASE_TAG}" \
+        https://github.com/gnustep/libs-base.git \
+    && (. "$(gnustep-config --variable=GNUSTEP_MAKEFILES)/GNUstep.sh" \
+        && cd libs-base && ./configure && make -j"$(nproc)" && make install) \
+    && ldconfig \
+    && git clone https://github.com/gnustep/libs-corebase.git \
+    && (cd libs-corebase && git checkout --quiet "${GNUSTEP_COREBASE_COMMIT}") \
+    && (. "$(gnustep-config --variable=GNUSTEP_MAKEFILES)/GNUstep.sh" \
+        && cd libs-corebase && ./configure --without-gcd \
+        && make -j"$(nproc)" && make install) \
+    && ldconfig \
+    && cd / && rm -rf /usr/src/gnustep
+
 # cangjie_build's convention for anything installed by hand. Nothing puts
 # tooling here yet; the directory and the PATH entry exist so that whatever
 # does lands where the guide says it does.
