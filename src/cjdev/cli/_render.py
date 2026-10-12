@@ -14,12 +14,17 @@ from rich.table import Table
 from rich.text import Text
 
 from cjdev.application.build_units import BuildReport
+from cjdev.application.commit_branch_set import CommitReport
 from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
+from cjdev.application.push_branch_set import PushReport
+from cjdev.application.run_tests import TestReport
 from cjdev.application.runner import Outcome, RunReport
+from cjdev.application.wire_origin import OriginReport, Wiring
 from cjdev.domain.build import CopyStep, InstallStep
 from cjdev.domain.config import BUNDLED, WORKSPACE, LayeredManifest
 from cjdev.domain.environment import Environment
 from cjdev.domain.state import BranchSet, Checkout, Store, WorkspaceStatus
+from cjdev.domain.testing import FAIL, PASS
 
 from ._console import CANCELLED, DETAIL, MARKS, WAITING
 from ._progress import format_duration
@@ -213,6 +218,153 @@ def build_payload(
             for row in report.rows
         ],
     }
+
+
+def render_tests(console: Console, report: TestReport) -> None:
+    """One line per suite, then its failures by cause.
+
+    A case that failed because a tool is missing says something about the
+    machine, not the code, so those are counted per tool rather than listed:
+    a hundred of them must not bury the one real regression beside them.
+    """
+    root = report.plan.root
+    for outcome in report.suites:
+        console.print()
+        result = outcome.result
+        if result is None:
+            mark, style = MARKS[Outcome.FAILED]
+            console.print(
+                Text(
+                    f"{mark} {outcome.suite}: no results "
+                    f"(the framework exited {outcome.exit_code})",
+                    style=style,
+                )
+            )
+            continue
+        failed = result.failed > 0 or outcome.exit_code != 0
+        mark, style = MARKS[Outcome.FAILED if failed else Outcome.DONE]
+        others = "".join(
+            f", {count} {status.lower()}"
+            for status, count in result.counts.items()
+            if status not in (PASS, FAIL) and count
+        )
+        console.print(
+            Text(
+                f"{mark} {outcome.suite}: {result.passed} passed, "
+                f"{result.failed} failed{others}",
+                style=style,
+            )
+        )
+        for tools, cases in result.missing_tools().items():
+            console.print(
+                f"  {len(cases)} failed for want of {', '.join(tools)}",
+                style=CANCELLED,
+                highlight=False,
+                soft_wrap=True,
+            )
+        for failure in result.other_failures():
+            console.print(
+                Text(f"  {MARKS[Outcome.FAILED][0]} {failure.case}"),
+                highlight=False,
+                soft_wrap=True,
+            )
+            if failure.log is not None:
+                _detail(console, [str(failure.log.relative_to(root))], indent="    ")
+        _detail(console, [f"results: {outcome.results.relative_to(root)}"], "  ")
+
+
+Row = tuple[str, Outcome | None, str, Exception | None]
+"""Project, how it ended (None: skipped), a note, and the failure if any."""
+
+
+def render_rows(
+    console: Console,
+    rows: list[Row],
+    *,
+    interrupted: bool,
+    lines: Callable[[str], tuple[str, ...]],
+) -> None:
+    """The shape `commit`, `push` and `config origin` share: one row per
+    project, then what the run printed, then each failure."""
+    _detail(console, lines(""))
+    table = Table.grid(padding=(0, 2))
+    table.add_column(width=1)
+    table.add_column()
+    # Folded, never cut short: the note is often a URL to open.
+    table.add_column(style=DETAIL, overflow="fold")
+    for project, outcome, note, _ in rows:
+        mark, style = WAITING if outcome is None else MARKS[outcome]
+        table.add_row(Text(mark, style=style), project, Text(note))
+    console.print(table)
+
+    for project, *_ in rows:
+        captured = lines(project)
+        if captured:
+            console.print(project)
+            _detail(console, captured, indent="  ")
+
+    for project, outcome, _, error in rows:
+        if outcome is Outcome.FAILED and error is not None:
+            mark, style = MARKS[Outcome.FAILED]
+            console.print()
+            console.print(Text(f"{mark} {project}", style=style))
+            _detail(console, str(error).splitlines(), indent="  ")
+
+    if interrupted:
+        console.print("\ninterrupted; nothing further was started.", style=CANCELLED)
+
+
+def commit_rows(report: CommitReport) -> list[Row]:
+    return [
+        (
+            row.project,
+            row.outcome,
+            "nothing to commit"
+            if row.outcome is None
+            else (row.head or "")[:SHORT_SHA],
+            row.error,
+        )
+        for row in report.rows
+    ]
+
+
+def push_rows(report: PushReport) -> list[Row]:
+    return [(row.project, row.outcome, row.note, row.error) for row in report.rows]
+
+
+def render_origin(
+    console: Console,
+    report: OriginReport,
+    *,
+    lines: Callable[[str], tuple[str, ...]],
+) -> None:
+    console.print(f"Fork owner  {report.owner}", highlight=False)
+    render_rows(
+        console, origin_rows(report), interrupted=report.interrupted, lines=lines
+    )
+
+
+def origin_rows(report: OriginReport) -> list[Row]:
+    notes = {
+        Wiring.ADD: "added {url}",
+        Wiring.PRESENT: "already {url}",
+        # Left alone, and the way to change it named: the fork may be named
+        # differently on purpose, which only the reader knows.
+        Wiring.DISAGREES: (
+            "kept {existing}, not {url}: git -C {store} remote set-url origin {url}"
+        ),
+    }
+    return [
+        (
+            row.wire.project,
+            row.outcome,
+            notes[row.wire.wiring].format(
+                url=row.wire.url, existing=row.wire.existing, store=row.wire.store
+            ),
+            row.error,
+        )
+        for row in report.rows
+    ]
 
 
 def render_status(console: Console, status: WorkspaceStatus) -> None:

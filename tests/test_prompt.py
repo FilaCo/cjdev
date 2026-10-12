@@ -1,9 +1,12 @@
 """Consent and settings are different questions."""
 
+import tempfile
+from pathlib import Path
+
 import pytest
 
-from cjdev.errors import InputRequiredError, PreconditionError
-from cjdev.infra.prompt import NonInteractivePrompt
+from cjdev.errors import AbortedError, InputRequiredError, PreconditionError
+from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
 
 
 class TestWithoutATerminal:
@@ -51,3 +54,37 @@ class TestChoosing:
         )
 
         assert chosen == ("a", "c")
+
+
+class TestTheEditor:
+    @pytest.fixture(autouse=True)
+    def _drafts_in_tmp_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    def test_it_returns_what_the_editor_saved(self, monkeypatch: pytest.MonkeyPatch):
+        # Arrange: VISUAL is split like a shell would, flags and all.
+        monkeypatch.setenv("VISUAL", "sh -c 'echo filled >> \"$1\"' sh")
+
+        # Act
+        edited = InteractivePrompt().edit("draft\n", remedy="")
+
+        # Assert
+        assert edited == "draft\nfilled\n"
+
+    def test_a_failing_editor_keeps_the_draft_and_says_where(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Arrange
+        monkeypatch.setenv("VISUAL", "false")
+
+        # Act / Assert
+        with pytest.raises(AbortedError, match="the draft is in") as refusal:
+            InteractivePrompt().edit("draft\n", remedy="")
+        kept = str(refusal.value).split("the draft is in ")[1].split(":")[0]
+        assert Path(kept).read_text() == "draft\n"
+
+    def test_without_a_terminal_the_remedy_is_the_caller_s(self):
+        # Act / Assert
+        with pytest.raises(InputRequiredError) as refusal:
+            NonInteractivePrompt(assume_yes=True).edit("", remedy="pass --body-file")
+        assert refusal.value.remedy == "pass --body-file"

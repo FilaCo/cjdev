@@ -48,11 +48,15 @@ def build(
             "and then exactly one unit may be named."
         ),
     ),
-    profile: Profile = Option(
-        Profile.RELEASE.value,
+    profile: Profile | None = Option(
+        None,
         "-p",
         "--profile",
-        help="Which build to make. Each profile keeps its own build directory.",
+        help=(
+            "Which build to make. Each profile keeps its own build directory. "
+            "Default: the profile of the branch set's last full build, else "
+            "release; a full build in another profile becomes the default."
+        ),
     ),
     downstream: str | None = Option(
         None,
@@ -90,6 +94,8 @@ def build(
     )
     ctx.obj.emit = progress.emit
     ctx.obj.report_step = progress.step
+    profiles = ctx.obj.branch_set_profile(dry_run=dry_run, start=root)
+    chosen = profiles.resolve(root, branch_set, profile)
     image = _image_first(ctx, root, dry_run=dry_run, verbose=verbose, out=out.display)
     if image and dry_run:
         # The plan reads the image's PATH and ccache label, and there is no
@@ -98,7 +104,7 @@ def build(
         out.document(
             {
                 "branch_set": branch_set,
-                "profile": profile.value,
+                "profile": chosen.value,
                 "image": "would build",
                 "units": [],
             }
@@ -118,14 +124,15 @@ def build(
     plan = use_case.plan(
         root,
         branch_set,
-        profile=profile,
+        profile=chosen,
         names=names,
         downstream=downstream,
         passthrough=passthrough,
     )
+    profiles.check(plan)
     progress.track(
         [unit.unit for unit in plan.units],
-        title=f"Building {branch_set} ({profile.value})",
+        title=f"Building {branch_set} ({chosen.value})",
         # One job always: each script already takes the whole machine, so the
         # estimate must not divide by anything.
         jobs=1,
@@ -133,6 +140,9 @@ def build(
 
     with progress:
         report = use_case.apply(plan, observer=progress)
+    # A dry run built nothing, so it has no profile to remember.
+    if report.ok and not dry_run:
+        profiles.remember(plan)
 
     if as_json:
         out.document(

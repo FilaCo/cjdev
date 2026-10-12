@@ -1,8 +1,6 @@
 """What the application layer requires of the outside world.
 
-`Executor`, `FileSystem` and `Prompt` live here. `Forge` joins them once the
-gitcode spike has settled its shape; it is absent rather than stubbed, because
-an empty protocol tells a reader nothing and invites guessing.
+`Executor`, `FileSystem`, `Prompt` and `Forge` live here.
 
 Git is deliberately not a port: driving the `git` CLI is a commitment made
 once, and the CLI runs through `Executor`.
@@ -12,6 +10,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from typing import Protocol, final
+
+from cjdev.domain.forge import FiledIssue, NewIssue
 
 
 @final
@@ -102,6 +102,14 @@ class Prompt(Protocol):
         """
         ...
 
+    def edit(self, draft: str, *, remedy: str) -> str:
+        """The draft after the person has edited it in their editor.
+
+        `remedy` is what supplies the text instead, for the refusal with no
+        terminal: only the command knows which flag that is.
+        """
+        ...
+
 
 class FileSystem(Protocol):
     """Changing the workspace tree itself.
@@ -140,4 +148,18 @@ class FileSystem(Protocol):
         once a build has made it. An existing destination is a refusal, since
         moving onto it would merge two builds into one directory.
         """
+        ...
+
+
+class Forge(Protocol):
+    """The forge the projects live on: GitCode, or a dry run describing the
+    request it would have sent.
+
+    A port for `Prompt`'s reason: `--dry-run` is a second behaviour the user
+    asks for, not a seam for tests. `--dry-run` must not need a token either,
+    so the dry implementation never looks one up.
+    """
+
+    def create_issue(self, issue: NewIssue) -> FiledIssue | None:
+        """None when nothing was filed, which only a dry run answers."""
         ...

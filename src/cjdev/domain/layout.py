@@ -294,6 +294,34 @@ class WorkspaceLayout:
             / "stdx"
         )
 
+    def record(self, branch_set: str) -> PurePath:
+        """What cjdev remembers about one branch set between commands.
+
+        A file per branch set rather than one for the workspace, so two sets
+        never write the same file and removing a set removes its record.
+        """
+        return self.marker / "state" / f"{flatten_branch_set(branch_set)}.toml"
+
+    def test_dir(
+        self, branch_set: str, environment: str, profile: str, suite: str
+    ) -> PurePath:
+        """The test framework's scratch, logs and results for one suite.
+
+        Under the branch set's build tree rather than the framework's own
+        `test_temp`, which is inside a worktree and shared by every run of it.
+        Keyed like the dist it tests, so a debug run never reads release
+        results.
+        """
+        return (
+            self.marker
+            / "build"
+            / flatten_branch_set(branch_set)
+            / "test"
+            / self._segment(environment, "environment")
+            / self._segment(profile, "profile")
+            / self._segment(suite, "suite")
+        )
+
     def log_dir(self, branch_set: str) -> PurePath:
         """One directory per branch set; one file per unit of work.
 
@@ -310,6 +338,17 @@ class WorkspaceLayout:
         shared file.
         """
         return self.log_dir(branch_set) / f"{self._segment(unit, 'build unit')}.log"
+
+    def issue_draft(self, branch_set: str, project: str, template: str) -> PurePath:
+        """An issue draft the forge has not taken yet, kept so that a refusal
+        does not cost the text. One per form, so the next run resumes it."""
+        return (
+            self.marker
+            / "drafts"
+            / flatten_branch_set(branch_set)
+            / self._segment(project, "project")
+            / f"{self._segment(template, 'template')}.md"
+        )
 
     @staticmethod
     def _segment(name: str, what: str) -> str:

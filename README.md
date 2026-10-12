@@ -25,6 +25,10 @@ pip install cjdev
 - `cjdev config show` - the effective configuration: the bundled manifest with the
   workspace's `.cjdev/config.toml` layered over it (`-v` names the layer each value
   came from), and where its builds run.
+- `cjdev config origin [OWNER]` - point `origin` at OWNER's fork in every project,
+  derived from its `upstream`, and record OWNER as `[forge] fork_owner`. An existing
+  `origin` that points elsewhere is reported, never replaced. `cjdev init --fork-owner
+  OWNER` does the same for a new workspace.
 
 ### Branch sets
 
@@ -39,6 +43,24 @@ cd fix-parser-ice/cangjie_compiler
 - `cjdev branch new BRANCH_SET` - create one, adopting a branch that already carries the
   name and completing a set that covers only some projects. `-w/--workspace PATH` names
   the workspace to create it in; the default is the cwd, walked up like git.
+
+### Commit and push
+
+From anywhere inside a branch set, one command per step across every project of it:
+
+```bash
+cjdev commit -m "fix(sema): reject the ICE"   # staged changes, signed off
+cjdev commit -a -F msg.txt --only cangjie_test
+cjdev push                                    # to origin, never upstream
+```
+
+- `cjdev commit` - one message in every project with something staged (`-a`: any
+  tracked change). Projects with nothing to commit are listed as skipped. Signs off by
+  default (`--no-signoff`), and refuses a project on its default branch or detached.
+- `cjdev push` - push the branch to `origin` in every project ahead of it, setting
+  tracking on the first push, and print where to open each PR. A rewritten branch
+  needs `--force-with-lease`. `cjdev status` shows `origin ↑N` for what is still
+  unpushed.
 
 ### Build
 
@@ -125,7 +147,37 @@ recipe is a new tag rather than a stale image nobody notices.
 
 ### Test
 
+A branch set remembers the profile of its last full build, in
+`.cjdev/state/<branch set>.toml`. `build`, `env run`, `env shell` and `test` default to
+it, and `-p` still overrides. Building one unit in another profile is refused while the
+rest of the SDK is not built there, because that dist could not compile anything.
+
+```bash
+cd fix-parser-ice/cangjie_test/testsuites/LLT
+cjdev test compiler/CJMP/objc               # against the branch set's dist
+cjdev test compiler -- --timeout=180        # from the flag on, passed to main.py
+```
+
+- `cjdev test PATH...` - run `cangjie_test_framework` on cases or directories of LLT or
+  HLT, inside the build environment, with the suite's test list and config for this
+  host and `-pFAIL --fail-verbose`. Scratch, logs and results go to
+  `.cjdev/build/<branch set>/test/`. The summary is per suite, and failures caused by a
+  missing tool (`command not found`) are counted per tool apart from the rest.
+
 ### Git/GitCode stuff
+
+```bash
+cd fix-parser-ice/cangjie_compiler
+cjdev issue new cangjie_compiler -t bug-report             # draft in $EDITOR, then file it
+cjdev issue new cangjie_compiler -t bug-report --dry-run   # print the request instead
+```
+
+- `cjdev issue new PROJECT -t FORM` - file an issue on the project's upstream from its
+  own `.gitcode/ISSUE_TEMPLATE/FORM.yml`: one Markdown section per field, `cjc -v` of
+  the branch set's dist filled in, required fields checked before sending. A refused
+  draft is kept and resumed by the next run; `--body-file PATH` sends a filled one
+  without an editor. The token is `GITCODE_TOKEN`, else git's stored credential for
+  gitcode.com.
 
 ## Documentation
 

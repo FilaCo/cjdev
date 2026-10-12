@@ -9,15 +9,21 @@ import os
 import sys
 from collections.abc import Callable, Sequence
 from functools import cached_property
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import final
 
+from cjdev.application.branch_set_profile import BranchSetProfile
 from cjdev.application.build_units import BuildUnits, HostProvider
+from cjdev.application.commit_branch_set import CommitBranchSet
+from cjdev.application.file_issue import FileIssue
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
-from cjdev.application.ports import Executor, FileSystem, Prompt
+from cjdev.application.ports import Executor, FileSystem, Forge, Prompt
+from cjdev.application.push_branch_set import PushBranchSet
 from cjdev.application.report_status import ReportStatus
+from cjdev.application.run_tests import RunTests
+from cjdev.application.wire_origin import WireOrigin
 from cjdev.application.workspace import find_root
 from cjdev.domain.config import LayeredManifest, WorkspaceConfig, layer
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
@@ -26,7 +32,9 @@ from cjdev.domain.manifest import Manifest
 from cjdev.infra.config import (
     load_bundled_manifest,
     load_environment,
+    load_fork_owner,
     load_workspace_config,
+    record_fork_owner,
     render_workspace_config,
 )
 from cjdev.infra.container import (
@@ -44,22 +52,44 @@ from cjdev.infra.executor.container import ContainerExecutor
 from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
     add_checkout,
+    add_origin,
+    commit_checkout,
     drop_checkout,
     fetch_commit,
     inspect_checkout,
+    inspect_commit,
+    inspect_push,
     provision_object_store,
+    read_remotes,
     read_store,
     remove_object_store,
     resolve_ref,
+    send_push,
+)
+from cjdev.infra.gitcode import (
+    HOST,
+    DryRunForge,
+    GitCodeForge,
+    credential_fill,
+    find_token,
 )
 from cjdev.infra.host import detect_host
+from cjdev.infra.issue_template import TEMPLATE_DIR, load_form, template_names
 from cjdev.infra.journal import CommandJournal, open_journal
 from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
+from cjdev.infra.record import read_record, render_record
 
 
 def _ignore(_: str) -> None:
     pass
+
+
+def _read_file(path: PurePath) -> str | None:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
 
 
 @final
@@ -184,6 +214,13 @@ class Container:
             return InteractivePrompt()
         return NonInteractivePrompt(assume_yes=assume_yes)
 
+    def forge(self, *, dry_run: bool = False) -> Forge:
+        if dry_run:
+            return DryRunForge(self.emit)
+        return GitCodeForge(
+            lambda: find_token(HOST, environ=os.environ, fill=credential_fill)
+        )
+
     def manifest_for_init(self, root: Path) -> Manifest:
         """The manifest `init` provisions from: the workspace it is creating
         or reconfiguring - never an enclosing one.
@@ -269,6 +306,56 @@ class Container:
             ),
         )
 
+    def branch_set_profile(
+        self, *, dry_run: bool = False, start: Path
+    ) -> BranchSetProfile:
+        return BranchSetProfile(
+            manifest=lambda: self.manifest(start),
+            file_system=self.file_system(dry_run=dry_run),
+            read=read_record,
+            render=render_record,
+            environment=self.environment(start),
+        )
+
+    def run_tests(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> RunTests:
+        """The build's executor and host: the tests run where the SDK under
+        test was built, against the target it was built for."""
+        environment = self.environment(start)
+        executor, host = self._where_builds_run(
+            environment, start, dry_run=dry_run, verbose=verbose
+        )
+        return RunTests(
+            executor=executor,
+            file_system=self.file_system(dry_run=dry_run),
+            host=host,
+            read_results=(lambda _: None) if dry_run else _read_file,
+            environment=environment,
+        )
+
+    def file_issue(self, *, dry_run: bool = False, start: Path) -> FileIssue:
+        """The executor is the build's, because `cjc -v` has to run where the
+        dist's `cjc` was built to run."""
+        environment = self.environment(start)
+        executor, host = self._where_builds_run(
+            environment, start, dry_run=dry_run, verbose=False
+        )
+        return FileIssue(
+            manifest=lambda: self.manifest(start),
+            executor=executor,
+            file_system=self.file_system(dry_run=dry_run),
+            # Writing the issue is input, not consent, so a dry run still
+            # opens the editor: the plan it prints is the issue.
+            prompt=self.prompt(),
+            forge=self.forge(dry_run=dry_run),
+            host=host,
+            environment=environment,
+            load_form=load_form,
+            template_names=template_names,
+            template_dir=TEMPLATE_DIR,
+        )
+
     def manage_environment(
         self, *, dry_run: bool = False, verbose: bool = False, start: Path
     ) -> ManageEnvironment:
@@ -349,6 +436,39 @@ class Container:
         makes that refusal the only one a reader has to find."""
         assert spec is not None
         return spec
+
+    def commit_branch_set(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> CommitBranchSet:
+        return CommitBranchSet(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            inspect=inspect_commit,
+            commit=commit_checkout,
+        )
+
+    def push_branch_set(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> PushBranchSet:
+        return PushBranchSet(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            inspect=inspect_push,
+            send=send_push,
+        )
+
+    def wire_origin(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> WireOrigin:
+        return WireOrigin(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            file_system=self.file_system(dry_run=dry_run),
+            read_remotes=read_remotes,
+            add_origin=add_origin,
+            read_owner=load_fork_owner,
+            record_owner=record_fork_owner,
+        )
 
     def report_status(
         self, *, verbose: bool = False, manifest: Manifest
