@@ -17,6 +17,7 @@ from cjdev.application.build_units import BuildUnits, HostProvider
 from cjdev.application.commit_branch_set import CommitBranchSet
 from cjdev.application.file_issue import FileIssue
 from cjdev.application.init_workspace import InitWorkspace
+from cjdev.application.install_skill import InstallSkill
 from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Forge, Prompt
@@ -79,6 +80,7 @@ from cjdev.infra.journal import CommandJournal, open_journal
 from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
 from cjdev.infra.record import read_record, render_record
+from cjdev.infra.skill import load_bundled_skill
 
 
 def _ignore(_: str) -> None:
@@ -332,6 +334,16 @@ class Container:
             host=host,
             read_results=(lambda _: None) if dry_run else _read_file,
             environment=environment,
+        )
+
+    def skill(self) -> str:
+        return load_bundled_skill()
+
+    def install_skill(self, *, dry_run: bool = False) -> InstallSkill:
+        return InstallSkill(
+            file_system=self.file_system(dry_run=dry_run),
+            skill=self.skill(),
+            read=_read_file,
         )
 
     def file_issue(self, *, dry_run: bool = False, start: Path) -> FileIssue:

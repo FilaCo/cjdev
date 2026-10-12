@@ -47,7 +47,9 @@ src/cjdev/
     config.py              # manifest loading and the schema-version gate
     gitcode.py             # the GitCode API and its token (ADR-0044)
     issue_template.py      # .gitcode/ISSUE_TEMPLATE/*.yml into an IssueForm
+    skill.py               # the bundled agent skill (ADR-0065)
     data/default_manifest.toml      # the shipped manifest; travels in the wheel
+    data/SKILL.md                   # the agent skill `cjdev skill` installs
 
   cli/                     # Typer wiring
     _context.py            # the typed Context
