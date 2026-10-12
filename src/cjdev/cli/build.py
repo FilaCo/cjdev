@@ -1,12 +1,14 @@
 from collections.abc import Sequence
 from pathlib import Path
 
+from rich.console import Console
 from typer import Argument, Exit, Option, Typer
 
+from cjdev.application.manage_environment import IMAGE
 from cjdev.application.workspace import require_branch_set, require_root
 from cjdev.domain.build import Profile
 
-from ._console import DETAIL, OK, console, diagnostics
+from ._console import DETAIL, OK, console, diagnostics, print_detail
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
 from ._output import begin, from_error
 from ._progress import LIVE_AFTER, ConsoleProgress
@@ -88,6 +90,27 @@ def build(
     )
     ctx.obj.emit = progress.emit
     ctx.obj.report_step = progress.step
+    image = _image_first(ctx, root, dry_run=dry_run, verbose=verbose, out=out.display)
+    if image and dry_run:
+        # The plan reads the image's PATH and ccache label, and there is no
+        # image to read them from: guessing them would plan a build nobody
+        # will run.
+        out.document(
+            {
+                "branch_set": branch_set,
+                "profile": profile.value,
+                "image": "would build",
+                "units": [],
+            }
+        )
+        if not as_json:
+            console.print(
+                f"\nDry run: the units are planned from the image, so they show "
+                f"once it exists. {root} was not touched.",
+                style=DETAIL,
+                soft_wrap=True,
+            )
+        return
     if not dry_run:
         ctx.obj.journal(root, ["build", *(units or [])])
     use_case = ctx.obj.build_units(dry_run=dry_run, verbose=verbose, start=root)
@@ -113,7 +136,7 @@ def build(
 
     if as_json:
         out.document(
-            build_payload(report),
+            build_payload(report, image="built" if image else None),
             ok=report.ok,
             errors=[
                 from_error(row.error, subject=row.unit)
@@ -136,3 +159,36 @@ def build(
 
     if not dry_run and not report.ok:
         raise Exit(1)
+
+
+def _image_first(
+    ctx: CjdevContext, root: Path, *, dry_run: bool, verbose: bool, out: Console
+) -> bool:
+    """Whether the image was missing, built here when it was.
+
+    `cjdev env build` run on the caller's behalf, so it gets that command's
+    own journal entry and a display of its own: the units' display is drawn
+    from a plan, and the plan cannot be made until the image exists.
+    """
+    if not ctx.obj.manage_environment(
+        dry_run=dry_run, verbose=verbose, start=root
+    ).image_missing():
+        return False
+    progress = ConsoleProgress(
+        out, fallback=None if dry_run else diagnostics, delay=LIVE_AFTER
+    )
+    emit, step = ctx.obj.emit, ctx.obj.report_step
+    ctx.obj.emit, ctx.obj.report_step = progress.emit, progress.step
+    if not dry_run:
+        ctx.obj.journal(root, ["env", "build"])
+    environment = ctx.obj.manage_environment(
+        dry_run=dry_run, verbose=verbose, start=root
+    )
+    progress.track([IMAGE], title="Building the image")
+    try:
+        with progress:
+            environment.provision(root, observer=progress)
+    finally:
+        ctx.obj.emit, ctx.obj.report_step = emit, step
+        print_detail(out, progress.lines("") + progress.lines(IMAGE))
+    return True
