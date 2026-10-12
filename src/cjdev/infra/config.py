@@ -27,6 +27,7 @@ from cjdev.domain.environment import (
     Mode,
     Runtime,
 )
+from cjdev.domain.forge import DEFAULT_ISSUE_HOME
 from cjdev.domain.fork import check_fork_owner
 from cjdev.domain.manifest import BuildUnit, Manifest, Project, ThirdParty
 from cjdev.errors import ManifestError, UsageError
@@ -563,13 +564,7 @@ def load_fork_owner(root: Any) -> str | None:
 
 
 def parse_fork_owner(text: str, *, source: str) -> str | None:
-    try:
-        document: Any = tomlkit.parse(text)
-    except Exception as exc:  # tomlkit raises a family of parse errors
-        raise ManifestError(f"{source} is not valid TOML: {exc}") from exc
-    where = f"{source}: forge"
-    body = _require_table(document, "forge", source)
-    _reject_unknown_keys(body, {"fork_owner"}, where)
+    body, where = _forge_section(text, source)
     if "fork_owner" not in body:
         return None
     _reject_mistyped(body, "fork_owner", where, str, "a string")
@@ -577,6 +572,35 @@ def parse_fork_owner(text: str, *, source: str) -> str | None:
         return check_fork_owner(str(body["fork_owner"]))
     except UsageError as exc:
         raise ManifestError(f"{where}: {exc}") from None
+
+
+def load_issue_home(root: Any) -> str:
+    """`[forge] issue_home`: the project a task's issue lives in when the task
+    does not say. Whether it names a project is the caller's to check, against
+    the manifest it acts on."""
+    text = _read_workspace_file(root)
+    if text is None:
+        return DEFAULT_ISSUE_HOME
+    return parse_issue_home(text, source=WORKSPACE_CONFIG)
+
+
+def parse_issue_home(text: str, *, source: str) -> str:
+    body, where = _forge_section(text, source)
+    if "issue_home" not in body:
+        return DEFAULT_ISSUE_HOME
+    _reject_mistyped(body, "issue_home", where, str, "a string")
+    return str(body["issue_home"])
+
+
+def _forge_section(text: str, source: str) -> tuple[Any, str]:
+    try:
+        document: Any = tomlkit.parse(text)
+    except Exception as exc:  # tomlkit raises a family of parse errors
+        raise ManifestError(f"{source} is not valid TOML: {exc}") from exc
+    where = f"{source}: forge"
+    body = _require_table(document, "forge", source)
+    _reject_unknown_keys(body, {"fork_owner", "issue_home"}, where)
+    return body, where
 
 
 def record_fork_owner(fs: FileSystem, root: Any, owner: str) -> None:

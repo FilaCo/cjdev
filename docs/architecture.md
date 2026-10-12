@@ -149,7 +149,10 @@ whole design:
   names it, written before anything moves in and removed after everything moves out, all
   under an flock per (branch set, build unit). A run killed in between leaves the marker,
   and the next run moves that profile's scratch back first. A real directory with no
-  marker is a refusal, not a silent delete of somebody's artefacts.
+  marker is absorbed: it becomes the scratch of the profile being built, replacing
+  what `.cjdev/build` held there (ADR-0031). A symlink into `.cjdev/build` at a path the
+  store's `info/exclude` lists but the manifest no longer calls scratch is a redirect of
+  a former manifest, and is removed; a symlink anywhere else is not cjdev's.
 - **Scratch has to be excluded, and the project's own `.gitignore` will not do it.**
   cjpm ignores none of its scratch, and a killed build leaves it in the worktree, where
   `status` would call the worktree dirty and `git worktree remove` would refuse. cjdev
@@ -164,7 +167,9 @@ whole design:
 A port is earned by a second implementation that will actually exist. There are four:
 `Executor` (this machine, or a container), `FileSystem` (real, or dry-run), `Prompt` (a
 terminal, or a pipe/`--dry-run`) and `Forge` (GitCode, or the request `--dry-run` prints).
-Every command that talks to GitCode goes through `Forge`; a second client is the bug.
+Every command that talks to GitCode goes through `Forge`; a second client is the bug. A
+dry run reads from the forge for real, as every probe does, and prints only what would
+change it.
 
 Note what the four have in common: their second implementation is a flag the user passes,
 not a seam invented for tests. **If a proposed port's second implementation only ever
@@ -195,7 +200,8 @@ record what a command printed.
 
 Every mutating command opens `.cjdev/log/cjdev.log` before it builds its use case, and
 `RecordingExecutor` writes one complete line per external command - status, duration,
-argv, cwd - plus the output of anything that failed. It is always on, because the question
+argv, cwd - plus the output of anything that failed. `TracedFileSystem` does the same
+for each tree mutation, and reports it to the progress display as `StepExecutor` does. It is always on, because the question
 it answers ("what did that actually run?") is only ever asked afterwards, and `-v` has to
 be turned on in advance. A dry run records nothing; read-only commands do not open it.
 
@@ -346,6 +352,9 @@ nothing; everything else asks at a terminal or refuses.
 | `commit` | nothing - the message is the input, and a commit replaces nothing | none; `--dry-run` asks nothing |
 | `push` | nothing - a rewrite needs `--force-with-lease`, which is the answer | none; `--dry-run` asks nothing |
 | `config origin` | nothing - an existing `origin` is reported, never replaced | none; `--dry-run` asks nothing |
+| `start` | nothing - `branch new` from fresh upstream, plus a record cjdev owns | none; `--dry-run` asks nothing |
+| `sync` | nothing - only a fast-forward moves a branch; a diverged one is reported | none; `--dry-run` asks nothing |
+| `issue attach` | nothing - it writes only the branch set's record | none; `--dry-run` asks nothing |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two

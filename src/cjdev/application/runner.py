@@ -70,6 +70,12 @@ class Work(Generic[T]):
     """
     label: str
     action: Callable[[], T]
+    needs: tuple[str, ...] = ()
+    """Labels of earlier work that must end DONE, or this one is cancelled.
+
+    What lets one failure cancel only what depends on it, rather than
+    everything after it the way `fail_fast` does.
+    """
 
 
 @final
@@ -112,12 +118,31 @@ class Runner:
     ) -> RunReport[T]:
         if not work:
             return RunReport(())
+        _check_needs(work)
         watcher = observer if observer is not None else SilentObserver()
 
         stop = threading.Event()
         locks = {item.key: threading.Lock() for item in work}
+        finished = {item.label: threading.Event() for item in work}
+        outcomes: dict[str, Outcome] = {}
 
         def perform(item: Work[T]) -> UnitResult[T]:
+            try:
+                # Deadlock-free because needs name earlier work only: the pool
+                # takes work in submission order, so what this waits for has
+                # already been taken by a worker.
+                for need in item.needs:
+                    finished[need].wait()
+                if any(outcomes.get(need) is not Outcome.DONE for need in item.needs):
+                    result = _cancelled(item)
+                else:
+                    result = attempt(item)
+                outcomes[item.label] = result.outcome
+                return result
+            finally:
+                finished[item.label].set()
+
+        def attempt(item: Work[T]) -> UnitResult[T]:
             if stop.is_set():
                 return _cancelled(item)
             with locks[item.key]:
@@ -169,3 +194,14 @@ class Runner:
         return RunReport(
             tuple(r for r in results if r is not None), interrupted=interrupted
         )
+
+
+def _check_needs(work: Sequence[Work[T]]) -> None:
+    earlier: set[str] = set()
+    for item in work:
+        later = [need for need in item.needs if need not in earlier]
+        if later:
+            raise UsageError(
+                f"{item.label} needs {', '.join(later)}, which is not earlier work."
+            )
+        earlier.add(item.label)

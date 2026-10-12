@@ -19,6 +19,7 @@ from cjdev.application.new_branch_set import Action, BranchSetReport, Enrolled
 from cjdev.application.push_branch_set import PushReport
 from cjdev.application.run_tests import TestReport
 from cjdev.application.runner import Outcome, RunReport
+from cjdev.application.sync_branch_set import SyncReport
 from cjdev.application.wire_origin import OriginReport, Wiring
 from cjdev.domain.build import CopyStep, InstallStep
 from cjdev.domain.config import BUNDLED, WORKSPACE, LayeredManifest
@@ -329,6 +330,10 @@ def commit_rows(report: CommitReport) -> list[Row]:
 
 
 def push_rows(report: PushReport) -> list[Row]:
+    return [(row.project, row.outcome, row.note, row.error) for row in report.rows]
+
+
+def sync_rows(report: SyncReport) -> list[Row]:
     return [(row.project, row.outcome, row.note, row.error) for row in report.rows]
 
 

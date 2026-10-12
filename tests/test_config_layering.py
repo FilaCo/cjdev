@@ -370,3 +370,21 @@ class TestBuildData:
                     build_units={"u": UnitOverride(build=("build.py", "{prefix}"))}
                 ),
             )
+
+    def test_a_scratch_override_two_units_share_is_refused(self, base: Manifest):
+        # Arrange / Act / Assert: scratch is a workspace setting, so a test of
+        # the bundled manifest cannot be what keeps two units apart.
+        with pytest.raises(ManifestError, match="share scratch"):
+            layer(
+                base,
+                override(
+                    build_units={
+                        "u": UnitOverride(scratch=(PurePosixPath("out"),)),
+                        "v": UnitOverride(
+                            project="a",
+                            path=PurePosixPath("."),
+                            scratch=(PurePosixPath("out"),),
+                        ),
+                    }
+                ),
+            )

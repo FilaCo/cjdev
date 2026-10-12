@@ -23,6 +23,8 @@ from cjdev.application.ports import Executor, FileSystem, Forge, Prompt
 from cjdev.application.push_branch_set import PushBranchSet
 from cjdev.application.report_status import ReportStatus
 from cjdev.application.run_tests import RunTests
+from cjdev.application.sync_branch_set import SyncBranchSet
+from cjdev.application.task import Tasks
 from cjdev.application.wire_origin import WireOrigin
 from cjdev.application.workspace import find_root
 from cjdev.domain.config import LayeredManifest, WorkspaceConfig, layer
@@ -33,6 +35,7 @@ from cjdev.infra.config import (
     load_bundled_manifest,
     load_environment,
     load_fork_owner,
+    load_issue_home,
     load_workspace_config,
     record_fork_owner,
     render_workspace_config,
@@ -55,10 +58,13 @@ from cjdev.infra.git import (
     add_origin,
     commit_checkout,
     drop_checkout,
+    fast_forward,
     fetch_commit,
+    fetch_upstream,
     inspect_checkout,
     inspect_commit,
     inspect_push,
+    inspect_sync,
     provision_object_store,
     read_remotes,
     read_store,
@@ -198,7 +204,13 @@ class Container:
         )
 
     def file_system(self, *, dry_run: bool = False) -> FileSystem:
-        return build_file_system(dry_run=dry_run, emit=self.emit)
+        return build_file_system(
+            dry_run=dry_run,
+            emit=self.emit,
+            report_step=self.report_step,
+            record=None if dry_run or self._journal is None else self._journal.write,
+            record_base=self._journal_root,
+        )
 
     def prompt(self, *, interactive: bool = True, assume_yes: bool = False) -> Prompt:
         """`interactive` is whether to ask; `assume_yes` is the answer to give
@@ -215,11 +227,10 @@ class Container:
         return NonInteractivePrompt(assume_yes=assume_yes)
 
     def forge(self, *, dry_run: bool = False) -> Forge:
-        if dry_run:
-            return DryRunForge(self.emit)
-        return GitCodeForge(
+        gitcode = GitCodeForge(
             lambda: find_token(HOST, environ=os.environ, fill=credential_fill)
         )
+        return DryRunForge(self.emit, gitcode) if dry_run else gitcode
 
     def manifest_for_init(self, root: Path) -> Manifest:
         """The manifest `init` provisions from: the workspace it is creating
@@ -455,6 +466,30 @@ class Container:
             executor=self.executor(dry_run=dry_run, verbose=verbose),
             inspect=inspect_push,
             send=send_push,
+        )
+
+    def tasks(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> Tasks:
+        return Tasks(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            file_system=self.file_system(dry_run=dry_run),
+            forge=self.forge(dry_run=dry_run),
+            fetch=fetch_upstream,
+            read=read_record,
+            render=render_record,
+            issue_home=lambda: load_issue_home(start),
+        )
+
+    def sync_branch_set(
+        self, *, dry_run: bool = False, verbose: bool = False, start: Path
+    ) -> SyncBranchSet:
+        return SyncBranchSet(
+            manifest=lambda: self.manifest(start),
+            executor=self.executor(dry_run=dry_run, verbose=verbose),
+            inspect=inspect_sync,
+            move=fast_forward,
         )
 
     def wire_origin(
