@@ -32,7 +32,7 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0009](0009-every-change-starts-with-an-issue.md) | Every change starts with an issue, and the PR closes it | accepted |
 | [0012](0012-verbose-changes-only-what-is-shown.md) | -v changes what is shown, never what is done | accepted |
 | [0013](0013-workspace-config-as-override-layer.md) | The workspace config is a real override layer over the bundled manifest | accepted |
-| [0017](0017-out-of-tree-builds.md) | Builds happen out of tree, and the worktree carries the state | accepted |
+| [0017](0017-out-of-tree-builds.md) | Builds happen out of tree, and the worktree carries the state | accepted; Superseded, in part, by ADR-0039: the symlink redirect; and by ADR-0042: the four tokens |
 | [0018](0018-positional-is-the-subject.md) | The positional argument is the subject; options carry context | accepted |
 | [0021](0021-one-run-per-command.md) | One docker run --rm per command, and the environment is a workspace property | accepted; Supersedes, in part, this issue's own FR-2 |
 | [0024](0024-adrs-numbered-by-issue.md) | ADRs are numbered by their issue, and the index is generated | accepted |
@@ -43,3 +43,4 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0043](0043-origin-derived-from-one-fork-owner.md) | origin is derived from upstream and one fork owner | accepted |
 | [0044](0044-gitcode-client-and-token.md) | GitCode is a `Forge` port over urllib, and the token is GITCODE_TOKEN, then git's credential | accepted |
 | [0046](0046-branch-set-remembers-its-profile.md) | A branch set remembers its profile, and `cjdev test` runs against its dist | accepted |
+| [0059](0059-a-failed-unit-cancels-its-dependents.md) | A failed build unit cancels what depends on it, not everything after it | accepted |

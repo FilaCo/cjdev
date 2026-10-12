@@ -15,9 +15,9 @@ profile whose scratch is in it, and a run that died before moving it back is
 finished by the next one. All of it happens under a lock per (branch set, unit).
 
 **Units do not overlap.** Each script already takes the whole machine, so
-`Runner(jobs=1, fail_fast=True)` over `build_order()` is the schedule: at one
-job the runner executes in submission order, and everything after a failure is
-marked CANCELLED, which is the right word for a chain.
+`Runner(jobs=1)` over `build_order()` is the schedule: at one job the runner
+executes in submission order, and what depends on a failed unit is marked
+CANCELLED. A unit that does not depend on it still builds (ADR-0059).
 """
 
 import os
@@ -163,6 +163,7 @@ class UnitPlan:
     steps: tuple[Step, ...]
     third_party: tuple[sources.Provision, ...] = ()
     """Fetched and linked before anything moves in."""
+    depends_on: tuple[str, ...] = ()
 
 
 @final
@@ -463,6 +464,7 @@ def _unit_plan(
         third_party=sources.decide(
             layout, branch_set, unit, observed.third_party.get(unit.name, ())
         ),
+        depends_on=unit.depends_on,
     )
 
 
@@ -704,20 +706,15 @@ class BuildUnits:
         layout = WorkspaceLayout(root)
         manifest = self._manifest()
         units = select_units(manifest, names, downstream=downstream)
-        if not names:
-            units = held_by_branch_set(
-                manifest,
-                units,
-                frozenset(
-                    project.name
-                    for project in manifest.projects
-                    if Path(layout.worktree(branch_set, project.name)).is_dir()
-                ),
-            )
         if not units:
             raise PreconditionError(
                 "the manifest declares no build units, so there is nothing to build."
             )
+        observed = observe(layout, branch_set, units)
+        if not names:
+            # A narrowing that leaves nothing keeps the selection, so that
+            # `decide` names the project with no worktree and its remedy.
+            units = held_by_branch_set(manifest, units, observed.worktrees) or units
         return decide(
             layout,
             branch_set,
@@ -726,7 +723,7 @@ class BuildUnits:
             # Gathered here rather than held since construction: under a
             # container this is a read of the daemon and the image.
             self._host(),
-            observe(layout, branch_set, units),
+            observed,
             environment=self._environment,
             passthrough=passthrough,
         )
@@ -741,11 +738,17 @@ class BuildUnits:
         for exclusion in plan.exclusions:
             self._fs.write_text(exclusion.path, exclusion.text)
 
-        # One job, and fail_fast: the units are a chain, so everything after a
-        # failure is cancelled rather than attempted against a half-built SDK.
-        report = Runner(1).run(
+        # One job, and a failure cancels what depends on it rather than
+        # everything after it: an optional unit early in the order must not take
+        # the SDK chain down with it (ADR-0059).
+        report = Runner(1, fail_fast=False).run(
             [
-                Work(key=unit.unit, label=unit.unit, action=self._builder(unit))
+                Work(
+                    key=unit.unit,
+                    label=unit.unit,
+                    action=self._builder(unit),
+                    needs=unit.depends_on,
+                )
                 for unit in plan.units
             ],
             observer=observer,
