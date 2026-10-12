@@ -14,10 +14,11 @@ from typing import final
 
 from cjdev.application.build_units import BuildUnits, HostProvider
 from cjdev.application.commit_branch_set import CommitBranchSet
+from cjdev.application.file_issue import FileIssue
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
-from cjdev.application.ports import Executor, FileSystem, Prompt
+from cjdev.application.ports import Executor, FileSystem, Forge, Prompt
 from cjdev.application.push_branch_set import PushBranchSet
 from cjdev.application.report_status import ReportStatus
 from cjdev.application.wire_origin import WireOrigin
@@ -63,7 +64,15 @@ from cjdev.infra.git import (
     resolve_ref,
     send_push,
 )
+from cjdev.infra.gitcode import (
+    HOST,
+    DryRunForge,
+    GitCodeForge,
+    credential_fill,
+    find_token,
+)
 from cjdev.infra.host import detect_host
+from cjdev.infra.issue_template import TEMPLATE_DIR, load_form, template_names
 from cjdev.infra.journal import CommandJournal, open_journal
 from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
@@ -195,6 +204,13 @@ class Container:
             return InteractivePrompt()
         return NonInteractivePrompt(assume_yes=assume_yes)
 
+    def forge(self, *, dry_run: bool = False) -> Forge:
+        if dry_run:
+            return DryRunForge(self.emit)
+        return GitCodeForge(
+            lambda: find_token(HOST, environ=os.environ, fill=credential_fill)
+        )
+
     def manifest_for_init(self, root: Path) -> Manifest:
         """The manifest `init` provisions from: the workspace it is creating
         or reconfiguring - never an enclosing one.
@@ -278,6 +294,28 @@ class Container:
             fetch=lambda into, upstream, commit: fetch_commit(
                 outside, into, upstream, commit
             ),
+        )
+
+    def file_issue(self, *, dry_run: bool = False, start: Path) -> FileIssue:
+        """The executor is the build's, because `cjc -v` has to run where the
+        dist's `cjc` was built to run."""
+        environment = self.environment(start)
+        executor, host = self._where_builds_run(
+            environment, start, dry_run=dry_run, verbose=False
+        )
+        return FileIssue(
+            manifest=lambda: self.manifest(start),
+            executor=executor,
+            file_system=self.file_system(dry_run=dry_run),
+            # Writing the issue is input, not consent, so a dry run still
+            # opens the editor: the plan it prints is the issue.
+            prompt=self.prompt(),
+            forge=self.forge(dry_run=dry_run),
+            host=host,
+            environment=environment,
+            load_form=load_form,
+            template_names=template_names,
+            template_dir=TEMPLATE_DIR,
         )
 
     def manage_environment(

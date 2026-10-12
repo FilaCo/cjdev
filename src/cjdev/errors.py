@@ -18,6 +18,8 @@ listed here because a caller has to look them up in one place:
 | `input_required` | 3 | an answer is needed and there is no terminal to ask at |
 | `aborted` | 1 | the user declined, or interrupted a prompt |
 | `command_failed` | 1 | an external command exited non-zero |
+| `draft_incomplete` | 2 | an issue draft leaves a required field empty |
+| `forge_failed` | 1 | the forge refused a request, or could not be reached |
 """
 
 from typing import final
@@ -148,3 +150,25 @@ class AbortedError(CjdevError):
 
     def __init__(self, what: str) -> None:
         super().__init__(f"{what}: aborted, nothing was changed.")
+
+
+@final
+class DraftError(CjdevError):
+    """An issue draft is not fit to send. A usage error, because the fix is
+    in what the caller wrote, and nothing was sent."""
+
+    exit_code = 2
+    code = "draft_incomplete"
+
+
+@final
+class ForgeError(CjdevError):
+    code = "forge_failed"
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+    def details(self) -> dict[str, object]:
+        """The HTTP status, None when there was no response at all."""
+        return {"status": self.status}
