@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from collections.abc import Iterator
+from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from typing import Any, cast
@@ -66,6 +67,15 @@ def test_help_lists_commands():
     assert result.exit_code == 0
     for command in ("branch", "init", "status", "config"):
         assert command in result.output
+
+
+def test_version_is_read_from_the_installed_distribution():
+    # Arrange / Act
+    result = runner.invoke(cli, ["--version"])
+
+    # Assert: the metadata, not a second constant `cz bump` would have to sync.
+    assert result.exit_code == 0
+    assert result.output == f"cjdev {version('cjdev')}\n"
 
 
 class TestConfigShow:
