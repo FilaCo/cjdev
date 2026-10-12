@@ -127,8 +127,10 @@ RUN apt-get update && apt-get install --no-install-recommends --yes \
     && (. "$(gnustep-config --variable=GNUSTEP_MAKEFILES)/GNUstep.sh" \
         && cd libs-base && ./configure && make -j"$(nproc)" && make install) \
     && ldconfig \
-    && git clone https://github.com/gnustep/libs-corebase.git \
-    && (cd libs-corebase && git checkout --quiet "${GNUSTEP_COREBASE_COMMIT}") \
+    && git init --quiet libs-corebase \
+    && (cd libs-corebase && git fetch --quiet --depth 1 \
+        https://github.com/gnustep/libs-corebase.git "${GNUSTEP_COREBASE_COMMIT}" \
+        && git checkout --quiet FETCH_HEAD) \
     && (. "$(gnustep-config --variable=GNUSTEP_MAKEFILES)/GNUstep.sh" \
         && cd libs-corebase && ./configure --without-gcd \
         && make -j"$(nproc)" && make install) \

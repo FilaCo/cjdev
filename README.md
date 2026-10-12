@@ -89,7 +89,7 @@ built, and there is no flag for it.
 cd fix-parser-ice/cangjie_compiler
 cjdev build                          # every unit the branch set holds, in dependency order
 cjdev build stdlib                   # stdlib and everything it needs
-cjdev build --from runtime           # runtime and everything that depends on it
+cjdev build --from runtime           # runtime and what depends on it, in the set
 cjdev build compiler -p debug        # the other profile, no reconfigure
 cjdev build compiler -- --no-tests   # from the flag on, passed to the script
 ```
