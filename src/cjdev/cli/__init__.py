@@ -1,4 +1,6 @@
-from typer import Typer
+from importlib.metadata import version
+
+from typer import Exit, Option, Typer
 
 from cjdev.bootstrap import Container
 
@@ -32,7 +34,22 @@ cli.add_typer(test_cli, cls=CjdevGroup)
 cli.add_typer(issue_cli, cls=CjdevGroup)
 
 
+def _print_version(requested: bool) -> None:
+    if requested:
+        print(f"cjdev {version('cjdev')}")
+        raise Exit
+
+
 @cli.callback(invoke_without_command=True)
-def cli_cb(ctx: CjdevContext) -> None:
+def cli_cb(
+    ctx: CjdevContext,
+    _version: bool = Option(
+        False,
+        "--version",
+        callback=_print_version,
+        is_eager=True,
+        help="Print the version and exit.",
+    ),
+) -> None:
     """Cangjie SDK developer utilities."""
     ctx.obj = Container()
