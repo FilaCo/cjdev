@@ -5,7 +5,7 @@ and a free string for cjpm, `cjpm` installs by copying two files into two
 directories while the cmake units run their own `install` - so the argv and the
 install shape are manifest data.
 
-What is deliberately *not* data is the substitution: four tokens, replaced
+What is deliberately *not* data is the substitution: five tokens, replaced
 literally, with no conditionals. The moment a template needs an `if`, the
 manifest has become a programming language and the logic belongs here.
 """
@@ -23,8 +23,12 @@ PROFILE = "profile"
 JOBS = "jobs"
 DIST = "dist"
 BUILD_DIR = "build_dir"
+TARGET = "target"
+"""`linux_x86_64`, the machine the build runs on. A token rather than a
+literal because the objc interoplib installs under `<target>_cjnative` and the
+manifest serves both architectures."""
 
-TOKENS = (PROFILE, JOBS, DIST, BUILD_DIR)
+TOKENS = (PROFILE, JOBS, DIST, BUILD_DIR, TARGET)
 """Everything a template may say. An unknown token is refused where the file
 is read rather than substituted into argv as a literal `{prefix}`, which the
 build script would take as a path and fail on much later."""

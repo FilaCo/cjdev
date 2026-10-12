@@ -20,7 +20,7 @@ src/cjdev/
 
   domain/                  # pure: no subprocess, no filesystem, no network
     manifest.py            # Project, BuildUnit and the build graph
-    build.py               # profiles, argv templates and the four tokens
+    build.py               # profiles, argv templates and the five tokens
     layout.py              # workspace path algebra, parameterised by root
     branch.py              # whether a string may be a git branch name
     state.py               # branch / SHA / dirty / ahead-behind

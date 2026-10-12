@@ -24,6 +24,7 @@ from cjdev.application.build_units import (
     ScratchState,
     Seen,
     decide,
+    held_by_branch_set,
     observe,
     select_units,
 )
@@ -214,6 +215,52 @@ class TestSelection:
             select_units(graph, ["beta"])
 
 
+class TestHeldByBranchSet:
+    def test_a_unit_of_a_project_the_set_does_not_hold_is_skipped(self):
+        # Arrange: most workspaces never clone the interop project, and the
+        # whole-SDK build must not refuse over a unit nobody asked for.
+        graph = manifest(
+            unit("compiler"),
+            unit("objc", project="beta", depends_on=("compiler",)),
+        )
+
+        # Act
+        kept = held_by_branch_set(graph, select_units(graph, []), frozenset({"alpha"}))
+
+        # Assert
+        assert [u.name for u in kept] == ["compiler"]
+
+    def test_an_absent_dependency_stays_so_the_refusal_names_it(self):
+        # Arrange: dropping it would build `objc` against an SDK with no
+        # compiler and fail far from the cause.
+        graph = manifest(
+            unit("compiler"),
+            unit("objc", project="beta", depends_on=("compiler",)),
+        )
+
+        # Act
+        kept = held_by_branch_set(graph, select_units(graph, []), frozenset({"beta"}))
+
+        # Assert
+        assert [u.name for u in kept] == ["compiler", "objc"]
+
+    def test_it_never_adds_a_unit_the_selection_did_not_hold(self):
+        # Arrange
+        graph = manifest(
+            unit("runtime"),
+            unit("compiler"),
+            unit("stdlib", depends_on=("compiler", "runtime")),
+            unit("objc", project="beta", depends_on=("stdlib",)),
+        )
+        downstream = [unit for unit in graph.build_units if unit.name != "runtime"]
+
+        # Act
+        kept = held_by_branch_set(graph, downstream, frozenset({"alpha"}))
+
+        # Assert
+        assert [u.name for u in kept] == ["compiler", "stdlib"]
+
+
 class TestScratch:
     def test_a_scratch_path_moves_in_from_the_profiles_build_directory(self):
         # Act
@@ -341,6 +388,22 @@ class TestSteps:
             "4",
         )
         assert install.argv[-1] == "/ws/.cjdev/dist/main/host/release"
+
+    def test_the_target_is_the_machine_the_build_runs_on(self):
+        # Arrange: the objc interoplib installs under `<target>_cjnative`,
+        # which has to be the segment the SDK's own libraries use.
+        interop = unit(
+            "objc",
+            build=("python3", "build/build.py", "build", "--target", "{target}"),
+        )
+
+        # Act
+        plan = plan_of(interop, host=replace(HOST, target="linux_aarch64"))
+
+        # Assert
+        build = plan.units[0].steps[0]
+        assert isinstance(build, Command)
+        assert build.argv[-2:] == ("--target", "linux_aarch64")
 
     def test_extra_args_then_passthrough_follow_the_template(self):
         # Arrange
@@ -916,6 +979,28 @@ class TestAgainstARealTree:
         assert not Path(WorkspaceLayout(workspace).marker / "build").exists()
         assert any(line.startswith("mv ") for line in printed)
         assert any("build.py build" in line for line in printed)
+
+    def test_the_whole_sdk_is_what_the_branch_set_holds(self, workspace: Path):
+        # Arrange: only alpha has a worktree.
+        graph = manifest(REAL, unit("objc", project="beta", depends_on=("compiler",)))
+
+        # Act
+        plan = real_build(workspace, graph).plan(
+            workspace, SET, profile=Profile.RELEASE
+        )
+
+        # Assert
+        assert [u.unit for u in plan.units] == ["compiler"]
+
+    def test_a_named_unit_of_an_absent_project_is_still_refused(self, workspace: Path):
+        # Arrange
+        graph = manifest(REAL, unit("objc", project="beta", depends_on=("compiler",)))
+
+        # Act / Assert
+        with pytest.raises(PreconditionError, match="beta has no worktree"):
+            real_build(workspace, graph).plan(
+                workspace, SET, profile=Profile.RELEASE, names=["objc"]
+            )
 
 
 class TestObserve:
