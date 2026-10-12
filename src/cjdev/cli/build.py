@@ -61,7 +61,10 @@ def build(
     downstream: str | None = Option(
         None,
         "--from",
-        help="Build this unit and everything that depends on it.",
+        help=(
+            "Build this unit and everything that depends on it, among the "
+            "units the branch set holds."
+        ),
     ),
     as_json: bool = Option(False, "--json", help="Print the report as JSON."),
     dry_run: bool = Option(False, "--dry-run", help="Print commands, run none."),

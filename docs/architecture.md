@@ -167,7 +167,9 @@ whole design:
 A port is earned by a second implementation that will actually exist. There are four:
 `Executor` (this machine, or a container), `FileSystem` (real, or dry-run), `Prompt` (a
 terminal, or a pipe/`--dry-run`) and `Forge` (GitCode, or the request `--dry-run` prints).
-Every command that talks to GitCode goes through `Forge`; a second client is the bug.
+Every command that talks to GitCode goes through `Forge`; a second client is the bug. A
+dry run reads from the forge for real, as every probe does, and prints only what would
+change it.
 
 Note what the four have in common: their second implementation is a flag the user passes,
 not a seam invented for tests. **If a proposed port's second implementation only ever
@@ -350,6 +352,9 @@ nothing; everything else asks at a terminal or refuses.
 | `commit` | nothing - the message is the input, and a commit replaces nothing | none; `--dry-run` asks nothing |
 | `push` | nothing - a rewrite needs `--force-with-lease`, which is the answer | none; `--dry-run` asks nothing |
 | `config origin` | nothing - an existing `origin` is reported, never replaced | none; `--dry-run` asks nothing |
+| `start` | nothing - `branch new` from fresh upstream, plus a record cjdev owns | none; `--dry-run` asks nothing |
+| `sync` | nothing - only a fast-forward moves a branch; a diverged one is reported | none; `--dry-run` asks nothing |
+| `issue attach` | nothing - it writes only the branch set's record | none; `--dry-run` asks nothing |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two

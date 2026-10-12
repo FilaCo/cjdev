@@ -269,6 +269,7 @@ class Manifest:
                 else:
                     check_inside(step.source, where, "install from")
                     check_template(step.into, where)
+        self._reject_shared_scratch()
 
     @staticmethod
     def _reject_nested_scratch(unit: BuildUnit) -> None:
@@ -281,6 +282,28 @@ class Manifest:
                         f"build unit {unit.name} has scratch path {inner} "
                         f"inside scratch path {outer}."
                     )
+
+    def _reject_shared_scratch(self) -> None:
+        """Two units of one project moving one path, or one inside the other,
+        would each move in onto what the other left, with no marker to say
+        whose it is."""
+        claimed: list[tuple[BuildUnit, PurePosixPath]] = []
+        for unit in self.build_units:
+            mine = [unit.path / scratch for scratch in unit.scratch]
+            for other, theirs in claimed:
+                if other.project != unit.project:
+                    continue
+                for path in mine:
+                    if (
+                        path == theirs
+                        or theirs in path.parents
+                        or path in theirs.parents
+                    ):
+                        raise ManifestError(
+                            f"build units {other.name} and {unit.name} share "
+                            f"scratch in {unit.project}: {theirs} and {path}."
+                        )
+            claimed.extend((unit, path) for path in mine)
 
     def _reject_unknown_group_members(self) -> None:
         known = {project.name for project in self.projects}

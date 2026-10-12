@@ -154,7 +154,9 @@ def plan_of(
 class TestSelection:
     def test_naming_a_unit_takes_what_it_depends_on_with_it(self):
         # Arrange
-        graph = manifest(unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        graph = manifest(
+            unit("compiler"), unit("stdlib", path="stdlib", depends_on=("compiler",))
+        )
 
         # Act
         selected = select_units(graph, ["stdlib"])
@@ -165,7 +167,8 @@ class TestSelection:
     def test_naming_a_project_takes_every_unit_it_holds(self):
         # Arrange
         graph = manifest(
-            unit("runtime", project="beta"), unit("stdlib", project="beta")
+            unit("runtime", project="beta"),
+            unit("stdlib", project="beta", path="stdlib"),
         )
 
         # Act
@@ -176,7 +179,9 @@ class TestSelection:
 
     def test_no_selection_is_the_whole_graph(self):
         # Arrange
-        graph = manifest(unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        graph = manifest(
+            unit("compiler"), unit("stdlib", path="stdlib", depends_on=("compiler",))
+        )
 
         # Act
         selected = select_units(graph, [])
@@ -186,7 +191,9 @@ class TestSelection:
 
     def test_from_takes_everything_downstream(self):
         # Arrange
-        graph = manifest(unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        graph = manifest(
+            unit("compiler"), unit("stdlib", path="stdlib", depends_on=("compiler",))
+        )
 
         # Act
         selected = select_units(graph, [], downstream="compiler")
@@ -251,9 +258,9 @@ class TestHeldByBranchSet:
     def test_it_never_adds_a_unit_the_selection_did_not_hold(self):
         # Arrange
         graph = manifest(
-            unit("runtime"),
+            unit("runtime", path="runtime"),
             unit("compiler"),
-            unit("stdlib", depends_on=("compiler", "runtime")),
+            unit("stdlib", path="stdlib", depends_on=("compiler", "runtime")),
             unit("objc", project="beta", depends_on=("stdlib",)),
         )
         downstream = [unit for unit in graph.build_units if unit.name != "runtime"]
@@ -743,7 +750,10 @@ def use_case(
 class TestApply:
     def test_the_chain_runs_in_dependency_order_one_unit_at_a_time(self):
         # Arrange
-        units = (unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        units = (
+            unit("compiler"),
+            unit("stdlib", path="stdlib", depends_on=("compiler",)),
+        )
         executor, fs = FakeExecutor(), FakeFileSystem()
 
         # Act
@@ -757,7 +767,10 @@ class TestApply:
     def test_a_failure_cancels_everything_after_it(self):
         # Arrange: the units are a chain, so the rest would build against a
         # half-built SDK.
-        units = (unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        units = (
+            unit("compiler"),
+            unit("stdlib", path="stdlib", depends_on=("compiler",)),
+        )
         executor, fs = FakeExecutor(failing="build"), FakeFileSystem()
 
         # Act
@@ -767,6 +780,28 @@ class TestApply:
         assert not report.ok
         assert [row.outcome for row in report.rows] == [
             Outcome.FAILED,
+            Outcome.CANCELLED,
+        ]
+
+    def test_a_failure_spares_what_does_not_depend_on_it(self):
+        # Arrange: objc-interop-gen depends on nothing and sorts early, and
+        # an optional tool must not take the SDK chain down with it.
+        units = (
+            unit("compiler"),
+            unit("gen", path="gen", build=("python3", "gen.py")),
+            unit("stdlib", path="stdlib", depends_on=("compiler",)),
+            unit("cjpm", path="cjpm", depends_on=("gen",)),
+        )
+        executor, fs = FakeExecutor(failing="gen.py"), FakeFileSystem()
+
+        # Act
+        report = use_case(manifest(*units), executor, fs).apply(plan_of(*units))
+
+        # Assert
+        assert [row.outcome for row in report.rows] == [
+            Outcome.DONE,
+            Outcome.FAILED,
+            Outcome.DONE,
             Outcome.CANCELLED,
         ]
 
@@ -1104,6 +1139,16 @@ class TestAgainstARealTree:
 
         # Assert
         assert [u.unit for u in plan.units] == ["compiler"]
+
+    def test_a_set_holding_none_of_the_sdk_names_what_is_missing(self, workspace: Path):
+        # Arrange: "the manifest declares no build units" would be false here,
+        # and would hide the command that fixes it.
+        graph = manifest(unit("objc", project="beta", build=REAL.build))
+
+        # Act / Assert
+        with pytest.raises(PreconditionError, match="beta has no worktree") as raised:
+            real_build(workspace, graph).plan(workspace, SET, profile=Profile.RELEASE)
+        assert raised.value.remedy == f"cjdev branch new {SET}"
 
     def test_a_named_unit_of_an_absent_project_is_still_refused(self, workspace: Path):
         # Arrange

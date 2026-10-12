@@ -32,6 +32,16 @@ def unit(name: str, owner: str, *deps: str) -> BuildUnit:
     )
 
 
+def scratched(name: str, owner: str, path: str, *scratch: str) -> BuildUnit:
+    return BuildUnit(
+        name=name,
+        project=owner,
+        path=PurePosixPath(path),
+        depends_on=(),
+        scratch=tuple(PurePosixPath(s) for s in scratch),
+    )
+
+
 def manifest(*, projects: list[Project], units: list[BuildUnit]) -> Manifest:
     return Manifest(
         schema_version=1, projects=tuple(projects), build_units=tuple(units)
@@ -193,6 +203,43 @@ class TestBuildData:
                     )
                 ],
             )
+
+    def test_two_units_of_one_project_moving_one_path_are_refused(self):
+        # Arrange / Act / Assert: the second move would land on the first
+        # one's directory with no marker to say whose it is.
+        with pytest.raises(ManifestError, match="share scratch in a"):
+            manifest(
+                projects=[project("a")],
+                units=[
+                    scratched("lib", "a", "objc", "out"),
+                    scratched("gen", "a", "objc", "out"),
+                ],
+            )
+
+    def test_one_units_scratch_inside_anothers_is_refused(self):
+        # Arrange / Act / Assert: compared from the project root, so a
+        # different `path` does not hide the overlap.
+        with pytest.raises(ManifestError, match="share scratch"):
+            manifest(
+                projects=[project("a")],
+                units=[
+                    scratched("outer", "a", ".", "objc"),
+                    scratched("inner", "a", "objc", "out"),
+                ],
+            )
+
+    def test_the_same_scratch_in_two_projects_is_two_paths(self):
+        # Act
+        built = manifest(
+            projects=[project("a"), project("b")],
+            units=[
+                scratched("u", "a", ".", "build"),
+                scratched("v", "b", ".", "build"),
+            ],
+        )
+
+        # Assert
+        assert len(built.build_units) == 2
 
     def test_an_unknown_template_token_is_refused_with_the_known_ones(self):
         # Arrange / Act / Assert: substituted as a literal it would reach the

@@ -1,6 +1,6 @@
 # ADR-0017: Builds happen out of tree, and the worktree carries the state
 
-Status: accepted, 2026-09-18. Closes #17.
+Status: accepted, 2026-09-18. Closes #17. Superseded, in part, by ADR-0039: the symlink redirect; and by ADR-0042: the four tokens.
 
 ## Context
 

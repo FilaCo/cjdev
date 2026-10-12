@@ -12,7 +12,7 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from typing import final
 
-from cjdev.domain.forge import FiledIssue, NewIssue, Repository
+from cjdev.domain.forge import FiledIssue, Issue, IssueRef, NewIssue, Repository
 from cjdev.errors import ForgeError, PreconditionError
 
 HOST = "gitcode.com"
@@ -45,31 +45,53 @@ class GitCodeForge:
 
     def create_issue(self, issue: NewIssue) -> FiledIssue:
         url, payload = issue_request(issue)
-        status, raw = self._send(
-            "POST",
-            url,
-            {
-                "Authorization": f"Bearer {self._token()}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            json.dumps(payload).encode(),
-        )
-        answer = _json(raw)
-        if not 200 <= status < 300:
-            message = answer.get("message") or raw.decode(errors="replace")[:200]
-            raise ForgeError(f"GitCode answered {status}: {message}", status=status)
+        status, answer, raw = self._call("POST", url, json.dumps(payload).encode())
         if "html_url" not in answer:
             raise ForgeError(
                 f"GitCode answered {status} with no issue in it: {raw[:200]!r}"
             )
         return FiledIssue(number=str(answer.get("number", "")), url=answer["html_url"])
 
+    def read_issue(self, ref: IssueRef) -> Issue:
+        status, answer, raw = self._call("GET", issue_url(ref), b"")
+        if not isinstance(answer.get("title"), str):
+            raise ForgeError(
+                f"GitCode answered {status} with no issue in it: {raw[:200]!r}"
+            )
+        return Issue(ref, answer["title"])
+
+    def _call(self, method: str, url: str, body: bytes) -> tuple[int, dict, bytes]:
+        status, raw = self._send(
+            method,
+            url,
+            {
+                "Authorization": f"Bearer {self._token()}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            body,
+        )
+        answer = _json(raw)
+        if not 200 <= status < 300:
+            message = answer.get("message") or raw.decode(errors="replace")[:200]
+            raise ForgeError(f"GitCode answered {status}: {message}", status=status)
+        return status, answer, raw
+
+
+def issue_url(ref: IssueRef) -> str:
+    repository = _require_gitcode(ref.repository)
+    return f"{API}/repos/{repository.owner}/{repository.name}/issues/{ref.number}"
+
 
 @final
 class DryRunForge:
-    def __init__(self, emit: Callable[[str], None]) -> None:
+    def __init__(self, emit: Callable[[str], None], reader: GitCodeForge) -> None:
         self._emit = emit
+        self._reader = reader
+
+    def read_issue(self, ref: IssueRef) -> Issue:
+        # A read changes nothing, and the plan is built from what it answers.
+        return self._reader.read_issue(ref)
 
     def create_issue(self, issue: NewIssue) -> None:
         url, payload = issue_request(issue)
@@ -138,7 +160,7 @@ def send_over_https(
     method: str, url: str, headers: Mapping[str, str], body: bytes
 ) -> tuple[int, bytes]:
     request = urllib.request.Request(
-        url, data=body, headers=dict(headers), method=method
+        url, data=body or None, headers=dict(headers), method=method
     )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:

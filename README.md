@@ -44,6 +44,24 @@ cd fix-parser-ice/cangjie_compiler
   name and completing a set that covers only some projects. `-w/--workspace PATH` names
   the workspace to create it in; the default is the cwd, walked up like git.
 
+A task is a branch set plus the issue it is for, remembered in
+`.cjdev/state/<branch set>.toml` so later commands read the issue instead of asking:
+
+```bash
+cjdev start https://gitcode.com/Cangjie/cangjie_compiler/issues/812
+cjdev start --no-issue fix-parser-ice     # attach the issue later
+cd issue-812-bug-ice-on-objcimpl
+cjdev sync                                # fast-forward to fresh upstream
+```
+
+- `cjdev start ISSUE_URL` - read the issue from GitCode, fetch upstream in every project
+  and create the branch set `issue-<n>-<title>` (`--name` overrides) from each default
+  branch. `--no-issue NAME` starts one without an issue; its home project is `--home`,
+  else `[forge] issue_home` in `.cjdev/config.toml` (default `cangjie_compiler`).
+- `cjdev sync` - fetch upstream and fast-forward every project of the branch set you
+  are in whose branch has no commits of its own. A diverged branch is reported with
+  the rebase that would fix it, never rebased.
+
 ### Commit and push
 
 From anywhere inside a branch set, one command per step across every project of it:
@@ -71,7 +89,7 @@ built, and there is no flag for it.
 cd fix-parser-ice/cangjie_compiler
 cjdev build                          # every unit the branch set holds, in dependency order
 cjdev build stdlib                   # stdlib and everything it needs
-cjdev build --from runtime           # runtime and everything that depends on it
+cjdev build --from runtime           # runtime and what depends on it, in the set
 cjdev build compiler -p debug        # the other profile, no reconfigure
 cjdev build compiler -- --no-tests   # from the flag on, passed to the script
 ```
@@ -178,6 +196,8 @@ cjdev issue new cangjie_compiler -t bug-report --dry-run   # print the request i
   draft is kept and resumed by the next run; `--body-file PATH` sends a filled one
   without an editor. The token is `GITCODE_TOKEN`, else git's stored credential for
   gitcode.com.
+- `cjdev issue attach ISSUE_URL` - make it the issue of the branch set you are in, for
+  one started with `branch new` or `start --no-issue`.
 
 ## Documentation
 

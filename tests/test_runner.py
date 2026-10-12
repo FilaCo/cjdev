@@ -108,6 +108,68 @@ class TestFailure:
         assert outcomes(report) == [Outcome.FAILED, Outcome.DONE, Outcome.DONE]
         assert not report.ok
 
+    def test_a_failure_cancels_only_what_needs_it(self):
+        # Arrange
+        def boom() -> None:
+            raise RuntimeError("nope")
+
+        # Act
+        report = Runner(jobs=1, fail_fast=False).run(
+            [
+                work("a", boom),
+                work("b"),
+                Work(key="c", label="c", action=lambda: None, needs=("a",)),
+                Work(key="d", label="d", action=lambda: None, needs=("c",)),
+            ]
+        )
+
+        # Assert: d never sees a, but building on what c did not build is the
+        # same half-built SDK.
+        assert outcomes(report) == [
+            Outcome.FAILED,
+            Outcome.DONE,
+            Outcome.CANCELLED,
+            Outcome.CANCELLED,
+        ]
+
+    def test_needed_work_finishes_first_even_with_jobs_to_spare(self):
+        # Arrange
+        seen: list[str] = []
+        released = threading.Event()
+
+        def first() -> None:
+            released.wait()
+            seen.append("a")
+
+        def second() -> None:
+            seen.append("b")
+            released.set()
+
+        # Act
+        report = Runner(jobs=3).run(
+            [
+                work("a", first),
+                work("b", second),
+                Work(
+                    key="c",
+                    label="c",
+                    action=lambda: seen.append("c"),
+                    needs=("a",),
+                ),
+            ]
+        )
+
+        # Assert
+        assert report.ok
+        assert seen.index("c") > seen.index("a")
+
+    def test_needing_later_work_is_refused_rather_than_deadlocked(self):
+        # Act / Assert
+        with pytest.raises(UsageError, match="not earlier work"):
+            Runner(jobs=1).run(
+                [Work(key="a", label="a", action=lambda: None, needs=("b",)), work("b")]
+            )
+
     def test_the_error_is_kept_for_the_renderer(self):
         def boom() -> None:
             raise RuntimeError("the reason")
