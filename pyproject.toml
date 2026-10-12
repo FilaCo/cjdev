@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [{ name = "Dmitrii Chizha", email = "me@filaco.dev" }]
 requires-python = ">=3.10"
 dependencies = [
+    "pyyaml>=6.0.3",
     "questionary>=2.1.1",
     "rich>=15.0.0",
     "tomlkit>=0.15.1",

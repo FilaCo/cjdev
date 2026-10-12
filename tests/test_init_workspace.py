@@ -99,6 +99,9 @@ class Wizard:
         self.asked.append(question)
         return self._answers.pop(0) if self._answers else default
 
+    def edit(self, draft: str, *, remedy: str) -> str:
+        return draft
+
 
 @pytest.fixture
 def manifest(tmp_path: Path) -> Manifest:

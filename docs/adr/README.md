@@ -40,4 +40,5 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0027](0027-third-party-fetched-by-cjdev.md) | Third-party sources are fetched by cjdev and linked by commit | accepted |
 | [0039](0039-scratch-moves-into-the-worktree.md) | Scratch is moved into the worktree for the build, not symlinked out of it | accepted; Supersedes, in part, ADR-0017: its symlink redirect |
 | [0043](0043-origin-derived-from-one-fork-owner.md) | origin is derived from upstream and one fork owner | accepted |
+| [0044](0044-gitcode-client-and-token.md) | GitCode is a `Forge` port over urllib, and the token is GITCODE_TOKEN, then git's credential | accepted |
 | [0046](0046-branch-set-remembers-its-profile.md) | A branch set remembers its profile, and `cjdev test` runs against its dist | accepted |
