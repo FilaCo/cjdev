@@ -43,3 +43,4 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0043](0043-origin-derived-from-one-fork-owner.md) | origin is derived from upstream and one fork owner | accepted |
 | [0044](0044-gitcode-client-and-token.md) | GitCode is a `Forge` port over urllib, and the token is GITCODE_TOKEN, then git's credential | accepted |
 | [0046](0046-branch-set-remembers-its-profile.md) | A branch set remembers its profile, and `cjdev test` runs against its dist | accepted |
+| [0052](0052-java-interop-units.md) | The java interop builds as two units, and the generator's JDK sources are scratch | accepted |

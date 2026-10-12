@@ -135,6 +135,18 @@ RUN apt-get update && apt-get install --no-install-recommends --yes \
     && ldconfig \
     && cd / && rm -rf /usr/src/gnustep
 
+# A JDK, for the java units and for the Java interop tests, which run `javac`
+# and `java` by name. `java/build/build.py` refuses to start without JAVA_HOME
+# naming a JDK 17 or greater; 21 because java-mirror-gen compiles BiShengJDK
+# 21's javac. `ant` builds java-mirror-gen. The package's own directory has the
+# architecture in its name, so JAVA_HOME names a link to it.
+RUN apt-get update && apt-get install --no-install-recommends --yes \
+        ant \
+        openjdk-21-jdk-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s "java-21-openjdk-$(dpkg --print-architecture)" /usr/lib/jvm/jdk
+ENV JAVA_HOME=/usr/lib/jvm/jdk
+
 # cangjie_build's convention for anything installed by hand. Nothing puts
 # tooling here yet; the directory and the PATH entry exist so that whatever
 # does lands where the guide says it does.

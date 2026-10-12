@@ -35,6 +35,8 @@ UNITS = [
     "cjpm",
     "objc-interoplib",
     "objc-interop-gen",
+    "java-interoplib",
+    "java-mirror-gen",
 ]
 
 
@@ -64,10 +66,12 @@ def test_ships_only_the_units_whose_edges_are_settled(bundled: Manifest):
     assert [u.name for u in bundled.build_units] == UNITS
 
 
-def test_the_interop_project_holds_the_objc_units(bundled: Manifest):
+def test_the_interop_project_holds_the_objc_and_java_units(bundled: Manifest):
     assert [u.name for u in bundled.units_of("cangjie_multiplatform_interop")] == [
         "objc-interoplib",
         "objc-interop-gen",
+        "java-interoplib",
+        "java-mirror-gen",
     ]
 
 
@@ -79,14 +83,16 @@ def test_one_project_can_hold_several_build_units(bundled: Manifest):
 
 
 def test_the_whole_sdk_builds_in_dependency_order(bundled: Manifest):
-    # ObjCInteropGen depends on nothing, so manifest order lets it go early.
+    # The two generators depend on nothing, so manifest order lets them go early.
     assert [u.name for u in bundled.build_order()] == [
         "compiler",
         "runtime",
         "objc-interop-gen",
+        "java-mirror-gen",
         "stdlib",
         "stdx",
         "objc-interoplib",
+        "java-interoplib",
         "cjpm",
     ]
 
@@ -365,6 +371,68 @@ class TestObjcUnits:
         # Its interoplib needs GNUstep, which a host build rarely has.
         for members in bundled.groups.values():
             assert "cangjie_multiplatform_interop" not in members
+
+
+class TestJavaUnits:
+    def test_the_interoplib_builds_with_the_sdk_it_installs_into(
+        self, bundled: Manifest
+    ):
+        assert bundled.unit("java-interoplib").depends_on == (
+            "compiler",
+            "runtime",
+            "stdlib",
+        )
+
+    def test_the_interoplib_is_selected_by_target_lib_when_building(
+        self, bundled: Manifest
+    ):
+        # `build --target` is a triple for clang and cjc, and without
+        # `--target-lib` the script builds the generator instead.
+        build = bundled.unit("java-interoplib").build
+
+        assert build[build.index("--target-lib") + 1] == "{target}"
+        assert "--target" not in build
+
+    def test_the_interoplib_installs_under_the_target_of_this_machine(
+        self, bundled: Manifest
+    ):
+        # Arrange: `%import_java_interop` looks in `<target>_cjnative`.
+        (install,) = bundled.unit("java-interoplib").install
+
+        # Act / Assert
+        assert isinstance(install, RunStep)
+        assert install.argv[install.argv.index("--target") + 1] == "{target}"
+        assert install.argv[install.argv.index("--prefix") + 1] == "{dist}"
+
+    def test_the_generator_is_the_scripts_other_mode(self, bundled: Manifest):
+        unit = bundled.unit("java-mirror-gen")
+        (install,) = unit.install
+
+        assert isinstance(install, RunStep)
+        assert unit.depends_on == ()
+        assert not {"--target", "--target-lib"} & {*unit.build, *install.argv}
+
+    def test_the_two_units_of_one_script_share_no_scratch(self, bundled: Manifest):
+        lib = bundled.unit("java-interoplib")
+        gen = bundled.unit("java-mirror-gen")
+
+        assert lib.path == gen.path
+        assert set(lib.scratch).isdisjoint(gen.scratch)
+
+    def test_the_fetched_jdk_sources_are_scratch(self, bundled: Manifest):
+        # Upstream ignores neither, and a link there would be `rmtree`d.
+        scratch = bundled.unit("java-mirror-gen").scratch
+
+        assert PurePosixPath("src/java-mirror-gen/third_party/jdk") in scratch
+        assert PurePosixPath("src/java-mirror-gen/third_party/bishengjdk-21") in (
+            scratch
+        )
+        assert bundled.unit("java-mirror-gen").third_party == ()
+
+    def test_the_tracked_build_directory_is_not_scratch(self, bundled: Manifest):
+        # `java/build/` holds `build.py` itself.
+        for name in ("java-interoplib", "java-mirror-gen"):
+            assert PurePosixPath("build") not in bundled.unit(name).scratch
 
 
 def test_the_compiler_names_what_its_configure_would_clone(bundled: Manifest):

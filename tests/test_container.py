@@ -111,6 +111,10 @@ class TestTheTag:
         # else would catch them drifting apart until a build had no ccache.
         assert f'LABEL {CCACHE_LABEL}="' in bundled_dockerfile()
 
+    def test_the_image_names_a_jdk_for_the_java_build_script(self):
+        # Arrange / Act / Assert: `java/build/build.py` exits at import without it.
+        assert "ENV JAVA_HOME=" in bundled_dockerfile()
+
 
 class TestTheArgv:
     def test_the_command_runs_inside_at_the_path_it_was_given(self):
