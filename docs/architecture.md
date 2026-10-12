@@ -341,6 +341,7 @@ nothing; everything else asks at a terminal or refuses.
 | `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
 | `build` | nothing - it creates and overwrites only what cjdev owns, the image included | none; `--dry-run` asks nothing |
 | `env` | nothing - the image is cjdev's, and `rm` removes only what `build` made | none; `--dry-run` asks nothing |
+| `test` | nothing - it writes only under `.cjdev/build/<set>/test/` | none; `--dry-run` asks nothing |
 | `issue new` | the issue text, in `$EDITOR` | `--body-file`; `--dry-run` still opens the editor, because the text is the plan it prints |
 | `commit` | nothing - the message is the input, and a commit replaces nothing | none; `--dry-run` asks nothing |
 | `push` | nothing - a rewrite needs `--force-with-lease`, which is the answer | none; `--dry-run` asks nothing |

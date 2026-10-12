@@ -1,0 +1,74 @@
+[
+  {
+    "name": "toy /ws/main/cangjie_test/testsuites/LLT",
+    "total": 4,
+    "PASS": 1,
+    "FAIL": 3,
+    "UNRESOLVED": 0,
+    "tests": [
+      {
+        "name": "compiler/fail.cj",
+        "cfg": "/ws/main/cangjie_test/testsuites/LLT/test.cfg",
+        "result": "FAIL",
+        "commands": [
+          {
+            "exit_code": 0,
+            "PIPE": false,
+            "cmd": "false"
+          }
+        ],
+        "output": [
+          {
+            "cmd": "false",
+            "return_code": 1,
+            "stdout": "",
+            "stderr": ""
+          }
+        ],
+        "log_file": "fail_cj_d6f35adac3df11f1"
+      },
+      {
+        "name": "compiler/objc/a.cj",
+        "cfg": "/ws/main/cangjie_test/testsuites/LLT/test.cfg",
+        "result": "FAIL",
+        "commands": [
+          {
+            "exit_code": 0,
+            "PIPE": false,
+            "cmd": "gnustep-config --objc-flags"
+          }
+        ],
+        "output": [
+          {
+            "cmd": "gnustep-config --objc-flags",
+            "return_code": 127,
+            "stdout": "",
+            "stderr": "/bin/bash: line 1: gnustep-config: command not found\n"
+          }
+        ],
+        "log_file": "a_cj_d6f34e46c3df11f1"
+      },
+      {
+        "name": "compiler/objc/b.cj",
+        "cfg": "/ws/main/cangjie_test/testsuites/LLT/test.cfg",
+        "result": "FAIL",
+        "commands": [
+          {
+            "exit_code": 0,
+            "PIPE": false,
+            "cmd": "clang $(gnustep-config --objc-flags) -c x.m"
+          }
+        ],
+        "output": [
+          {
+            "cmd": "clang $(gnustep-config --objc-flags) -c x.m",
+            "return_code": 1,
+            "stdout": "",
+            "stderr": "/bin/bash: line 1: gnustep-config: command not found\nclang: error: no such file or directory: 'x.m'\nclang: error: no input files\n"
+          }
+        ],
+        "log_file": "b_cj_d6f33b4ac3df11f1"
+      }
+    ]
+  }
+]
