@@ -25,6 +25,10 @@ pip install cjdev
 - `cjdev config show` - the effective configuration: the bundled manifest with the
   workspace's `.cjdev/config.toml` layered over it (`-v` names the layer each value
   came from), and where its builds run.
+- `cjdev config origin [OWNER]` - point `origin` at OWNER's fork in every project,
+  derived from its `upstream`, and record OWNER as `[forge] fork_owner`. An existing
+  `origin` that points elsewhere is reported, never replaced. `cjdev init --fork-owner
+  OWNER` does the same for a new workspace.
 
 ### Branch sets
 
@@ -39,6 +43,24 @@ cd fix-parser-ice/cangjie_compiler
 - `cjdev branch new BRANCH_SET` - create one, adopting a branch that already carries the
   name and completing a set that covers only some projects. `-w/--workspace PATH` names
   the workspace to create it in; the default is the cwd, walked up like git.
+
+### Commit and push
+
+From anywhere inside a branch set, one command per step across every project of it:
+
+```bash
+cjdev commit -m "fix(sema): reject the ICE"   # staged changes, signed off
+cjdev commit -a -F msg.txt --only cangjie_test
+cjdev push                                    # to origin, never upstream
+```
+
+- `cjdev commit` - one message in every project with something staged (`-a`: any
+  tracked change). Projects with nothing to commit are listed as skipped. Signs off by
+  default (`--no-signoff`), and refuses a project on its default branch or detached.
+- `cjdev push` - push the branch to `origin` in every project ahead of it, setting
+  tracking on the first push, and print where to open each PR. A rewritten branch
+  needs `--force-with-lease`. `cjdev status` shows `origin ↑N` for what is still
+  unpushed.
 
 ### Build
 
@@ -102,6 +124,11 @@ workspace mounted at the same absolute path it has here - which is what lets the
 scratch symlinks resolve on both sides and a host editor read a `compile_commands.json`
 written inside. What the build writes belongs to you: cjdev passes `--user` under
 docker and `--userns=keep-id` under rootless podman.
+
+The first `cjdev build` on a machine builds the image itself, shown as a step of its
+own and logged as `cjdev env build`. `image = "refuse"` under `[environment]` turns
+that into a refusal naming `cjdev env build`, for CI or anywhere a build must not change
+anything outside the workspace.
 
 ```bash
 cjdev env build                    # build the image, from the Dockerfile cjdev ships

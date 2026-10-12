@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
@@ -90,6 +91,7 @@ class TestConfigShow:
         assert json.loads(result.stdout)["data"]["environment"] == {
             "mode": "container",
             "runtime": "podman",
+            "image": "build",
         }
 
     def test_outside_any_workspace_the_environment_is_the_host(self, tmp_path: Path):
@@ -592,6 +594,37 @@ class TestTheEnvelope:
         # from a bad one is better served by nothing.
         assert failure["remedy"] is None
 
+    @pytest.mark.parametrize(
+        "toml",
+        [
+            'schema_version = "2"\n',
+            "schema_version = 2.0\n",
+            '[projects.cangjie_compiler]\nrole = ["buildable"]\n',
+            "[projects.cangjie_compiler]\nrole = 5\n",
+        ],
+    )
+    def test_a_mistyped_config_value_is_a_manifest_failure_in_the_document(
+        self,
+        toml: str,
+        empty_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys,
+    ):
+        # Arrange
+        Path(WorkspaceLayout(empty_workspace).config_file).write_text(toml)
+        monkeypatch.setattr(
+            sys, "argv", ["cjdev", "config", "show", str(empty_workspace), "--json"]
+        )
+
+        # Act
+        with pytest.raises(SystemExit):
+            main()
+
+        # Assert
+        failure = json.loads(capsys.readouterr().out)["errors"][0]
+        assert failure["code"] == "manifest"
+        assert "must be" in failure["message"]
+
     def test_the_same_failure_reads_as_a_line_when_nobody_asked_for_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):
@@ -793,6 +826,7 @@ BUILD_CONFIG = """\
 scratch = ["build"]
 build = ["python3", "build.py", "build", "{profile}"]
 install = ["python3", "build.py", "install", "{dist}"]
+third_party = []
 """
 
 
@@ -936,6 +970,173 @@ class TestBuild:
         # nothing, and every test run against it would say so a thousand times.
         assert isinstance(result.exception, PreconditionError)
         assert "runtime, stdlib, stdx, cjpm" in str(result.exception)
+
+    @pytest.mark.usefixtures("git_available")
+    def test_third_party_is_linked_before_the_build_and_its_fetch_logged(
+        self, branch_set: Path
+    ):
+        # Arrange
+        url = make_upstream(branch_set / "upstreams" / "dep")
+        layout = WorkspaceLayout(branch_set)
+        Path(layout.config_file).write_text(
+            BUILD_CONFIG.replace("third_party = []\n", "")
+            + "[[build_units.compiler.third_party]]\n"
+            + f'path = "third_party/dep"\nupstream = "{url}"\nref = "main"\n',
+            encoding="utf-8",
+        )
+        worktree = Path(layout.worktree("main", "cangjie_compiler"))
+        (worktree / "third_party").mkdir()
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert (worktree / "third_party" / "dep").is_symlink()
+        assert (worktree / "third_party" / "dep" / "README").read_text() == "hello"
+        log = Path(layout.command_log).read_text()
+        assert "git ls-remote" in log
+        assert "git fetch --quiet --depth 1" in log
+
+
+FAKE_RUNTIME = """\
+import os, subprocess, sys
+here = os.path.dirname(os.path.abspath(__file__))
+built = os.path.join(here, "built")
+args = sys.argv[1:]
+with open(os.path.join(here, "calls"), "a") as calls:
+    calls.write(" ".join(args) + "\\n")
+if args[0] == "info":
+    print("linux x86_64 2")
+elif args[:2] == ["image", "ls"]:
+    if os.path.exists(built):
+        print("0123456789ab")
+elif args[:2] == ["image", "inspect"]:
+    if not os.path.exists(built):
+        sys.exit("No such image")
+    print("\\nPATH=" + os.environ["PATH"])
+elif args[0] == "build":
+    open(built, "w").close()
+elif args[0] == "run":
+    tag = next(i for i, a in enumerate(args) if a.startswith("cjdev-build:"))
+    env = dict(os.environ)
+    for i, a in enumerate(args[:tag]):
+        if a == "-e":
+            name, _, value = args[i + 1].partition("=")
+            env[name] = value
+    workdir = args[args.index("--workdir") + 1]
+    sys.exit(subprocess.run(args[tag + 1 :], cwd=workdir, env=env).returncode)
+"""
+"""`docker` as far as cjdev can tell: it answers the reads, records the build
+and runs a `run`'s command here. A real image build is minutes, and what is
+under test is that cjdev asks for one, not that docker can make one."""
+
+
+class TestBuildInAContainer:
+    """`cjdev build` with no image yet: it builds one, visibly, and goes on."""
+
+    @pytest.fixture
+    def runtime(
+        self, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+    ) -> Path:
+        bin_dir = tmp_path_factory.mktemp("runtime")
+        docker = bin_dir / "docker"
+        docker.write_text(f"#!{sys.executable}\n{FAKE_RUNTIME}", encoding="utf-8")
+        docker.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+        return bin_dir
+
+    @pytest.fixture
+    def branch_set(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runtime: Path
+    ) -> Path:
+        layout = WorkspaceLayout(tmp_path)
+        Path(layout.object_store("cangjie_compiler") / "info").mkdir(parents=True)
+        Path(layout.config_file).write_text(
+            BUILD_CONFIG + '\n[environment]\nmode = "container"\n', encoding="utf-8"
+        )
+        worktree = Path(layout.worktree("main", "cangjie_compiler"))
+        worktree.mkdir(parents=True)
+        (worktree / "build.py").write_text(SCRATCH_SCRIPT, encoding="utf-8")
+        monkeypatch.chdir(worktree)
+        return tmp_path
+
+    @staticmethod
+    def calls(runtime: Path) -> list[str]:
+        path = runtime / "calls"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def test_a_missing_image_is_built_and_the_build_goes_on(
+        self, branch_set: Path, runtime: Path
+    ):
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+
+        # Assert: one command on a fresh machine, not two.
+        assert result.exit_code == 0, result.output
+        assert any(call.startswith("build --tag") for call in self.calls(runtime))
+        scratch = WorkspaceLayout(branch_set).scratch_dir(
+            "main", "container", "release", "compiler", PurePosixPath("build")
+        )
+        assert Path(scratch / "build").read_text() == "build release"
+
+    def test_the_image_build_is_its_own_journal_entry(
+        self, branch_set: Path, runtime: Path
+    ):
+        # Act
+        runner.invoke(cli, ["build", "compiler"])
+
+        # Assert: the entry is `env build`'s, so it reads as that command run
+        # by hand would have.
+        log = Path(WorkspaceLayout(branch_set).command_log).read_text()
+        image = log.index("--- cjdev env build")
+        assert image < log.index("docker build --tag") < log.index("--- cjdev build")
+
+    def test_the_report_says_the_image_was_built(self, branch_set: Path):
+        # Act
+        result = runner.invoke(cli, ["build", "compiler", "--json"])
+
+        # Assert
+        assert json.loads(result.stdout)["data"]["image"] == "built"
+
+    def test_a_present_image_is_not_built_again(self, branch_set: Path, runtime: Path):
+        # Arrange
+        (runtime / "built").touch()
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler", "--json"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert not any(call.startswith("build") for call in self.calls(runtime))
+        assert json.loads(result.stdout)["data"]["image"] is None
+
+    def test_a_dry_run_says_it_would_build_the_image_and_builds_none(
+        self, branch_set: Path, runtime: Path
+    ):
+        # Act
+        result = runner.invoke(cli, ["build", "compiler", "--dry-run"])
+
+        # Assert
+        assert result.exit_code == 0, result.output
+        assert "docker build --tag" in result.stdout
+        assert not any(call.startswith("build") for call in self.calls(runtime))
+        assert not Path(WorkspaceLayout(branch_set).image_dir).exists()
+
+    def test_refuse_names_the_command_instead_of_running_it(
+        self, branch_set: Path, runtime: Path
+    ):
+        # Arrange
+        config = Path(WorkspaceLayout(branch_set).config_file)
+        config.write_text(config.read_text() + 'image = "refuse"\n')
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+
+        # Assert: CI wants the diagnosis, not the minutes.
+        assert isinstance(result.exception, PreconditionError)
+        assert result.exception.remedy == "cjdev env build"
+        assert not any(call.startswith("build") for call in self.calls(runtime))
 
 
 class TestPassthroughSplit:

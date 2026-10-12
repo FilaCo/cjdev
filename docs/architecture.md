@@ -245,6 +245,13 @@ Both are host-side reads, so `--dry-run` may make them and plan from the truth, 
 neither needs a container to exist. The CPU count comes from the daemon rather than from
 a cached label, because it is a property of the run and not of the image.
 
+**A missing image is built by the build that needs it** (ADR-0026). `image ls` asks
+whether the tag exists, and the answer is a read. When it does not, `build` runs `env
+build` first: its own row in its own display, and its own entry in the workspace log,
+so what it ran reads as that command typed by hand. The units' plan reads the image, so
+a dry run with no image shows the image build and stops there. `image = "refuse"` in
+`[environment]` turns the absence back into a refusal naming `cjdev env build`.
+
 **`ContainerExecutor` is outermost, not innermost.** It rewrites a command into a run of
 that command inside, and everything below it - dry run, the step label, `-v`, the
 workspace log - then sees the argv that will really run. An inner argv nobody typed, with
@@ -263,7 +270,9 @@ of the two - and the ccache store is not, because ccache hashes the compiler.
 **Only `build` crosses the boundary.** git stays here, all of it: credential helpers, the
 ssh agent and the worktree registrations are this machine's, and `cjdev status` must not
 start failing because a daemon is down. The build's *own* git does run inside - cjpm's
-build clones libuv - which is why the image carries git and CA certificates.
+build clones libuv - which is why the image carries git and CA certificates. What a
+configure would clone unchecked is a unit's `third_party` instead: fetched out here
+before the build, and linked by commit at the path the configure looks at (ADR-0027).
 
 ## The machine surface
 
@@ -323,9 +332,12 @@ nothing; everything else asks at a terminal or refuses.
 | `init` | a wizard for the project set and for the environment, then consent if the answer drops one | `--env`, `--runtime`; `--dry-run` asks nothing |
 | `status` | nothing | none |
 | `branch new` | nothing - the whole input is the branch set | none; `--dry-run` asks nothing |
-| `build` | nothing - it creates and overwrites only what cjdev owns | none; `--dry-run` asks nothing |
+| `build` | nothing - it creates and overwrites only what cjdev owns, the image included | none; `--dry-run` asks nothing |
 | `env` | nothing - the image is cjdev's, and `rm` removes only what `build` made | none; `--dry-run` asks nothing |
 | `test` | nothing - it writes only under `.cjdev/build/<set>/test/` | none; `--dry-run` asks nothing |
+| `commit` | nothing - the message is the input, and a commit replaces nothing | none; `--dry-run` asks nothing |
+| `push` | nothing - a rewrite needs `--force-with-lease`, which is the answer | none; `--dry-run` asks nothing |
+| `config origin` | nothing - an existing `origin` is reported, never replaced | none; `--dry-run` asks nothing |
 
 `clean` - emptying a workspace, object stores and all - was the third row until its name
 became the problem: build scripts spell "remove the artefacts" `clean` too, and the two

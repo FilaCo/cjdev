@@ -12,12 +12,13 @@ from typing import final
 
 import pytest
 
-from cjdev.application.manage_environment import ManageEnvironment
+from cjdev.application.manage_environment import IMAGE, ManageEnvironment
 from cjdev.application.ports import Command, Completed, Executor, FileSystem
+from cjdev.application.runner import Outcome
 from cjdev.domain.build import Host, Profile
-from cjdev.domain.environment import Environment, Mode
+from cjdev.domain.environment import Environment, ImagePolicy, Mode
 from cjdev.domain.layout import WorkspaceLayout
-from cjdev.errors import PreconditionError
+from cjdev.errors import CommandError, PreconditionError
 
 ROOT = Path("/ws")
 HOST = Host(
@@ -78,9 +79,12 @@ def fake_remove_image(executor: Executor) -> None:
 def use_case(
     *,
     mode: Mode = Mode.CONTAINER,
+    image: ImagePolicy = ImagePolicy.BUILD,
+    present: bool = False,
     outside: FakeExecutor | None = None,
     inside: FakeExecutor | None = None,
     file_system: FakeFileSystem | None = None,
+    build_image=fake_build_image,
 ) -> ManageEnvironment:
     outside = outside or FakeExecutor()
     return ManageEnvironment(
@@ -88,11 +92,24 @@ def use_case(
         inside=(inside or outside),  # type: ignore[arg-type]
         file_system=file_system or FakeFileSystem(),  # type: ignore[arg-type]
         host=lambda: HOST,
-        environment=Environment(mode),
-        build_image=fake_build_image,
+        environment=Environment(mode, image=image),
+        build_image=build_image,
         remove_image=fake_remove_image,
+        image_present=lambda _: present,
         shell=("/bin/bash",),
     )
+
+
+@final
+class Watcher:
+    def __init__(self) -> None:
+        self.seen: list[tuple[str, Outcome | None]] = []
+
+    def started(self, label: str) -> None:
+        self.seen.append((label, None))
+
+    def finished(self, label: str, outcome: Outcome) -> None:
+        self.seen.append((label, outcome))
 
 
 class TestTheImage:
@@ -128,6 +145,55 @@ class TestTheImage:
 
         # Assert
         assert executor.ran[0].argv == ("docker", "image", "rm")
+
+
+class TestTheImageABuildNeeds:
+    def test_a_missing_image_is_one_to_build(self):
+        # Act / Assert
+        assert use_case(present=False).image_missing()
+
+    def test_a_present_image_is_not_built_again(self):
+        # Act / Assert
+        assert not use_case(present=True).image_missing()
+
+    def test_a_host_workspace_has_none_to_miss(self):
+        # Act / Assert: no runtime is asked, because there is none to ask.
+        assert not use_case(mode=Mode.HOST, present=False).image_missing()
+
+    def test_refuse_names_the_command_that_builds_it(self):
+        # Act / Assert: the absence is the diagnosis someone asked to see.
+        with pytest.raises(PreconditionError) as refusal:
+            use_case(image=ImagePolicy.REFUSE).image_missing()
+        assert refusal.value.remedy == "cjdev env build"
+
+    def test_refuse_says_nothing_when_the_image_is_there(self):
+        # Act / Assert
+        assert not use_case(image=ImagePolicy.REFUSE, present=True).image_missing()
+
+    def test_it_is_built_as_a_tracked_row(self):
+        # Arrange
+        executor, watcher = FakeExecutor(), Watcher()
+
+        # Act
+        use_case(outside=executor).provision(ROOT, observer=watcher)
+
+        # Assert: visible, never silent - the same row machinery a unit gets.
+        assert watcher.seen == [(IMAGE, None), (IMAGE, Outcome.DONE)]
+        assert executor.ran[0].argv == ("docker", "build")
+
+    def test_a_failed_image_build_fails_the_command(self):
+        # Arrange
+        failure = CommandError(
+            argv=("docker", "build"), cwd="/ws", exit_code=1, output="no space"
+        )
+
+        def failing(executor: Executor, fs: FileSystem, layout: WorkspaceLayout):
+            raise failure
+
+        # Act / Assert: the units cannot be planned without the image.
+        with pytest.raises(CommandError) as raised:
+            use_case(build_image=failing).provision(ROOT)
+        assert raised.value is failure
 
 
 class TestRunningOneCommand:

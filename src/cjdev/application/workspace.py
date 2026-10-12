@@ -71,6 +71,25 @@ def held_projects(layout: WorkspaceLayout, manifest: Manifest) -> tuple[str, ...
     )
 
 
+def enrolled_projects(
+    layout: WorkspaceLayout, manifest: Manifest, branch_set: str
+) -> tuple[str, ...]:
+    """The held projects with a checkout in this branch set, in manifest
+    order. A project the set has not enrolled has nothing of the set's to
+    commit or push."""
+    projects = tuple(
+        project
+        for project in held_projects(layout, manifest)
+        if Path(layout.worktree(branch_set, project)).is_dir()
+    )
+    if not projects:
+        raise PreconditionError(
+            f"branch set {branch_set} has no checkouts in {layout.root}.",
+            remedy=f"cjdev branch new {branch_set}",
+        )
+    return projects
+
+
 def in_manifest_order(manifest: Manifest, names: Iterable[str]) -> tuple[str, ...]:
     """Manifest order first, then whatever the manifest has never heard of.
 
