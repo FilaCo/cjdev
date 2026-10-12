@@ -188,17 +188,20 @@ def render_build(
         console.print("\ninterrupted; nothing further was started.", style=CANCELLED)
 
 
-def build_payload(report: BuildReport) -> dict[str, object]:
+def build_payload(
+    report: BuildReport, *, image: str | None = None
+) -> dict[str, object]:
     """The same report, for something that is not a person.
 
     The log path is carried per unit: it is the only place the whole output
     exists, and a caller that has to reconstruct it from the layout is one
-    that will get it wrong.
+    that will get it wrong. `image` is `"built"` when the run built it first.
     """
     return {
         "branch_set": report.plan.branch_set,
         "profile": report.plan.profile.value,
         "dist": str(report.plan.dist),
+        "image": image,
         "units": [
             {
                 "name": row.unit,
@@ -349,6 +352,7 @@ def config_payload(
         "environment": {
             "mode": environment.mode.value,
             "runtime": environment.runtime.value,
+            "image": environment.image.value,
         },
         "projects": [
             {
@@ -463,6 +467,7 @@ def render_config_show(
     # a value with nothing layered under it honestly has.
     add_row("  mode", environment.mode.value, "")
     add_row("  runtime", environment.runtime.value, "")
+    add_row("  image", environment.image.value, "")
 
     add_row("", "")
     add_row("Projects", "")

@@ -34,6 +34,7 @@ from cjdev.infra.container import (
     build_spec,
     bundled_dockerfile,
     detect_container_host,
+    image_present,
     image_tag,
     provision_image,
     remove_image,
@@ -142,7 +143,12 @@ class Container:
         Every executor built afterwards writes to it, which is why a command
         opens this before it builds its use case. Read-only commands do not:
         a `status` run from a shell prompt would otherwise be most of the log.
+
+        A second call starts a second entry: `build` gives the image it builds
+        first a line of its own, the one `cjdev env build` would have written.
         """
+        if self._journal is not None:
+            self._journal.close()
         self._journal = open_journal(root, argv)
         self._journal_root = root
         return self._journal
@@ -282,6 +288,9 @@ class Container:
             ),
             remove_image=lambda executor: remove_image(
                 executor, spec=self._require_spec(spec)
+            ),
+            image_present=lambda executor: image_present(
+                executor, self._require_spec(spec)
             ),
             # The image's shell, or the caller's own when the build is this
             # machine's: `env shell` is the build environment with a prompt in
