@@ -63,3 +63,31 @@ def new(
     # print, not rich: a title like `[Bug]: ...` is markup to rich.
     if outcome.filed is not None:
         print(outcome.filed.url)
+
+
+@cli.command(cls=CjdevCommand)
+def attach(
+    ctx: CjdevContext,
+    url: str = Argument(..., help="The issue's URL."),
+    dry_run: bool = Option(False, "--dry-run", help="Print the write, make none."),
+) -> None:
+    """Make URL the issue of the branch set you are standing in.
+
+    For a branch set started with `branch new` or `start --no-issue`, or to
+    replace the issue it had. The issue's project becomes the task's home.
+    Nothing is sent to GitCode.
+    """
+    begin("issue attach")
+    cwd = Path.cwd().resolve()
+    root = require_root(cwd)
+    branch_set = require_branch_set(root, cwd)
+    if not dry_run:
+        ctx.obj.journal(root, ["issue", "attach", url])
+
+    task, before = ctx.obj.tasks(dry_run=dry_run, start=root).attach(
+        root, branch_set, url
+    )
+
+    print(task.issue)
+    if before is not None and before != task.issue:
+        print(f"replaces {before}")
