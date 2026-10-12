@@ -38,6 +38,7 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0024](0024-adrs-numbered-by-issue.md) | ADRs are numbered by their issue, and the index is generated | accepted |
 | [0026](0026-build-builds-the-missing-image.md) | cjdev build builds the missing image itself, unless told to refuse | accepted |
 | [0027](0027-third-party-fetched-by-cjdev.md) | Third-party sources are fetched by cjdev and linked by commit | accepted |
+| [0031](0031-scratch-drift-is-reconciled.md) | Scratch that drifted from the manifest is reconciled, not refused | accepted; Supersedes, in part, ADR-0039: its refusal of a real directory with no marker |
 | [0039](0039-scratch-moves-into-the-worktree.md) | Scratch is moved into the worktree for the build, not symlinked out of it | accepted; Supersedes, in part, ADR-0017: its symlink redirect |
 | [0042](0042-objc-interop-units.md) | The objc interop builds as two units, keyed by a `{target}` token | accepted; Supersedes, in part, ADR-0017: its four tokens |
 | [0043](0043-origin-derived-from-one-fork-owner.md) | origin is derived from upstream and one fork owner | accepted |

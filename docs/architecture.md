@@ -149,7 +149,10 @@ whole design:
   names it, written before anything moves in and removed after everything moves out, all
   under an flock per (branch set, build unit). A run killed in between leaves the marker,
   and the next run moves that profile's scratch back first. A real directory with no
-  marker is a refusal, not a silent delete of somebody's artefacts.
+  marker is absorbed: it becomes the scratch of the profile being built, replacing
+  what `.cjdev/build` held there (ADR-0031). A symlink into `.cjdev/build` at a path the
+  store's `info/exclude` lists but the manifest no longer calls scratch is a redirect of
+  a former manifest, and is removed; a symlink anywhere else is not cjdev's.
 - **Scratch has to be excluded, and the project's own `.gitignore` will not do it.**
   cjpm ignores none of its scratch, and a killed build leaves it in the worktree, where
   `status` would call the worktree dirty and `git worktree remove` would refuse. cjdev
@@ -195,7 +198,8 @@ record what a command printed.
 
 Every mutating command opens `.cjdev/log/cjdev.log` before it builds its use case, and
 `RecordingExecutor` writes one complete line per external command - status, duration,
-argv, cwd - plus the output of anything that failed. It is always on, because the question
+argv, cwd - plus the output of anything that failed. `TracedFileSystem` does the same
+for each tree mutation, and reports it to the progress display as `StepExecutor` does. It is always on, because the question
 it answers ("what did that actually run?") is only ever asked afterwards, and `-v` has to
 be turned on in advance. A dry run records nothing; read-only commands do not open it.
 

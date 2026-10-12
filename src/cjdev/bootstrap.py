@@ -198,7 +198,13 @@ class Container:
         )
 
     def file_system(self, *, dry_run: bool = False) -> FileSystem:
-        return build_file_system(dry_run=dry_run, emit=self.emit)
+        return build_file_system(
+            dry_run=dry_run,
+            emit=self.emit,
+            report_step=self.report_step,
+            record=None if dry_run or self._journal is None else self._journal.write,
+            record_base=self._journal_root,
+        )
 
     def prompt(self, *, interactive: bool = True, assume_yes: bool = False) -> Prompt:
         """`interactive` is whether to ask; `assume_yes` is the answer to give
