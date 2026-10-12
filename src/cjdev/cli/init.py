@@ -5,13 +5,14 @@ from typer import Argument, Exit, Option, Typer
 
 from cjdev.application.runner import DEFAULT_NETWORK_JOBS
 from cjdev.domain.environment import Mode, Runtime
+from cjdev.domain.fork import check_fork_owner
 from cjdev.errors import InputRequiredError
 
 from ._console import DETAIL, OK, console, diagnostics
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
 from ._output import begin
-from ._progress import LIVE_AFTER, ConsoleProgress
-from ._render import render_report
+from ._progress import LIVE_AFTER, ConsoleProgress, Transcript
+from ._render import render_origin, render_report
 
 cli = Typer(cls=CjdevGroup)
 
@@ -31,6 +32,12 @@ def init(
         "--runtime",
         help="Which container runtime to use. Asked only under --env container.",
     ),
+    fork_owner: str | None = Option(
+        None,
+        "--fork-owner",
+        help="Whose forks origin points at; recorded, as `cjdev config origin` "
+        "does. Without it, the recorded owner, if any.",
+    ),
     dry_run: bool = Option(False, "--dry-run", help="Print commands, run none."),
     verbose: bool = Option(False, "-v", "--verbose", help="Show more detail."),
 ) -> None:
@@ -40,6 +47,9 @@ def init(
     # would otherwise still be in force when this one failed.
     begin("init")
     root = path.resolve()
+    # Before anything is fetched: a name refused after the fetch costs minutes.
+    if fork_owner is not None:
+        check_fork_owner(fork_owner)
 
     # The wizard is the only way `init` learns which projects to fetch, so
     # with no terminal there is no answer to be had and no flag that supplies
@@ -115,3 +125,16 @@ def init(
         if labels:
             console.print(f"\n{progress.summary()}", style=DETAIL, highlight=False)
         console.print(f"Workspace ready at {root}", style=OK, soft_wrap=True)
+
+    # After the stores exist, so every project the run fetched is wired. Not
+    # a wizard question: a workspace that only reads upstream has no fork.
+    transcript = Transcript()
+    ctx.obj.emit = transcript.emit
+    wiring = ctx.obj.wire_origin(dry_run=dry_run, verbose=verbose, start=root)
+    if wiring.owner(root, fork_owner) is None:
+        return
+    origins = wiring.perform(root, fork_owner, observer=transcript)
+    console.print()
+    render_origin(console, origins, lines=transcript.lines)
+    if not origins.ok:
+        raise Exit(1)

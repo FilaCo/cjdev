@@ -48,6 +48,28 @@ class Project:
 
 @final
 @dataclass(frozen=True)
+class ThirdParty:
+    """Source a unit's configure would clone for itself, without checking it.
+
+    Fetched by cjdev before the build instead, so a clone that did not finish
+    is never mistaken for one that did.
+    """
+
+    path: PurePosixPath
+    """Relative to the unit's `path`: where upstream's configure looks before
+    it clones."""
+    upstream: str
+    ref: str
+    """A branch, a tag or a commit. A branch is resolved on every build, so
+    upstream's "always the tip" holds."""
+
+    @property
+    def name(self) -> str:
+        return self.path.name
+
+
+@final
+@dataclass(frozen=True)
 class BuildUnit:
     name: str
     """The token a user types: `stdlib`, not `cangjie_runtime/stdlib`.
@@ -76,6 +98,7 @@ class BuildUnit:
     extra_args: tuple[str, ...] = ()
     """Appended to `build` - the workspace layer's way to write down a flag
     that would otherwise be retyped every day."""
+    third_party: tuple[ThirdParty, ...] = ()
 
 
 @final
@@ -228,6 +251,17 @@ class Manifest:
             self._reject_nested_scratch(unit)
             for word in (*unit.build, *unit.extra_args):
                 check_template(word, where)
+            for source in unit.third_party:
+                check_inside(source.path, where, "third_party path")
+                if not source.upstream or not source.ref:
+                    raise ManifestError(
+                        f"{where} third_party {source.path} needs an upstream "
+                        f"and a ref."
+                    )
+            self._reject_repeats(
+                f"{where} third_party path",
+                [str(source.path) for source in unit.third_party],
+            )
             for step in unit.install:
                 if isinstance(step, RunStep):
                     for word in step.argv:
