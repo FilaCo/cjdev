@@ -17,6 +17,8 @@ from cjdev.application.new_branch_set import Action, Enrolment, Held, Probe
 from cjdev.application.ports import Command, Executor, FileSystem
 from cjdev.application.push_branch_set import Probe as PushProbe
 from cjdev.application.push_branch_set import Push, Unpushed
+from cjdev.application.sync_branch_set import Drift, FastForward
+from cjdev.application.sync_branch_set import Probe as SyncProbe
 from cjdev.application.wire_origin import Remotes
 from cjdev.domain.manifest import Project
 from cjdev.domain.state import Checkout, StaleRegistration, StoreReading, Tracking
@@ -148,6 +150,13 @@ class Git:
             ),
             cwd=worktree,
             what="committing",
+        )
+
+    def fast_forward(self, worktree: Path, target: str) -> None:
+        self._run(
+            ("merge", "--ff-only", "--quiet", target),
+            cwd=worktree,
+            what=f"fast-forwarding to {target}",
         )
 
     def push(
@@ -761,3 +770,34 @@ def fetch_commit(
         (("checkout", "--quiet", "--detach", "FETCH_HEAD"), directory),
     ):
         executor.run(Command(argv=("git", *argv), cwd=cwd, what=what))
+
+
+def fetch_upstream(executor: Executor, store: PurePath) -> None:
+    Git(executor).fetch(Path(store), UPSTREAM)
+
+
+def inspect_sync(executor: Executor, probe: SyncProbe) -> Drift:
+    git = Git(executor)
+    store, worktree = Path(probe.store), Path(probe.worktree)
+    git.fetch(store, UPSTREAM)
+    branch = git.current_branch(worktree)
+    base = git.default_branch_ref(store, UPSTREAM)
+    ahead = behind = 0
+    if branch is not None and base is not None:
+        tip = f"refs/heads/{branch}"
+        ahead = git.count(store, tip, base)
+        behind = git.count(store, base, tip)
+    return Drift(
+        project=probe.project,
+        worktree=probe.worktree,
+        branch=branch,
+        # The short form, because the report hands it to the reader as the
+        # argument of a rebase run inside the checkout.
+        upstream=base.removeprefix("refs/remotes/") if base else None,
+        ahead=ahead,
+        behind=behind,
+    )
+
+
+def fast_forward(executor: Executor, step: FastForward) -> None:
+    Git(executor).fast_forward(Path(step.worktree), step.target)

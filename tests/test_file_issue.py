@@ -10,7 +10,7 @@ from cjdev.application.file_issue import FileIssue
 from cjdev.application.ports import Command, Completed
 from cjdev.domain.build import Host, Profile
 from cjdev.domain.environment import Environment
-from cjdev.domain.forge import FiledIssue, NewIssue
+from cjdev.domain.forge import FiledIssue, Issue, IssueRef, NewIssue
 from cjdev.domain.issue_form import render_draft
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import Manifest, Project, ProjectRole
@@ -90,6 +90,9 @@ class FakeForge:
     def create_issue(self, issue: NewIssue) -> FiledIssue | None:
         self.filed.append(issue)
         return None if self._dry else FiledIssue("1", "https://gitcode.com/i/1")
+
+    def read_issue(self, ref: IssueRef) -> Issue:
+        raise AssertionError("filing an issue reads none")
 
 
 @pytest.fixture

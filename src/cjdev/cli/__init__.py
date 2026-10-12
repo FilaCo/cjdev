@@ -11,7 +11,9 @@ from .env import cli as env_cli
 from .init import cli as init_cli
 from .issue import cli as issue_cli
 from .push import cli as push_cli
+from .start import cli as start_cli
 from .status import cli as status_cli
+from .sync import cli as sync_cli
 from .test import cli as test_cli
 
 cli = Typer(
@@ -24,6 +26,8 @@ cli.add_typer(branch_cli, cls=CjdevGroup)
 cli.add_typer(build_cli, cls=CjdevGroup)
 cli.add_typer(init_cli, cls=CjdevGroup)
 cli.add_typer(status_cli, cls=CjdevGroup)
+cli.add_typer(start_cli, cls=CjdevGroup)
+cli.add_typer(sync_cli, cls=CjdevGroup)
 cli.add_typer(commit_cli, cls=CjdevGroup)
 cli.add_typer(push_cli, cls=CjdevGroup)
 cli.add_typer(config_cli, cls=CjdevGroup)
