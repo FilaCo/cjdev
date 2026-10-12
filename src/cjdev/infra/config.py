@@ -20,9 +20,15 @@ from cjdev.domain.config import (
     UnitOverride,
     WorkspaceConfig,
 )
-from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode, Runtime
+from cjdev.domain.environment import (
+    DEFAULT_ENVIRONMENT,
+    Environment,
+    ImagePolicy,
+    Mode,
+    Runtime,
+)
 from cjdev.domain.fork import check_fork_owner
-from cjdev.domain.manifest import BuildUnit, Manifest, Project
+from cjdev.domain.manifest import BuildUnit, Manifest, Project, ThirdParty
 from cjdev.errors import ManifestError, UsageError
 
 SUPPORTED_SCHEMA_VERSION = 2
@@ -40,6 +46,7 @@ UNIT_KEYS = {
     "build",
     "install",
     "extra_args",
+    "third_party",
 }
 
 WORKSPACE_CONFIG = "config.toml"
@@ -126,6 +133,8 @@ def parse_manifest(text: str, *, source: str) -> Manifest:
         source,
     )
     version = _require(document, "schema_version", source)
+    _reject_mistyped(document, "schema_version", f"{source}:", int, "an integer")
+    _reject_mistyped(document, "default_group", f"{source}:", str, "a string")
     if version != SUPPORTED_SCHEMA_VERSION:
         raise ManifestError(
             f"{source} declares schema_version {version}, but this cjdev "
@@ -183,6 +192,8 @@ def parse_workspace_config(text: str, *, source: str) -> WorkspaceConfig:
         },
         source,
     )
+    _reject_mistyped(document, "schema_version", f"{source}:", int, "an integer")
+    _reject_mistyped(document, "default_group", f"{source}:", str, "a string")
     version: int | None = None
     if "schema_version" in document:
         if document["schema_version"] != SUPPORTED_SCHEMA_VERSION:
@@ -225,10 +236,11 @@ def parse_environment(text: str, *, source: str) -> Environment:
 
     where = f"{source}: environment"
     body = _require_table(document, "environment", source)
-    _reject_unknown_keys(body, {"mode", "runtime"}, where)
+    _reject_unknown_keys(body, {"mode", "runtime", "image"}, where)
     return Environment(
         mode=_word(body, "mode", where, Mode, DEFAULT_ENVIRONMENT.mode),
         runtime=_word(body, "runtime", where, Runtime, DEFAULT_ENVIRONMENT.runtime),
+        image=_word(body, "image", where, ImagePolicy, DEFAULT_ENVIRONMENT.image),
     )
 
 
@@ -236,6 +248,7 @@ def _project(name: str, body: Any, source: str) -> Project:
     """A bundled-manifest project: total, not partial."""
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    _reject_mistyped(body, "role", where, str, "a string")
     _reject_mistyped(body, "upstream", where, str, "a string")
     _reject_mistyped(body, "default_branch", where, str, "a string")
     role = str(_require(body, "role", where))
@@ -264,6 +277,7 @@ def _build_unit(name: str, body: Any, source: str) -> BuildUnit:
         build=tuple(str(word) for word in body.get("build", [])),
         install=_install(body, where) or (),
         extra_args=tuple(str(word) for word in body.get("extra_args", [])),
+        third_party=_third_party(body, where) or (),
     )
 
 
@@ -276,6 +290,9 @@ def _check_unit_keys(body: Any, where: str) -> None:
     _reject_mistyped(body, "build", where, list, "an argv array")
     _reject_mistyped(body, "install", where, list, "an argv array or copy tables")
     _reject_mistyped(body, "extra_args", where, list, "an array of arguments")
+    _reject_mistyped(
+        body, "third_party", where, list, "tables of path, upstream and ref"
+    )
 
 
 def _install(body: Any, where: str) -> tuple[InstallStep, ...] | None:
@@ -310,9 +327,30 @@ def _copy_step(entry: Any, where: str) -> CopyStep:
     )
 
 
+def _third_party(body: Any, where: str) -> tuple[ThirdParty, ...] | None:
+    """`None` when the key is absent, so that an explicit `[]` can opt out."""
+    if "third_party" not in body:
+        return None
+    sources = []
+    for entry in body["third_party"]:
+        at = f"{where} third_party"
+        _reject_unknown_keys(entry, {"path", "upstream", "ref"}, at)
+        for key in ("path", "upstream", "ref"):
+            _reject_mistyped(entry, key, at, str, "a string")
+        sources.append(
+            ThirdParty(
+                path=PurePosixPath(str(_require(entry, "path", at))),
+                upstream=str(_require(entry, "upstream", at)),
+                ref=str(_require(entry, "ref", at)),
+            )
+        )
+    return tuple(sources)
+
+
 def _project_override(name: str, body: Any, source: str) -> ProjectOverride:
     where = f"{source}: project {name}"
     _reject_unknown_keys(body, {"role", "upstream", "default_branch"}, where)
+    _reject_mistyped(body, "role", where, str, "a string")
     _reject_mistyped(body, "upstream", where, str, "a string")
     _reject_mistyped(body, "default_branch", where, str, "a string")
     if not body:
@@ -371,6 +409,7 @@ def _unit_override(name: str, body: Any, source: str) -> UnitOverride:
             if "extra_args" in body
             else None
         ),
+        third_party=_third_party(body, where),
     )
 
 
@@ -399,10 +438,15 @@ def _reject_mistyped(body: Any, key: str, where: str, want: type, what: str) -> 
     Coerced through `str()`, an array in a scalar's place becomes a
     plausible-looking wrong value ("['a']" as a path) that fails far from the
     line that caused it; a string in an array's place is iterated one
-    character at a time and multiplies into failures just as far away."""
-    if key in body and not isinstance(body[key], want):
+    character at a time and multiplies into failures just as far away.
+
+    `bool` is an `int` to Python, but `true` is not a version."""
+    if key not in body:
+        return
+    value = body[key]
+    if not isinstance(value, want) or (isinstance(value, bool) and want is int):
         raise ManifestError(
-            f"{where} {key} must be {what}, not {type(body[key]).__name__}."
+            f"{where} {key} must be {what}, not {type(value).__name__}."
         )
 
 
@@ -479,7 +523,8 @@ WORKSPACE_CONFIG_TEMPLATE = """\
 # "podman", and is read only under "container". These two are settings rather
 # than overrides - nothing is layered under them - and `cjdev init` asks for
 # them once, when it creates this file. Changing the answer afterwards is
-# editing these lines.
+# editing these lines. `image = "refuse"` stops `cjdev build` from building a
+# missing image itself, and names `cjdev env build` instead.
 [environment]
 mode = "{mode}"
 runtime = "{runtime}"

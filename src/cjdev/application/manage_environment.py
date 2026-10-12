@@ -18,15 +18,20 @@ from typing import final
 
 from cjdev.application.build_units import HostProvider, build_environment
 from cjdev.application.ports import Command, Executor, FileSystem
+from cjdev.application.runner import Runner, RunObserver, Work
 from cjdev.domain.build import Profile
-from cjdev.domain.environment import Environment, Mode
+from cjdev.domain.environment import Environment, ImagePolicy, Mode
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.errors import PreconditionError
 
 BuildImage = Callable[[Executor, FileSystem, WorkspaceLayout], None]
 RemoveImage = Callable[[Executor], None]
+ImagePresent = Callable[[Executor], bool]
 """Bound to a runtime by the composition root, the way `init` receives its
 `provision` and `remove`. Nothing here knows what a Dockerfile is."""
+
+IMAGE = "image"
+"""The row a build shows while it builds its image first."""
 
 
 @final
@@ -40,6 +45,7 @@ class ManageEnvironment:
         environment: Environment,
         build_image: BuildImage,
         remove_image: RemoveImage,
+        image_present: ImagePresent,
         shell: Sequence[str],
     ) -> None:
         self._outside = outside
@@ -53,11 +59,43 @@ class ManageEnvironment:
         self._environment = environment
         self._build_image = build_image
         self._remove_image = remove_image
+        self._image_present = image_present
         self._shell = tuple(shell)
 
     def build(self, root: Path) -> None:
         self._require_container("build")
         self._build_image(self._outside, self._fs, WorkspaceLayout(root))
+
+    def image_missing(self) -> bool:
+        """Whether a build has to build the image before it can plan.
+
+        A read, so a dry run answers it for real. Under `refuse` the absence
+        is the answer: the caller wanted it named, not paid for.
+        """
+        if self._environment.mode is Mode.HOST:
+            return False
+        if self._image_present(self._outside):
+            return False
+        if self._environment.image is ImagePolicy.REFUSE:
+            raise PreconditionError(
+                'the image is not built, and image = "refuse" in '
+                ".cjdev/config.toml keeps a build from building it.",
+                remedy="cjdev env build",
+            )
+        return True
+
+    def provision(self, root: Path, *, observer: RunObserver | None = None) -> None:
+        """`build`, as a tracked row: minutes of image are shown being spent,
+        which is what answers the case for refusing to spend them."""
+        report = Runner(1).run(
+            [Work(key=IMAGE, label=IMAGE, action=lambda: self.build(root))],
+            observer=observer,
+        )
+        if report.interrupted:
+            raise KeyboardInterrupt
+        error = report.results[0].error
+        if error is not None:
+            raise error
 
     def remove(self) -> None:
         """No root: the image is the machine's, not the workspace's, and the
