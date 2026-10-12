@@ -131,6 +131,27 @@ scratch = ["build", "output"]
 build = ["python3", "build.py", "build", "-t", "{profile}", "-j", "{jobs}"]
 install = ["python3", "build.py", "install", "--prefix", "{dist}"]
 
+# What the compiler's configure would otherwise clone for itself, unchecked
+# (`CMakeLists.txt`, `third_party/CMakeLists.txt`, `third_party/cmake/
+# Flatbuffer.cmake`). cjdev fetches each one before the build and links it at
+# `path`, which is where upstream looks first and skips its own clone. `ref`
+# is upstream's: llvm's `main` is a branch, resolved on every build; the
+# flatbuffers commit is pinned upstream.
+[[build_units.compiler.third_party]]
+path = "third_party/boundscheck"
+upstream = "https://gitcode.com/openharmony/third_party_bounds_checking_function.git"
+ref = "OpenHarmony-v6.0-Release"
+
+[[build_units.compiler.third_party]]
+path = "third_party/llvm-project"
+upstream = "https://gitcode.com/Cangjie/llvm-project.git"
+ref = "main"
+
+[[build_units.compiler.third_party]]
+path = "third_party/flatbuffers"
+upstream = "https://gitcode.com/openharmony/third_party_flatbuffers.git"
+ref = "c3e4d69cbd5950e43f775ba76eadb30750d6e0b7"
+
 # `install` passes no prefix on purpose: `build --prefix` is what bakes
 # CMAKE_INSTALL_PREFIX in, and the install step would otherwise overwrite it
 # with a path missing the `linux_<profile>_<arch>` segment the next unit looks

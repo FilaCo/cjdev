@@ -10,7 +10,7 @@ from pathlib import PurePosixPath
 import pytest
 
 from cjdev.domain.build import CopyStep
-from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole
+from cjdev.domain.manifest import BuildUnit, Manifest, Project, ProjectRole, ThirdParty
 from cjdev.errors import ManifestError
 
 
@@ -242,6 +242,25 @@ def test_a_bad_install_source_names_the_key_it_came_from():
                     path=PurePosixPath("."),
                     depends_on=(),
                     install=(CopyStep(PurePosixPath("../x"), "{dist}/bin"),),
+                )
+            ],
+        )
+
+
+def test_a_third_party_path_that_escapes_the_worktree_is_refused():
+    # Arrange / Act / Assert: a link is planted there.
+    with pytest.raises(ManifestError, match="third_party path must be relative"):
+        manifest(
+            projects=[project("a")],
+            units=[
+                BuildUnit(
+                    name="u",
+                    project="a",
+                    path=PurePosixPath("."),
+                    depends_on=(),
+                    third_party=(
+                        ThirdParty(PurePosixPath("../x"), "https://x.invalid", "main"),
+                    ),
                 )
             ],
         )
