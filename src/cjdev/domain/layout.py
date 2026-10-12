@@ -121,6 +121,14 @@ class WorkspaceLayout:
         """
         return self.cache_dir / "image"
 
+    def third_party_dir(self, name: str) -> PurePath:
+        """Every fetched commit of one third-party source, `<commit>/` each.
+
+        Per workspace rather than per branch set: llvm is gigabytes, and a
+        commit is the same tree whichever branch set links it.
+        """
+        return self.cache_dir / "third_party" / self._segment(name, "third_party")
+
     def shim_dir(self, environment: str) -> PurePath:
         """First on `PATH` during a build, holding `clang` and `clang++` as
         symlinks to `ccache`.

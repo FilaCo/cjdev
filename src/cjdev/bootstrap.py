@@ -34,6 +34,7 @@ from cjdev.infra.container import (
     build_spec,
     bundled_dockerfile,
     detect_container_host,
+    image_present,
     image_tag,
     provision_image,
     remove_image,
@@ -44,10 +45,12 @@ from cjdev.infra.filesystem import build_file_system
 from cjdev.infra.git import (
     add_checkout,
     drop_checkout,
+    fetch_commit,
     inspect_checkout,
     provision_object_store,
     read_store,
     remove_object_store,
+    resolve_ref,
 )
 from cjdev.infra.host import detect_host
 from cjdev.infra.journal import CommandJournal, open_journal
@@ -142,7 +145,12 @@ class Container:
         Every executor built afterwards writes to it, which is why a command
         opens this before it builds its use case. Read-only commands do not:
         a `status` run from a shell prompt would otherwise be most of the log.
+
+        A second call starts a second entry: `build` gives the image it builds
+        first a line of its own, the one `cjdev env build` would have written.
         """
+        if self._journal is not None:
+            self._journal.close()
         self._journal = open_journal(root, argv)
         self._journal_root = root
         return self._journal
@@ -245,6 +253,7 @@ class Container:
         executor, host = self._where_builds_run(
             environment, start, dry_run=dry_run, verbose=verbose
         )
+        outside = self.executor(dry_run=dry_run, verbose=verbose)
         return BuildUnits(
             manifest=lambda: self.manifest(start),
             executor=executor,
@@ -254,6 +263,10 @@ class Container:
             # there is nothing for a second one to collide with.
             lock=no_lock if dry_run else file_lock,
             environment=environment,
+            resolve=lambda cwd, upstream, ref: resolve_ref(outside, cwd, upstream, ref),
+            fetch=lambda into, upstream, commit: fetch_commit(
+                outside, into, upstream, commit
+            ),
         )
 
     def manage_environment(
@@ -282,6 +295,9 @@ class Container:
             ),
             remove_image=lambda executor: remove_image(
                 executor, spec=self._require_spec(spec)
+            ),
+            image_present=lambda executor: image_present(
+                executor, self._require_spec(spec)
             ),
             # The image's shell, or the caller's own when the build is this
             # machine's: `env shell` is the build environment with a prompt in

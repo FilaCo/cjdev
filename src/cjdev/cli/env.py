@@ -32,9 +32,9 @@ def build(
     """Build the image this workspace's builds run in.
 
     The tag carries the hash of the Dockerfile that ships with cjdev, so
-    upgrading cjdev and getting a new recipe is a new tag - and `cjdev build`
-    asks for this command by name rather than quietly building minutes of
-    image in the middle of something else.
+    upgrading cjdev and getting a new recipe is a new tag. `cjdev build` runs
+    this itself when the tag is missing, as a step of its own, unless the
+    workspace says `image = "refuse"`.
     """
     begin("env build")
     root = require_root(Path.cwd().resolve())

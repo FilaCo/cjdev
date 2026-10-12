@@ -503,3 +503,49 @@ def _stale_registration(store: Path, entry: Linked) -> StaleRegistration:
 def _drift(git: Git, worktree: Path, branch: str) -> tuple[Tracking, ...]:
     found = (git.ahead_behind(worktree, branch, remote) for remote in REMOTES)
     return tuple(tracking for tracking in found if tracking is not None)
+
+
+def resolve_ref(
+    executor: Executor, cwd: PurePath, upstream: str, ref: str
+) -> str | None:
+    """The commit a branch or tag names at `upstream`, without fetching it.
+
+    A tag wins over a branch of the same name, and an annotated tag is peeled,
+    because what gets fetched is a commit.
+    """
+    listed = executor.run(
+        Command(
+            # The peeled line has to be asked for by name: a pattern matches a
+            # whole trailing path component, and `^{}` makes it another one.
+            argv=("git", "ls-remote", upstream, ref, f"{ref}^{{}}"),
+            cwd=Path(cwd),
+            mutates=False,
+            what=f"resolving {ref}",
+        )
+    ).stdout
+    refs = {
+        name: commit
+        for commit, _, name in (line.partition("\t") for line in listed.splitlines())
+    }
+    for name in (f"refs/tags/{ref}^{{}}", f"refs/tags/{ref}", f"refs/heads/{ref}"):
+        if name in refs:
+            return refs[name]
+    return refs.get(ref)
+
+
+def fetch_commit(
+    executor: Executor, into: PurePath, upstream: str, commit: str
+) -> None:
+    """One commit, shallow, into a directory that does not exist yet.
+
+    By commit rather than `clone --branch`, so that a tip moving after it was
+    resolved cannot put another tree under this commit's name.
+    """
+    directory = Path(into)
+    what = f"fetching {directory.parent.name}"
+    for argv, cwd in (
+        (("init", "--quiet", directory.name), directory.parent),
+        (("fetch", "--quiet", "--depth", "1", upstream, commit), directory),
+        (("checkout", "--quiet", "--detach", "FETCH_HEAD"), directory),
+    ):
+        executor.run(Command(argv=("git", *argv), cwd=cwd, what=what))

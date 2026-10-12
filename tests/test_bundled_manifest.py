@@ -170,6 +170,59 @@ class TestParseErrors:
         ):
             parse_manifest(toml, source="test")
 
+    @pytest.mark.parametrize(
+        ("version", "role", "group", "expected"),
+        [
+            (
+                '"2"',
+                '"buildable"',
+                '"g"',
+                "schema_version must be an integer, not String",
+            ),
+            (
+                "2.0",
+                '"buildable"',
+                '"g"',
+                "schema_version must be an integer, not Float",
+            ),
+            ("2", '["buildable"]', '"g"', "project a role must be a string, not Array"),
+            ("2", "5", '"g"', "project a role must be a string, not Integer"),
+            ("2", '"buildable"', '["g"]', "default_group must be a string, not Array"),
+        ],
+    )
+    def test_a_mistyped_scalar_is_refused_as_mistyped(
+        self, version: str, role: str, group: str, expected: str
+    ):
+        # Arrange
+        toml = _one_project(version=version, role=role, group=group)
+
+        # Act / Assert
+        with pytest.raises(ManifestError, match=rf"^test: {expected}\.$"):
+            parse_manifest(toml, source="test")
+
+    def test_well_typed_scalars_still_load(self):
+        # Act
+        manifest = parse_manifest(
+            _one_project(version="2", role='"buildable"', group='"g"'), source="test"
+        )
+
+        # Assert
+        assert manifest.schema_version == 2
+        assert manifest.default_group == "g"
+        assert manifest.projects[0].role == ProjectRole.BUILDABLE
+
+
+def _one_project(*, version: str, role: str, group: str) -> str:
+    return (
+        f"schema_version = {version}\n"
+        f"default_group = {group}\n"
+        '[groups]\ng = ["a"]\n'
+        "[projects.a]\n"
+        f"role = {role}\n"
+        'upstream = "https://example.invalid/a.git"\n'
+        'default_branch = "main"\n'
+    )
+
 
 class TestGroups:
     def test_the_default_group_is_the_minimal_sdk(self, bundled: Manifest):
@@ -312,3 +365,24 @@ class TestObjcUnits:
         # Its interoplib needs GNUstep, which a host build rarely has.
         for members in bundled.groups.values():
             assert "cangjie_multiplatform_interop" not in members
+
+
+def test_the_compiler_names_what_its_configure_would_clone(bundled: Manifest):
+    # Upstream checks exactly these paths before cloning, and skips the
+    # clone when something is there.
+    sources = bundled.unit("compiler").third_party
+
+    assert [str(source.path) for source in sources] == [
+        "third_party/boundscheck",
+        "third_party/llvm-project",
+        "third_party/flatbuffers",
+    ]
+    assert all(source.upstream.startswith("https://") for source in sources)
+
+
+def test_no_other_unit_fetches_anything(bundled: Manifest):
+    assert all(
+        unit.third_party == ()
+        for unit in bundled.build_units
+        if unit.name != "compiler"
+    )
