@@ -289,7 +289,7 @@ def _check_unit_keys(body: Any, where: str) -> None:
     _reject_mistyped(body, "depends_on", where, list, "an array of build-unit names")
     _reject_mistyped(body, "scratch", where, list, "an array of paths")
     _reject_mistyped(body, "build", where, list, "an argv array")
-    _reject_mistyped(body, "install", where, list, "an argv array or copy tables")
+    _reject_mistyped(body, "install", where, list, "argv arrays or copy tables")
     _reject_mistyped(body, "extra_args", where, list, "an array of arguments")
     _reject_mistyped(
         body, "third_party", where, list, "tables of path, upstream and ref"
@@ -297,13 +297,14 @@ def _check_unit_keys(body: Any, where: str) -> None:
 
 
 def _install(body: Any, where: str) -> tuple[InstallStep, ...] | None:
-    """One argv, or a list of copies. `None` when the key is absent.
+    """One argv, several argvs, or a list of copies. `None` when the key is
+    absent.
 
-    The two shapes are told apart by what the array holds rather than by a
+    The shapes are told apart by what the array holds rather than by a
     discriminator key, because TOML already spells them differently: an array
-    of strings is one command, and `[[unit.install]]` tables are copies. A
-    mixed array is refused - there is no order in which it would mean
-    something.
+    of strings is one command, an array of arrays is commands run in order,
+    and `[[unit.install]]` tables are copies. A mixed array is refused - there
+    is no order in which it would mean something.
     """
     if "install" not in body:
         return None
@@ -312,11 +313,21 @@ def _install(body: Any, where: str) -> tuple[InstallStep, ...] | None:
         return ()
     if all(isinstance(entry, str) for entry in entries):
         return (RunStep(tuple(str(entry) for entry in entries)),)
+    if all(_is_argv(entry) for entry in entries):
+        return tuple(RunStep(tuple(str(word) for word in entry)) for entry in entries)
     if all(isinstance(entry, dict) for entry in entries):
         return tuple(_copy_step(entry, where) for entry in entries)
     raise ManifestError(
-        f"{where} install must be either an argv array or tables of "
-        f"from/to, not a mixture of both."
+        f"{where} install must be an argv array, an array of argv arrays or "
+        f"tables of from/to, not a mixture."
+    )
+
+
+def _is_argv(entry: Any) -> bool:
+    return (
+        isinstance(entry, list)
+        and bool(entry)
+        and all(isinstance(word, str) for word in entry)
     )
 
 

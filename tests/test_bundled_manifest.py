@@ -305,6 +305,16 @@ class TestBuildData:
         for name in ("compiler", "stdlib", "stdx"):
             assert all(isinstance(step, RunStep) for step in bundled.unit(name).install)
 
+    def test_the_runtime_lands_where_stdlib_and_cjc_each_look(self, bundled: Manifest):
+        # stdlib globs the `common/` layout the build prefix bakes in; cjc
+        # loads the runtime from the SDK layout to expand macros (#67).
+        steps = bundled.unit("runtime").install
+
+        assert [step.argv[3:] for step in steps if isinstance(step, RunStep)] == [
+            (),
+            ("--prefix", "{dist}"),
+        ]
+
     def test_cjpm_cannot_be_scheduled_before_stdx(self, bundled: Manifest):
         # It refuses to build without CANGJIE_STDX_PATH.
         order = [unit.name for unit in bundled.build_order(["cjpm"])]
