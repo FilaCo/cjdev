@@ -109,9 +109,10 @@ default_branch = "main"
 # `{build_dir}` and `{target}` replaced literally. No conditionals: a
 # template that wants an `if` belongs in code.
 #
-# `install` has a second shape, a list of `[[...install]]` tables with `from`
-# and `to`, for a unit whose artefacts go to two different places. Only cjpm
-# needs it.
+# `install` has two more shapes: an array of argv arrays, run in order, for a
+# unit installed twice (the runtime), and a list of `[[...install]]` tables
+# with `from` and `to`, for a unit whose artefacts go to two different places
+# (cjpm).
 #
 # A SCRATCH PATH IS ALSO AN IGNORE PROBLEM while a build runs, or after one
 # was killed: cjpm ignores none of its own. cjdev writes every scratch path
@@ -150,18 +151,25 @@ path = "third_party/flatbuffers"
 upstream = "https://gitcode.com/openharmony/third_party_flatbuffers.git"
 ref = "c3e4d69cbd5950e43f775ba76eadb30750d6e0b7"
 
-# `install` passes no prefix on purpose: `build --prefix` is what bakes
-# CMAKE_INSTALL_PREFIX in, and the install step would otherwise overwrite it
-# with a path missing the `linux_<profile>_<arch>` segment the next unit looks
-# for. The `common/` segment is ours - upstream appends the rest to whatever we
-# pass.
+# Installed twice, into the two layouts that read it. The first install passes
+# no prefix, so it lands where `build --prefix` baked CMAKE_INSTALL_PREFIX in:
+# `{dist}/common/linux_<profile>_<arch>/`, which stdlib's `--target-lib` globs.
+# The `common/` segment is ours - upstream appends the rest to whatever we
+# pass. The second puts the same files in the SDK layout, which is where `cjc`
+# loads `runtime/lib/<target>_cjnative/libcangjie-runtime.so` to expand macros
+# and where it links `lib/<target>_cjnative/cjstart.o`. Upstream's guide
+# copies `{lib,runtime}` across by hand for this (cangjie_build
+# `doc_en/linux.md`, 4.2); without it stdx fails on its first `@Derive` (#67).
 [build_units.runtime]
 project = "cangjie_runtime"
 path = "runtime"
 depends_on = []
 scratch = ["output", "CMakebuild", "build/cjthread_build"]
 build = ["python3", "build.py", "build", "-t", "{profile}", "--prefix", "{dist}/common"]
-install = ["python3", "build.py", "install"]
+install = [
+    ["python3", "build.py", "install"],
+    ["python3", "build.py", "install", "--prefix", "{dist}"],
+]
 
 [build_units.stdlib]
 project = "cangjie_runtime"
