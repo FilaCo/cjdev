@@ -181,6 +181,8 @@ cjdev test compiler -- --timeout=180        # from the flag on, passed to main.p
   host and `-pFAIL --fail-verbose`. Scratch, logs and results go to
   `.cjdev/build/<branch set>/test/`. The summary is per suite, and failures caused by a
   missing tool (`command not found`) are counted per tool apart from the rest.
+  `compiler/CJMP/objc` and `compiler/CJMP/java` are refused until their interop units
+  are built in that profile, with the `cjdev build` that builds them.
 
 ### Git/GitCode stuff
 

@@ -212,6 +212,39 @@ class TestPlan:
                 tmp_path, "main", profile=Profile.DEBUG, paths=[tmp_path], cwd=tmp_path
             )
 
+    def test_interop_tests_without_the_interop_units_name_the_build(self, root: Path):
+        # Arrange
+        layout = WorkspaceLayout(root)
+        objc = root / "main/cangjie_test/testsuites/LLT/compiler/CJMP/objc"
+        objc.mkdir(parents=True)
+        Path(layout.build_dir("main", "host", "debug", "objc-interoplib")).mkdir(
+            parents=True
+        )
+
+        # Act / Assert
+        with pytest.raises(PreconditionError) as refusal:
+            self.use_case().plan(
+                root, "main", profile=Profile.DEBUG, paths=[objc], cwd=root
+            )
+        assert refusal.value.remedy == "cjdev build -p debug objc-interop-gen"
+
+    def test_interop_tests_with_the_interop_units_run(self, root: Path):
+        # Arrange
+        layout = WorkspaceLayout(root)
+        java = root / "main/cangjie_test/testsuites/LLT/compiler/CJMP/java"
+        java.mkdir(parents=True)
+        Path(layout.build_dir("main", "host", "debug", "java-interoplib")).mkdir(
+            parents=True
+        )
+
+        # Act
+        plan = self.use_case().plan(
+            root, "main", profile=Profile.DEBUG, paths=[java], cwd=root
+        )
+
+        # Assert
+        assert str(java) in plan.runs[0].command.argv
+
     def test_a_path_that_does_not_exist_is_the_invocation_being_wrong(self, root: Path):
         # Act / Assert
         with pytest.raises(UsageError, match="no such test path"):
