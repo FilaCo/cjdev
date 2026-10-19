@@ -91,6 +91,28 @@ HLT_HOSTS: Mapping[str, str] = {
 own; a native run is the pair with itself."""
 
 
+NEEDS: Mapping[tuple[Suite, PurePosixPath], tuple[str, ...]] = {
+    (Suite.LLT, PurePosixPath("compiler/CJMP/objc")): (
+        "objc-interoplib",
+        "objc-interop-gen",
+    ),
+    (Suite.LLT, PurePosixPath("compiler/CJMP/java")): ("java-interoplib",),
+}
+"""The build units a case under these directories needs beyond the SDK, which
+no full build of a workspace without the interop project has. A directory
+above them is not checked: it runs everything else too."""
+
+
+def needed_units(suite: Suite, path: PurePosixPath) -> tuple[str, ...]:
+    """`path` is relative to the suite's own directory."""
+    return tuple(
+        unit
+        for (needing, under), units in NEEDS.items()
+        if needing is suite and path.is_relative_to(under)
+        for unit in units
+    )
+
+
 def suite_files(suite: Suite, target: str) -> SuiteFiles:
     if suite is Suite.LLT:
         files = LLT_FILES.get(target)

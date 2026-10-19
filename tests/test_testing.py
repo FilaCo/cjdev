@@ -13,6 +13,7 @@ import pytest
 from cjdev.domain.testing import (
     Suite,
     missing_tools,
+    needed_units,
     parse_results,
     suite_files,
 )
@@ -60,6 +61,36 @@ class TestSuiteFiles:
         with pytest.raises(PreconditionError) as refusal:
             suite_files(Suite.HLT, "windows_x86_64")
         assert refusal.value.remedy == "pass --test_list and --test_cfg after `--`"
+
+
+class TestNeededUnits:
+    def test_an_objc_case_needs_the_interoplib_and_the_mirror_generator(self):
+        # Act
+        units = needed_units(Suite.LLT, PurePosixPath("compiler/CJMP/objc/sema/a.cj"))
+
+        # Assert
+        assert units == ("objc-interoplib", "objc-interop-gen")
+
+    def test_a_java_case_needs_only_the_interoplib(self):
+        # Act
+        units = needed_units(Suite.LLT, PurePosixPath("compiler/CJMP/java"))
+
+        # Assert
+        assert units == ("java-interoplib",)
+
+    def test_a_directory_above_them_needs_nothing(self):
+        # Act
+        units = needed_units(Suite.LLT, PurePosixPath("compiler/CJMP"))
+
+        # Assert
+        assert units == ()
+
+    def test_the_same_path_in_hlt_needs_nothing(self):
+        # Act
+        units = needed_units(Suite.HLT, PurePosixPath("compiler/CJMP/objc"))
+
+        # Assert
+        assert units == ()
 
 
 class TestResults:

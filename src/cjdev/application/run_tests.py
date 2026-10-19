@@ -13,7 +13,7 @@ the paths of one suite share a run, which is how the framework takes them.
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import final
 
 from cjdev.application.build_units import HostProvider, build_environment
@@ -26,6 +26,7 @@ from cjdev.domain.testing import (
     TESTSUITES,
     Suite,
     SuiteResult,
+    needed_units,
     parse_results,
     suite_files,
 )
@@ -229,12 +230,37 @@ class RunTests:
         if missing:
             raise UsageError(f"no such test path: {', '.join(map(str, missing))}.")
         tests = layout.worktree(branch_set, TESTS)
+        suites = classify(tests, [path.resolve() for path in paths])
+        needed = dict.fromkeys(
+            unit
+            for suite, found in suites.items()
+            for path in found
+            for unit in needed_units(
+                suite,
+                PurePosixPath(
+                    path.relative_to(tests / TESTSUITES / suite.value).as_posix()
+                ),
+            )
+        )
+        unbuilt = [
+            unit
+            for unit in needed
+            if not Path(
+                layout.build_dir(branch_set, where, profile.value, unit)
+            ).is_dir()
+        ]
+        if unbuilt:
+            raise PreconditionError(
+                f"these tests need {', '.join(unbuilt)}, which branch set "
+                f"{branch_set} has no {profile} build of.",
+                remedy=f"cjdev build -p {profile} {' '.join(unbuilt)}",
+            )
         return decide(
             layout,
             branch_set,
             profile,
             self._host(),
-            classify(tests, [path.resolve() for path in paths]),
+            suites,
             cwd=cwd,
             environment=self._environment,
             passthrough=passthrough,
