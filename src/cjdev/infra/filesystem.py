@@ -2,7 +2,9 @@
 
 import os
 import shutil
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path, PurePath
 from typing import final
 
@@ -81,5 +83,95 @@ class DryRunFileSystem:
         self._emit(f"mv {source} {destination}")
 
 
-def build_file_system(*, dry_run: bool, emit: Callable[[str], None]) -> FileSystem:
-    return DryRunFileSystem(emit) if dry_run else HostFileSystem()
+@final
+class TracedFileSystem:
+    """A tree mutation on the progress display and in the workspace log, the
+    way `StepExecutor` and `RecordingExecutor` put a command there.
+
+    Without it a build's scratch moves, and the directories it absorbs or the
+    links it removes, happen between two logged commands with no trace of
+    their own.
+    """
+
+    def __init__(
+        self,
+        inner: FileSystem,
+        *,
+        report: Callable[[str], None],
+        record: Callable[[str], None] | None = None,
+        base: Path | None = None,
+    ) -> None:
+        self._inner = inner
+        self._report = report
+        self._record = record
+        self._base = base
+
+    def mkdir(self, path: PurePath) -> None:
+        with self._recorded(f"creating {path.name}", f"mkdir -p {self._at(path)}"):
+            self._inner.mkdir(path)
+
+    def write_text(self, path: PurePath, text: str) -> None:
+        with self._recorded(f"writing {path.name}", f"write {self._at(path)}"):
+            self._inner.write_text(path, text)
+
+    def remove(self, path: PurePath) -> None:
+        with self._recorded(f"removing {path.name}", f"rm -rf {self._at(path)}"):
+            self._inner.remove(path)
+
+    def symlink(self, link: PurePath, target: PurePath) -> None:
+        line = f"ln -sfn {target} {self._at(link)}"
+        with self._recorded(f"linking {link.name}", line):
+            self._inner.symlink(link, target)
+
+    def copy(self, source: PurePath, into: PurePath) -> None:
+        line = f"cp {self._at(source)} {self._at(into)}/"
+        with self._recorded(f"copying {source.name}", line):
+            self._inner.copy(source, into)
+
+    def move(self, source: PurePath, destination: PurePath) -> None:
+        line = f"mv {self._at(source)} {self._at(destination)}"
+        with self._recorded(f"moving {source.name}", line):
+            self._inner.move(source, destination)
+
+    @contextmanager
+    def _recorded(self, step: str, line: str) -> Iterator[None]:
+        self._report(step)
+        began = time.monotonic()
+        try:
+            yield
+        except Exception as failure:
+            self._write("err", began, line)
+            if self._record is not None:
+                self._record(f"          | {failure}")
+            raise
+        self._write("ok ", began, line)
+
+    def _write(self, status: str, began: float, line: str) -> None:
+        if self._record is not None:
+            self._record(f"{status} {time.monotonic() - began:6.2f}s  {line}")
+
+    def _at(self, path: PurePath) -> str:
+        if self._base is None:
+            return str(path)
+        relative = os.path.relpath(path, self._base)
+        return str(path) if relative.startswith("..") else relative
+
+
+def build_file_system(
+    *,
+    dry_run: bool,
+    emit: Callable[[str], None],
+    report_step: Callable[[str], None] | None = None,
+    record: Callable[[str], None] | None = None,
+    record_base: Path | None = None,
+) -> FileSystem:
+    if dry_run:
+        return DryRunFileSystem(emit)
+    if report_step is None and record is None:
+        return HostFileSystem()
+    return TracedFileSystem(
+        HostFileSystem(),
+        report=report_step or (lambda _: None),
+        record=record,
+        base=record_base,
+    )

@@ -15,9 +15,9 @@ profile whose scratch is in it, and a run that died before moving it back is
 finished by the next one. All of it happens under a lock per (branch set, unit).
 
 **Units do not overlap.** Each script already takes the whole machine, so
-`Runner(jobs=1, fail_fast=True)` over `build_order()` is the schedule: at one
-job the runner executes in submission order, and everything after a failure is
-marked CANCELLED, which is the right word for a chain.
+`Runner(jobs=1)` over `build_order()` is the schedule: at one job the runner
+executes in submission order, and what depends on a failed unit is marked
+CANCELLED. A unit that does not depend on it still builds (ADR-0059).
 """
 
 import os
@@ -77,7 +77,8 @@ class ScratchState(Enum):
     ABSENT = auto()
     PRESENT = auto()
     """A real file or directory. Ours when the marker says a build left it
-    there; otherwise somebody built here by hand, and it is a refusal."""
+    there; otherwise somebody built here by hand, and it is absorbed as the
+    scratch of the profile being built."""
     LINKED = auto()
     """A symlink, which is what scratch was before it was moved instead."""
 
@@ -104,6 +105,11 @@ class Observed:
     """One project's current `info/exclude`, empty when it has none."""
     worktrees: frozenset[str]
     third_party: Mapping[str, tuple[sources.Seen, ...]] = field(default_factory=dict)
+    homes: frozenset[PurePath] = frozenset()
+    """The scratch homes under `.cjdev/build` that already exist, for every
+    path found `PRESENT`: what absorbing it would replace."""
+    excluded: Mapping[str, tuple[Seen, ...]] = field(default_factory=dict)
+    """Per project, the symlinks at paths its store's `info/exclude` lists."""
 
 
 @final
@@ -155,14 +161,17 @@ class UnitPlan:
     marker: PurePath
     moved: str
     stale: tuple[PurePath, ...]
-    """Old redirect symlinks and their targets, removed before anything moves."""
+    """Removed before anything moves: old redirect symlinks, the targets of
+    those still at a scratch path, and what an absorbed directory replaces."""
     recover: tuple[Move, ...]
-    """What a build that died left in the worktree, going back where it lives."""
+    """What a build that died left in the worktree, going back where it lives,
+    and what no build left there, going where this profile's scratch lives."""
     scratch: tuple[Move, ...]
     """Into the worktree before the build; reversed after it."""
     steps: tuple[Step, ...]
     third_party: tuple[sources.Provision, ...] = ()
     """Fetched and linked before anything moves in."""
+    depends_on: tuple[str, ...] = ()
 
 
 @final
@@ -281,24 +290,26 @@ def held_by_branch_set(
 def observe(
     layout: WorkspaceLayout, branch_set: str, units: Sequence[BuildUnit]
 ) -> Observed:
+    scratch = {
+        unit.name: tuple(
+            _seen(layout, branch_set, unit, scratch) for scratch in unit.scratch
+        )
+        for unit in units
+    }
+    excludes = {
+        unit.project: _read(
+            Path(layout.object_store(unit.project)) / "info" / "exclude"
+        )
+        for unit in units
+    }
     return Observed(
-        scratch={
-            unit.name: tuple(
-                _seen(layout, branch_set, unit, scratch) for scratch in unit.scratch
-            )
-            for unit in units
-        },
+        scratch=scratch,
         moved={
             unit.name: marker
             for unit in units
             if (marker := _read(Path(layout.scratch_marker(branch_set, unit.name))))
         },
-        excludes={
-            unit.project: _read(
-                Path(layout.object_store(unit.project)) / "info" / "exclude"
-            )
-            for unit in units
-        },
+        excludes=excludes,
         worktrees=frozenset(
             unit.project
             for unit in units
@@ -306,6 +317,11 @@ def observe(
         ),
         third_party={
             unit.name: sources.observe(layout, branch_set, unit) for unit in units
+        },
+        homes=_homes(layout, branch_set, units, scratch),
+        excluded={
+            project: _excluded_links(Path(layout.worktree(branch_set, project)), text)
+            for project, text in excludes.items()
         },
     )
 
@@ -330,9 +346,18 @@ def decide(
         )
     where = environment.mode.value
     dist = layout.dist_dir(branch_set, where, profile.value)
+    dropped = _dropped(layout, branch_set, units, observed)
     planned = tuple(
         _unit_plan(
-            layout, branch_set, where, profile, unit, host, observed, passthrough
+            layout,
+            branch_set,
+            where,
+            profile,
+            unit,
+            host,
+            observed,
+            passthrough,
+            dropped.get(unit.name, ()),
         )
         for unit in units
     )
@@ -396,6 +421,7 @@ def _unit_plan(
     host: Host,
     observed: Observed,
     passthrough: Sequence[str],
+    dropped: tuple[PurePath, ...],
 ) -> UnitPlan:
     if unit.project not in observed.worktrees:
         raise PreconditionError(
@@ -427,8 +453,14 @@ def _unit_plan(
         lock=layout.build_lock(branch_set, unit.name),
         marker=layout.scratch_marker(branch_set, unit.name),
         moved=f"{where}/{profile.value}",
-        stale=_stale(layout, branch_set, unit, observed),
-        recover=_recover(layout, branch_set, unit, observed),
+        stale=(
+            *_stale(layout, branch_set, unit, observed),
+            *_absorbed(layout, branch_set, where, profile, unit, observed),
+            *dropped,
+        ),
+        recover=_recover(
+            layout, branch_set, unit, observed, f"{where}/{profile.value}"
+        ),
         scratch=tuple(
             Move(
                 source=layout.scratch_dir(
@@ -463,6 +495,7 @@ def _unit_plan(
         third_party=sources.decide(
             layout, branch_set, unit, observed.third_party.get(unit.name, ())
         ),
+        depends_on=unit.depends_on,
     )
 
 
@@ -516,22 +549,73 @@ def _stale(
     return tuple(stale)
 
 
+def _absorbed(
+    layout: WorkspaceLayout,
+    branch_set: str,
+    where: str,
+    profile: Profile,
+    unit: BuildUnit,
+    observed: Observed,
+) -> tuple[PurePath, ...]:
+    """This profile's scratch, where a directory no build left replaces it.
+
+    The worktree's copy wins: whatever wrote it ran after cjdev last moved this
+    profile's scratch out, and what is under `.cjdev/build` is cjdev's own.
+    """
+    if unit.name in observed.moved:
+        return ()
+    homes = (
+        layout.scratch_dir(branch_set, where, profile.value, unit.name, seen.scratch)
+        for seen in observed.scratch.get(unit.name, ())
+        if seen.state is ScratchState.PRESENT
+    )
+    return tuple(home for home in homes if home in observed.homes)
+
+
+def _dropped(
+    layout: WorkspaceLayout,
+    branch_set: str,
+    units: Sequence[BuildUnit],
+    observed: Observed,
+) -> dict[str, tuple[PurePath, ...]]:
+    """Redirect symlinks at paths the manifest no longer calls scratch.
+
+    Found through the store's `info/exclude`: every redirect cjdev wrote was
+    excluded there too, and nothing prunes it, so it remembers the paths the
+    manifest forgot. Only the link goes; its target is never read again.
+    """
+    dropped: dict[str, list[PurePath]] = {}
+    for project in dict.fromkeys(unit.project for unit in units):
+        held = [unit for unit in units if unit.project == project]
+        current = {unit.path / scratch for unit in held for scratch in unit.scratch}
+        worktree = layout.worktree(branch_set, project)
+        for seen in observed.excluded.get(project, ()):
+            if seen.scratch in current or seen.target is None:
+                continue
+            owner = next(
+                (unit for unit in held if seen.scratch.is_relative_to(unit.path)),
+                None,
+            )
+            link = worktree / seen.scratch
+            resolved = PurePath(os.path.normpath(link.parent / seen.target))
+            if owner is not None and resolved.is_relative_to(layout.marker / "build"):
+                dropped.setdefault(owner.name, []).append(link)
+    return {name: tuple(links) for name, links in dropped.items()}
+
+
 def _recover(
-    layout: WorkspaceLayout, branch_set: str, unit: BuildUnit, observed: Observed
+    layout: WorkspaceLayout,
+    branch_set: str,
+    unit: BuildUnit,
+    observed: Observed,
+    building: str,
 ) -> tuple[Move, ...]:
-    marker = observed.moved.get(unit.name)
+    marker = observed.moved.get(unit.name, building)
     recover = []
     for seen in observed.scratch.get(unit.name, ()):
         if seen.state is not ScratchState.PRESENT:
             continue
         here = layout.worktree(branch_set, unit.project) / unit.path / seen.scratch
-        if marker is None:
-            raise PreconditionError(
-                f"{here} is a real directory no cjdev build left there; moving "
-                f"this profile's scratch in would mix the two.",
-                subject=unit.name,
-                remedy=f"move or delete {here}",
-            )
         where, _, profile = marker.strip().partition("/")
         recover.append(
             Move(
@@ -656,6 +740,43 @@ def _seen(
     return Seen(scratch, ScratchState.ABSENT)
 
 
+def _homes(
+    layout: WorkspaceLayout,
+    branch_set: str,
+    units: Sequence[BuildUnit],
+    scratch: Mapping[str, tuple[Seen, ...]],
+) -> frozenset[PurePath]:
+    # Every environment and profile: which one this run builds is decided
+    # later, and a path is rarely PRESENT, so the extra stats are rare too.
+    homes = set()
+    for unit in units:
+        for seen in scratch[unit.name]:
+            if seen.state is not ScratchState.PRESENT:
+                continue
+            for mode in Mode:
+                for profile in Profile:
+                    home = layout.scratch_dir(
+                        branch_set, mode.value, profile.value, unit.name, seen.scratch
+                    )
+                    if Path(home).exists():
+                        homes.add(home)
+    return frozenset(homes)
+
+
+def _excluded_links(worktree: Path, exclude: str) -> tuple[Seen, ...]:
+    links = []
+    for line in exclude.splitlines():
+        if not line.startswith("/"):
+            continue
+        path = PurePosixPath(line[1:])
+        here = worktree / path
+        if here.is_symlink():
+            links.append(
+                Seen(path, ScratchState.LINKED, PurePosixPath(here.readlink()))
+            )
+    return tuple(links)
+
+
 def _read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
@@ -704,20 +825,15 @@ class BuildUnits:
         layout = WorkspaceLayout(root)
         manifest = self._manifest()
         units = select_units(manifest, names, downstream=downstream)
-        if not names:
-            units = held_by_branch_set(
-                manifest,
-                units,
-                frozenset(
-                    project.name
-                    for project in manifest.projects
-                    if Path(layout.worktree(branch_set, project.name)).is_dir()
-                ),
-            )
         if not units:
             raise PreconditionError(
                 "the manifest declares no build units, so there is nothing to build."
             )
+        observed = observe(layout, branch_set, units)
+        if not names:
+            # A narrowing that leaves nothing keeps the selection, so that
+            # `decide` names the project with no worktree and its remedy.
+            units = held_by_branch_set(manifest, units, observed.worktrees) or units
         return decide(
             layout,
             branch_set,
@@ -726,7 +842,7 @@ class BuildUnits:
             # Gathered here rather than held since construction: under a
             # container this is a read of the daemon and the image.
             self._host(),
-            observe(layout, branch_set, units),
+            observed,
             environment=self._environment,
             passthrough=passthrough,
         )
@@ -741,11 +857,17 @@ class BuildUnits:
         for exclusion in plan.exclusions:
             self._fs.write_text(exclusion.path, exclusion.text)
 
-        # One job, and fail_fast: the units are a chain, so everything after a
-        # failure is cancelled rather than attempted against a half-built SDK.
-        report = Runner(1).run(
+        # One job, and a failure cancels what depends on it rather than
+        # everything after it: an optional unit early in the order must not take
+        # the SDK chain down with it (ADR-0059).
+        report = Runner(1, fail_fast=False).run(
             [
-                Work(key=unit.unit, label=unit.unit, action=self._builder(unit))
+                Work(
+                    key=unit.unit,
+                    label=unit.unit,
+                    action=self._builder(unit),
+                    needs=unit.depends_on,
+                )
                 for unit in plan.units
             ],
             observer=observer,

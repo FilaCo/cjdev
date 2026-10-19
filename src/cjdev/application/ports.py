@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from typing import Protocol, final
 
-from cjdev.domain.forge import FiledIssue, NewIssue
+from cjdev.domain.forge import FiledIssue, Issue, IssueRef, NewIssue
 
 
 @final
@@ -156,9 +156,11 @@ class Forge(Protocol):
     request it would have sent.
 
     A port for `Prompt`'s reason: `--dry-run` is a second behaviour the user
-    asks for, not a seam for tests. `--dry-run` must not need a token either,
-    so the dry implementation never looks one up.
+    asks for, not a seam for tests. A dry run reads for real, as every probe
+    does, so only a command that reads needs a token under `--dry-run`.
     """
+
+    def read_issue(self, ref: IssueRef) -> Issue: ...
 
     def create_issue(self, issue: NewIssue) -> FiledIssue | None:
         """None when nothing was filed, which only a dry run answers."""

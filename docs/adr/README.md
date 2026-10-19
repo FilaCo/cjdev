@@ -32,15 +32,19 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0009](0009-every-change-starts-with-an-issue.md) | Every change starts with an issue, and the PR closes it | accepted |
 | [0012](0012-verbose-changes-only-what-is-shown.md) | -v changes what is shown, never what is done | accepted |
 | [0013](0013-workspace-config-as-override-layer.md) | The workspace config is a real override layer over the bundled manifest | accepted |
-| [0017](0017-out-of-tree-builds.md) | Builds happen out of tree, and the worktree carries the state | accepted |
+| [0017](0017-out-of-tree-builds.md) | Builds happen out of tree, and the worktree carries the state | accepted; Superseded, in part, by ADR-0039: the symlink redirect; and by ADR-0042: the four tokens |
 | [0018](0018-positional-is-the-subject.md) | The positional argument is the subject; options carry context | accepted |
 | [0021](0021-one-run-per-command.md) | One docker run --rm per command, and the environment is a workspace property | accepted; Supersedes, in part, this issue's own FR-2 |
 | [0024](0024-adrs-numbered-by-issue.md) | ADRs are numbered by their issue, and the index is generated | accepted |
 | [0026](0026-build-builds-the-missing-image.md) | cjdev build builds the missing image itself, unless told to refuse | accepted |
 | [0027](0027-third-party-fetched-by-cjdev.md) | Third-party sources are fetched by cjdev and linked by commit | accepted |
+| [0031](0031-scratch-drift-is-reconciled.md) | Scratch that drifted from the manifest is reconciled, not refused | accepted; Supersedes, in part, ADR-0039: its refusal of a real directory with no marker |
 | [0039](0039-scratch-moves-into-the-worktree.md) | Scratch is moved into the worktree for the build, not symlinked out of it | accepted; Supersedes, in part, ADR-0017: its symlink redirect |
 | [0042](0042-objc-interop-units.md) | The objc interop builds as two units, keyed by a `{target}` token | accepted; Supersedes, in part, ADR-0017: its four tokens |
 | [0043](0043-origin-derived-from-one-fork-owner.md) | origin is derived from upstream and one fork owner | accepted |
 | [0044](0044-gitcode-client-and-token.md) | GitCode is a `Forge` port over urllib, and the token is GITCODE_TOKEN, then git's credential | accepted |
+| [0045](0045-a-task-is-a-branch-set-and-its-issue.md) | A task is a branch set and its issue, kept in the branch set's record | accepted |
 | [0046](0046-branch-set-remembers-its-profile.md) | A branch set remembers its profile, and `cjdev test` runs against its dist | accepted |
+| [0052](0052-java-interop-units.md) | The java interop builds as two units, and the generator's JDK sources are scratch | accepted |
+| [0059](0059-a-failed-unit-cancels-its-dependents.md) | A failed build unit cancels what depends on it, not everything after it | accepted |
 | [0065](0065-agent-skill-ships-in-the-wheel.md) | The agent skill ships in the wheel and installs user-level | accepted |

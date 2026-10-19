@@ -277,6 +277,30 @@ class TestBuildData:
         # Assert
         assert config.build_units["u"].install == (RunStep(("build.py", "install")),)
 
+    def test_an_array_of_arrays_is_commands_run_in_order(self):
+        # Arrange
+        text = """
+        [build_units.u]
+        install = [["build.py", "install"], ["build.py", "install", "--prefix", "x"]]
+        """
+
+        # Act
+        config = parse_workspace_config(text, source="config.toml")
+
+        # Assert
+        assert config.build_units["u"].install == (
+            RunStep(("build.py", "install")),
+            RunStep(("build.py", "install", "--prefix", "x")),
+        )
+
+    def test_an_empty_argv_among_several_is_refused(self):
+        # Arrange / Act / Assert
+        with pytest.raises(ManifestError, match="not a mixture"):
+            parse_workspace_config(
+                '[build_units.u]\ninstall = [["build.py"], []]\n',
+                source="config.toml",
+            )
+
     def test_tables_of_from_and_to_are_copies(self):
         # Arrange: cjpm's binary and its config go to two directories, which a
         # single argv cannot express.

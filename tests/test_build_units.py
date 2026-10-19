@@ -114,6 +114,8 @@ def observed(
     moved: dict[str, str] | None = None,
     excludes: dict[str, str] | None = None,
     worktrees: frozenset[str] | None = None,
+    homes: frozenset[PurePath] = frozenset(),
+    excluded: dict[str, tuple[Seen, ...]] | None = None,
 ) -> Observed:
     return Observed(
         scratch=scratch
@@ -124,6 +126,8 @@ def observed(
         worktrees=worktrees
         if worktrees is not None
         else frozenset(u.project for u in units),
+        homes=homes,
+        excluded=excluded or {},
     )
 
 
@@ -150,7 +154,9 @@ def plan_of(
 class TestSelection:
     def test_naming_a_unit_takes_what_it_depends_on_with_it(self):
         # Arrange
-        graph = manifest(unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        graph = manifest(
+            unit("compiler"), unit("stdlib", path="stdlib", depends_on=("compiler",))
+        )
 
         # Act
         selected = select_units(graph, ["stdlib"])
@@ -161,7 +167,8 @@ class TestSelection:
     def test_naming_a_project_takes_every_unit_it_holds(self):
         # Arrange
         graph = manifest(
-            unit("runtime", project="beta"), unit("stdlib", project="beta")
+            unit("runtime", project="beta"),
+            unit("stdlib", project="beta", path="stdlib"),
         )
 
         # Act
@@ -172,7 +179,9 @@ class TestSelection:
 
     def test_no_selection_is_the_whole_graph(self):
         # Arrange
-        graph = manifest(unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        graph = manifest(
+            unit("compiler"), unit("stdlib", path="stdlib", depends_on=("compiler",))
+        )
 
         # Act
         selected = select_units(graph, [])
@@ -182,7 +191,9 @@ class TestSelection:
 
     def test_from_takes_everything_downstream(self):
         # Arrange
-        graph = manifest(unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        graph = manifest(
+            unit("compiler"), unit("stdlib", path="stdlib", depends_on=("compiler",))
+        )
 
         # Act
         selected = select_units(graph, [], downstream="compiler")
@@ -247,9 +258,9 @@ class TestHeldByBranchSet:
     def test_it_never_adds_a_unit_the_selection_did_not_hold(self):
         # Arrange
         graph = manifest(
-            unit("runtime"),
+            unit("runtime", path="runtime"),
             unit("compiler"),
-            unit("stdlib", depends_on=("compiler", "runtime")),
+            unit("stdlib", path="stdlib", depends_on=("compiler", "runtime")),
             unit("objc", project="beta", depends_on=("stdlib",)),
         )
         downstream = [unit for unit in graph.build_units if unit.name != "runtime"]
@@ -321,20 +332,93 @@ class TestScratch:
                 ),
             )
 
-    def test_a_real_directory_no_build_left_is_refused(self):
-        # Arrange: somebody built here by hand, and their artefacts are theirs.
+    def test_a_real_directory_no_build_left_becomes_this_profiles_scratch(self):
+        # Arrange
         compiler = unit("compiler", scratch=("build",))
 
-        # Act / Assert
-        with pytest.raises(PreconditionError, match="real directory") as refused:
-            plan_of(
-                compiler,
-                state=observed(
-                    compiler,
-                    scratch={"compiler": (seen("build", ScratchState.PRESENT),)},
+        # Act
+        plan = plan_of(
+            compiler,
+            state=observed(
+                compiler, scratch={"compiler": (seen("build", ScratchState.PRESENT),)}
+            ),
+        )
+
+        # Assert
+        assert plan.units[0].recover == (
+            Move(
+                source=PurePath("/ws/main/alpha/build"),
+                destination=PurePath(
+                    "/ws/.cjdev/build/main/host/release/compiler/build"
                 ),
-            )
-        assert refused.value.remedy == "move or delete /ws/main/alpha/build"
+            ),
+        )
+        assert plan.units[0].stale == ()
+
+    def test_an_absorbed_directory_replaces_the_scratch_it_lands_on(self):
+        # Arrange: it was written after cjdev last moved this scratch out.
+        compiler = unit("compiler", scratch=("build",))
+        home = PurePath("/ws/.cjdev/build/main/host/release/compiler/build")
+        other = PurePath("/ws/.cjdev/build/main/host/debug/compiler/build")
+
+        # Act
+        plan = plan_of(
+            compiler,
+            state=observed(
+                compiler,
+                scratch={"compiler": (seen("build", ScratchState.PRESENT),)},
+                homes=frozenset({home, other}),
+            ),
+        )
+
+        # Assert
+        assert plan.units[0].stale == (home,)
+
+    def test_a_redirect_at_a_path_no_longer_scratch_is_removed_alone(self):
+        # Arrange: nothing reads its target any more, so the target stays.
+        runtime = unit("runtime", path="runtime", scratch=("output",))
+        old = seen(
+            "runtime/CMakebuild",
+            ScratchState.LINKED,
+            "../../../.cjdev/build/main/host/release/runtime/CMakebuild",
+        )
+
+        # Act
+        plan = plan_of(runtime, state=observed(runtime, excluded={"alpha": (old,)}))
+
+        # Assert
+        assert plan.units[0].stale == (PurePath("/ws/main/alpha/runtime/CMakebuild"),)
+
+    def test_a_symlink_elsewhere_at_a_former_scratch_path_is_left_alone(self):
+        # Arrange
+        runtime = unit("runtime", path="runtime", scratch=("output",))
+        theirs = seen("runtime/CMakebuild", ScratchState.LINKED, "/mnt/cmake")
+
+        # Act
+        plan = plan_of(runtime, state=observed(runtime, excluded={"alpha": (theirs,)}))
+
+        # Assert
+        assert plan.units[0].stale == ()
+
+    def test_a_redirect_still_at_a_scratch_path_is_not_listed_twice(self):
+        # Arrange
+        compiler = unit("compiler", scratch=("build",))
+        old = seen(
+            "build",
+            ScratchState.LINKED,
+            "../../.cjdev/build/main/host/debug/compiler/build",
+        )
+
+        # Act
+        plan = plan_of(
+            compiler,
+            state=observed(
+                compiler, scratch={"compiler": (old,)}, excluded={"alpha": (old,)}
+            ),
+        )
+
+        # Assert
+        assert plan.units[0].stale == (PurePath("/ws/main/alpha/build"),)
 
     def test_what_a_dead_build_left_goes_back_to_its_own_profile(self):
         # Arrange
@@ -666,7 +750,10 @@ def use_case(
 class TestApply:
     def test_the_chain_runs_in_dependency_order_one_unit_at_a_time(self):
         # Arrange
-        units = (unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        units = (
+            unit("compiler"),
+            unit("stdlib", path="stdlib", depends_on=("compiler",)),
+        )
         executor, fs = FakeExecutor(), FakeFileSystem()
 
         # Act
@@ -680,7 +767,10 @@ class TestApply:
     def test_a_failure_cancels_everything_after_it(self):
         # Arrange: the units are a chain, so the rest would build against a
         # half-built SDK.
-        units = (unit("compiler"), unit("stdlib", depends_on=("compiler",)))
+        units = (
+            unit("compiler"),
+            unit("stdlib", path="stdlib", depends_on=("compiler",)),
+        )
         executor, fs = FakeExecutor(failing="build"), FakeFileSystem()
 
         # Act
@@ -690,6 +780,28 @@ class TestApply:
         assert not report.ok
         assert [row.outcome for row in report.rows] == [
             Outcome.FAILED,
+            Outcome.CANCELLED,
+        ]
+
+    def test_a_failure_spares_what_does_not_depend_on_it(self):
+        # Arrange: objc-interop-gen depends on nothing and sorts early, and
+        # an optional tool must not take the SDK chain down with it.
+        units = (
+            unit("compiler"),
+            unit("gen", path="gen", build=("python3", "gen.py")),
+            unit("stdlib", path="stdlib", depends_on=("compiler",)),
+            unit("cjpm", path="cjpm", depends_on=("gen",)),
+        )
+        executor, fs = FakeExecutor(failing="gen.py"), FakeFileSystem()
+
+        # Act
+        report = use_case(manifest(*units), executor, fs).apply(plan_of(*units))
+
+        # Assert
+        assert [row.outcome for row in report.rows] == [
+            Outcome.DONE,
+            Outcome.FAILED,
+            Outcome.DONE,
             Outcome.CANCELLED,
         ]
 
@@ -883,15 +995,51 @@ class TestAgainstARealTree:
         )
         assert "/build" in exclude.read_text(encoding="utf-8").splitlines()
 
-    def test_a_worktree_directory_no_build_left_stops_the_build(self, workspace: Path):
-        # Arrange
-        (workspace / SET / "alpha" / "build").mkdir()
-
-        # Act / Assert
-        with pytest.raises(PreconditionError, match="real directory"):
-            real_build(workspace, manifest(REAL)).perform(
-                workspace, SET, profile=Profile.RELEASE
+    def test_a_worktree_directory_no_build_left_is_absorbed(self, workspace: Path):
+        # Arrange: release built before, and something rewrote its scratch since.
+        layout = WorkspaceLayout(workspace)
+        home = Path(
+            layout.scratch_dir(
+                SET, "host", "release", "compiler", PurePosixPath("build")
             )
+        )
+        home.mkdir(parents=True)
+        (home / "older").write_text("older", encoding="utf-8")
+        here = workspace / SET / "alpha" / "build"
+        here.mkdir()
+        (here / "newer").write_text("newer", encoding="utf-8")
+
+        # Act
+        report = real_build(workspace, manifest(REAL)).perform(
+            workspace, SET, profile=Profile.RELEASE
+        )
+
+        # Assert
+        assert report.ok, report.rows[0].error
+        assert sorted(p.name for p in home.iterdir()) == ["newer"]
+        assert not here.exists()
+
+    def test_a_redirect_the_manifest_dropped_is_removed(self, workspace: Path):
+        # Arrange
+        worktree = workspace / SET / "alpha"
+        exclude = Path(
+            WorkspaceLayout(workspace).object_store("alpha") / "info" / "exclude"
+        )
+        exclude.write_text("/CMakebuild\n/elsewhere\n", encoding="utf-8")
+        (worktree / "CMakebuild").symlink_to(
+            PurePosixPath("../../.cjdev/build/main/host/release/compiler/CMakebuild")
+        )
+        (worktree / "elsewhere").symlink_to(PurePosixPath("/nonexistent"))
+
+        # Act
+        report = real_build(workspace, manifest(REAL)).perform(
+            workspace, SET, profile=Profile.RELEASE
+        )
+
+        # Assert
+        assert report.ok, report.rows[0].error
+        assert not (worktree / "CMakebuild").is_symlink()
+        assert (worktree / "elsewhere").is_symlink()
 
     def test_the_next_run_returns_what_a_killed_one_left(self, workspace: Path):
         # Arrange: debug was moved in and never moved back.
@@ -992,6 +1140,16 @@ class TestAgainstARealTree:
         # Assert
         assert [u.unit for u in plan.units] == ["compiler"]
 
+    def test_a_set_holding_none_of_the_sdk_names_what_is_missing(self, workspace: Path):
+        # Arrange: "the manifest declares no build units" would be false here,
+        # and would hide the command that fixes it.
+        graph = manifest(unit("objc", project="beta", build=REAL.build))
+
+        # Act / Assert
+        with pytest.raises(PreconditionError, match="beta has no worktree") as raised:
+            real_build(workspace, graph).plan(workspace, SET, profile=Profile.RELEASE)
+        assert raised.value.remedy == f"cjdev branch new {SET}"
+
     def test_a_named_unit_of_an_absent_project_is_still_refused(self, workspace: Path):
         # Arrange
         graph = manifest(REAL, unit("objc", project="beta", depends_on=("compiler",)))
@@ -1026,6 +1184,41 @@ class TestObserve:
         ]
         assert state.moved == {"compiler": "host/debug"}
         assert state.worktrees == frozenset({"alpha"})
+
+    def test_it_finds_the_home_an_absorbed_directory_would_replace(
+        self, workspace: Path
+    ):
+        # Arrange
+        layout = WorkspaceLayout(workspace)
+        (workspace / SET / "alpha" / "build").mkdir()
+        home = layout.scratch_dir(
+            SET, "container", "debug", "compiler", PurePosixPath("build")
+        )
+        Path(home).mkdir(parents=True)
+
+        # Act
+        state = observe(layout, SET, (unit("compiler"),))
+
+        # Assert
+        assert state.homes == frozenset({home})
+
+    def test_it_reads_the_links_at_excluded_paths(self, workspace: Path):
+        # Arrange
+        layout = WorkspaceLayout(workspace)
+        exclude = Path(layout.object_store("alpha") / "info" / "exclude")
+        exclude.write_text("# cjdev\n/gone\n/plain\n", encoding="utf-8")
+        (workspace / SET / "alpha" / "gone").symlink_to(PurePosixPath("../x"))
+        (workspace / SET / "alpha" / "plain").mkdir()
+
+        # Act
+        state = observe(layout, SET, (unit("compiler"),))
+
+        # Assert
+        assert state.excluded == {
+            "alpha": (
+                Seen(PurePosixPath("gone"), ScratchState.LINKED, PurePosixPath("../x")),
+            )
+        }
 
 
 def test_one_build_per_unit_and_set_is_what_the_lock_guards(tmp_path: Path):

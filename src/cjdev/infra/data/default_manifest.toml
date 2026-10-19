@@ -29,8 +29,8 @@ schema_version = 2
 # nothing and cangjie_test is data for it, so a workspace holding only those
 # two has a test runner and no SDK to point it at.
 #
-# cangjie_multiplatform_interop is in no group: its interoplib links against
-# GNUstep, which the image carries and a host rarely does.
+# cangjie_multiplatform_interop is in no group: its interoplibs need GNUstep
+# and a JDK, which the image carries and a host rarely does.
 #
 # Both keys are document-level and must stay above the first table: a TOML key
 # written after one belongs to that table, which is silently a different thing.
@@ -86,7 +86,7 @@ role = "test_data"
 upstream = "https://gitcode.com/Cangjie/cangjie_test.git"
 default_branch = "main"
 
-# Its objc units are below; `java/` has none yet (#52).
+# Its objc and java units are below.
 [projects.cangjie_multiplatform_interop]
 role = "buildable"
 upstream = "https://gitcode.com/Cangjie/cangjie_multiplatform_interop.git"
@@ -109,9 +109,10 @@ default_branch = "main"
 # `{build_dir}` and `{target}` replaced literally. No conditionals: a
 # template that wants an `if` belongs in code.
 #
-# `install` has a second shape, a list of `[[...install]]` tables with `from`
-# and `to`, for a unit whose artefacts go to two different places. Only cjpm
-# needs it.
+# `install` has two more shapes: an array of argv arrays, run in order, for a
+# unit installed twice (the runtime), and a list of `[[...install]]` tables
+# with `from` and `to`, for a unit whose artefacts go to two different places
+# (cjpm).
 #
 # A SCRATCH PATH IS ALSO AN IGNORE PROBLEM while a build runs, or after one
 # was killed: cjpm ignores none of its own. cjdev writes every scratch path
@@ -150,18 +151,25 @@ path = "third_party/flatbuffers"
 upstream = "https://gitcode.com/openharmony/third_party_flatbuffers.git"
 ref = "c3e4d69cbd5950e43f775ba76eadb30750d6e0b7"
 
-# `install` passes no prefix on purpose: `build --prefix` is what bakes
-# CMAKE_INSTALL_PREFIX in, and the install step would otherwise overwrite it
-# with a path missing the `linux_<profile>_<arch>` segment the next unit looks
-# for. The `common/` segment is ours - upstream appends the rest to whatever we
-# pass.
+# Installed twice, into the two layouts that read it. The first install passes
+# no prefix, so it lands where `build --prefix` baked CMAKE_INSTALL_PREFIX in:
+# `{dist}/common/linux_<profile>_<arch>/`, which stdlib's `--target-lib` globs.
+# The `common/` segment is ours - upstream appends the rest to whatever we
+# pass. The second puts the same files in the SDK layout, which is where `cjc`
+# loads `runtime/lib/<target>_cjnative/libcangjie-runtime.so` to expand macros
+# and where it links `lib/<target>_cjnative/cjstart.o`. Upstream's guide
+# copies `{lib,runtime}` across by hand for this (cangjie_build
+# `doc_en/linux.md`, 4.2); without it stdx fails on its first `@Derive` (#67).
 [build_units.runtime]
 project = "cangjie_runtime"
 path = "runtime"
 depends_on = []
 scratch = ["output", "CMakebuild", "build/cjthread_build"]
 build = ["python3", "build.py", "build", "-t", "{profile}", "--prefix", "{dist}/common"]
-install = ["python3", "build.py", "install"]
+install = [
+    ["python3", "build.py", "install"],
+    ["python3", "build.py", "install", "--prefix", "{dist}"],
+]
 
 [build_units.stdlib]
 project = "cangjie_runtime"
@@ -252,4 +260,44 @@ path = "objc"
 depends_on = []
 scratch = ["src/ObjCInteropGen/build/build"]
 build = ["python3", "build/build.py", "build", "-t", "{profile}"]
+install = ["python3", "build/build.py", "install", "--prefix", "{dist}"]
+
+# The two java units share `java/build/build.py` too, but its switch differs
+# from objc's: `build --target-lib` builds the interoplib, and `build --target`
+# is a triple handed to clang and cjc, which `linux_x86_64` is not. `install
+# --target` is the switch there. The script refuses to start without
+# JAVA_HOME and CANGJIE_HOME, so a host build needs a JDK 17+ of its own.
+#
+# The interoplib installs `java.internal` and `java.lang` beside objc's, plus
+# `lib/library-loader.jar`, which `%cp_cj_loader_java_interop` puts on the
+# classpath. `-t` is honoured here: debug adds `-g`, release strips.
+#
+# `build/logs` and `build/jar-repack` are not scratch: both units use them,
+# and the repack directory is left empty.
+[build_units.java-interoplib]
+project = "cangjie_multiplatform_interop"
+path = "java"
+depends_on = ["compiler", "runtime", "stdlib"]
+scratch = ["dist"]
+build = ["python3", "build/build.py", "build", "-t", "{profile}", "--target-lib", "{target}"]
+install = ["python3", "build/build.py", "install", "--target", "{target}", "--prefix", "{dist}"]
+
+# `java-mirror-gen.jar`, installed into `tools/bin`. Built by `ant` against a
+# subset of BiShengJDK 21's javac, which the script clones into
+# `third_party/bishengjdk-21`, copies into `third_party/jdk`, patches and then
+# deletes. That rules out a `third_party` link (ADR-0052): the script
+# `rmtree`s the clone, and the copy is its own output. So both are scratch,
+# fetched once per profile, and so are the jar and ant's `build/`: upstream
+# ignores none of them.
+[build_units.java-mirror-gen]
+project = "cangjie_multiplatform_interop"
+path = "java"
+depends_on = []
+scratch = [
+    "src/java-mirror-gen/build",
+    "src/java-mirror-gen/java-mirror-gen.jar",
+    "src/java-mirror-gen/third_party/bishengjdk-21",
+    "src/java-mirror-gen/third_party/jdk",
+]
+build = ["python3", "build/build.py", "build"]
 install = ["python3", "build/build.py", "install", "--prefix", "{dist}"]

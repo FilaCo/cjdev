@@ -2,12 +2,12 @@ from pathlib import Path
 
 from typer import Argument, Exit, Option, Typer
 
-from cjdev.application.new_branch_set import DEFAULT_CHECKOUT_JOBS
+from cjdev.application.new_branch_set import DEFAULT_CHECKOUT_JOBS, BranchSetReport
 from cjdev.application.workspace import require_root
 
 from ._console import DETAIL, OK, console, diagnostics
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
-from ._output import begin, from_error
+from ._output import Output, begin, from_error
 from ._progress import LIVE_AFTER, ConsoleProgress
 from ._render import branch_set_payload, render_branch_set
 
@@ -37,11 +37,19 @@ def new(
     # A walk up from wherever the caller is standing: being inside another
     # branch set is a normal place to start one from.
     root = require_root((path or Path.cwd()).resolve())
+    progress = progress_for(out, dry_run=dry_run)
+    ctx.obj.emit = progress.emit
+    ctx.obj.report_step = progress.step
+    if not dry_run:
+        ctx.obj.journal(root, ["branch", "new", branch_set])
+    report = check_out(
+        ctx, root, branch_set, progress, dry_run=dry_run, verbose=verbose
+    )
+    finish(out, root, report, progress, as_json=as_json, dry_run=dry_run)
 
-    # The fan-out is not slowed for -v: the transcript is buffered per unit
-    # and rendered in manifest order by `render_branch_set` afterwards.
-    jobs = DEFAULT_CHECKOUT_JOBS
-    progress = ConsoleProgress(
+
+def progress_for(out: Output, *, dry_run: bool) -> ConsoleProgress:
+    return ConsoleProgress(
         out.display,
         fallback=None if dry_run else diagnostics,
         delay=LIVE_AFTER,
@@ -49,10 +57,22 @@ def new(
         # while the work runs, so it goes when the work does.
         transient=True,
     )
-    ctx.obj.emit = progress.emit
-    ctx.obj.report_step = progress.step
-    if not dry_run:
-        ctx.obj.journal(root, ["branch", "new", branch_set])
+
+
+def check_out(
+    ctx: CjdevContext,
+    root: Path,
+    branch_set: str,
+    progress: ConsoleProgress,
+    *,
+    dry_run: bool,
+    verbose: bool,
+) -> BranchSetReport:
+    """`branch new` itself, for `start` to run as well. The caller binds
+    `progress` to the container and opens the journal first."""
+    # The fan-out is not slowed for -v: the transcript is buffered per unit
+    # and rendered in manifest order by `render_branch_set` afterwards.
+    jobs = DEFAULT_CHECKOUT_JOBS
     use_case = ctx.obj.new_branch_set(dry_run=dry_run, verbose=verbose, start=root)
 
     # Kept apart only because the display cannot be built until it knows
@@ -67,7 +87,7 @@ def new(
     )
 
     with progress:
-        report = use_case.apply(
+        return use_case.apply(
             plan,
             jobs=jobs,
             dry_run=dry_run,
@@ -75,6 +95,16 @@ def new(
             transcript=progress.transcript,
         )
 
+
+def finish(
+    out: Output,
+    root: Path,
+    report: BranchSetReport,
+    progress: ConsoleProgress,
+    *,
+    as_json: bool,
+    dry_run: bool,
+) -> None:
     if as_json:
         out.document(
             branch_set_payload(report),
@@ -95,7 +125,10 @@ def new(
         elif report.ok:
             # The point of the command is the directory to cd into.
             console.print(
-                f"\ncd {plan.directory}", style=OK, soft_wrap=True, highlight=False
+                f"\ncd {report.plan.directory}",
+                style=OK,
+                soft_wrap=True,
+                highlight=False,
             )
         else:
             console.print(f"\n{progress.summary()}", style=DETAIL, highlight=False)

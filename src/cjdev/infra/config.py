@@ -27,6 +27,7 @@ from cjdev.domain.environment import (
     Mode,
     Runtime,
 )
+from cjdev.domain.forge import DEFAULT_ISSUE_HOME
 from cjdev.domain.fork import check_fork_owner
 from cjdev.domain.manifest import BuildUnit, Manifest, Project, ThirdParty
 from cjdev.errors import ManifestError, UsageError
@@ -288,7 +289,7 @@ def _check_unit_keys(body: Any, where: str) -> None:
     _reject_mistyped(body, "depends_on", where, list, "an array of build-unit names")
     _reject_mistyped(body, "scratch", where, list, "an array of paths")
     _reject_mistyped(body, "build", where, list, "an argv array")
-    _reject_mistyped(body, "install", where, list, "an argv array or copy tables")
+    _reject_mistyped(body, "install", where, list, "argv arrays or copy tables")
     _reject_mistyped(body, "extra_args", where, list, "an array of arguments")
     _reject_mistyped(
         body, "third_party", where, list, "tables of path, upstream and ref"
@@ -296,13 +297,14 @@ def _check_unit_keys(body: Any, where: str) -> None:
 
 
 def _install(body: Any, where: str) -> tuple[InstallStep, ...] | None:
-    """One argv, or a list of copies. `None` when the key is absent.
+    """One argv, several argvs, or a list of copies. `None` when the key is
+    absent.
 
-    The two shapes are told apart by what the array holds rather than by a
+    The shapes are told apart by what the array holds rather than by a
     discriminator key, because TOML already spells them differently: an array
-    of strings is one command, and `[[unit.install]]` tables are copies. A
-    mixed array is refused - there is no order in which it would mean
-    something.
+    of strings is one command, an array of arrays is commands run in order,
+    and `[[unit.install]]` tables are copies. A mixed array is refused - there
+    is no order in which it would mean something.
     """
     if "install" not in body:
         return None
@@ -311,11 +313,21 @@ def _install(body: Any, where: str) -> tuple[InstallStep, ...] | None:
         return ()
     if all(isinstance(entry, str) for entry in entries):
         return (RunStep(tuple(str(entry) for entry in entries)),)
+    if all(_is_argv(entry) for entry in entries):
+        return tuple(RunStep(tuple(str(word) for word in entry)) for entry in entries)
     if all(isinstance(entry, dict) for entry in entries):
         return tuple(_copy_step(entry, where) for entry in entries)
     raise ManifestError(
-        f"{where} install must be either an argv array or tables of "
-        f"from/to, not a mixture of both."
+        f"{where} install must be an argv array, an array of argv arrays or "
+        f"tables of from/to, not a mixture."
+    )
+
+
+def _is_argv(entry: Any) -> bool:
+    return (
+        isinstance(entry, list)
+        and bool(entry)
+        and all(isinstance(word, str) for word in entry)
     )
 
 
@@ -563,13 +575,7 @@ def load_fork_owner(root: Any) -> str | None:
 
 
 def parse_fork_owner(text: str, *, source: str) -> str | None:
-    try:
-        document: Any = tomlkit.parse(text)
-    except Exception as exc:  # tomlkit raises a family of parse errors
-        raise ManifestError(f"{source} is not valid TOML: {exc}") from exc
-    where = f"{source}: forge"
-    body = _require_table(document, "forge", source)
-    _reject_unknown_keys(body, {"fork_owner"}, where)
+    body, where = _forge_section(text, source)
     if "fork_owner" not in body:
         return None
     _reject_mistyped(body, "fork_owner", where, str, "a string")
@@ -577,6 +583,35 @@ def parse_fork_owner(text: str, *, source: str) -> str | None:
         return check_fork_owner(str(body["fork_owner"]))
     except UsageError as exc:
         raise ManifestError(f"{where}: {exc}") from None
+
+
+def load_issue_home(root: Any) -> str:
+    """`[forge] issue_home`: the project a task's issue lives in when the task
+    does not say. Whether it names a project is the caller's to check, against
+    the manifest it acts on."""
+    text = _read_workspace_file(root)
+    if text is None:
+        return DEFAULT_ISSUE_HOME
+    return parse_issue_home(text, source=WORKSPACE_CONFIG)
+
+
+def parse_issue_home(text: str, *, source: str) -> str:
+    body, where = _forge_section(text, source)
+    if "issue_home" not in body:
+        return DEFAULT_ISSUE_HOME
+    _reject_mistyped(body, "issue_home", where, str, "a string")
+    return str(body["issue_home"])
+
+
+def _forge_section(text: str, source: str) -> tuple[Any, str]:
+    try:
+        document: Any = tomlkit.parse(text)
+    except Exception as exc:  # tomlkit raises a family of parse errors
+        raise ManifestError(f"{source} is not valid TOML: {exc}") from exc
+    where = f"{source}: forge"
+    body = _require_table(document, "forge", source)
+    _reject_unknown_keys(body, {"fork_owner", "issue_home"}, where)
+    return body, where
 
 
 def record_fork_owner(fs: FileSystem, root: Any, owner: str) -> None:

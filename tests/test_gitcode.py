@@ -9,7 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from cjdev.domain.forge import NewIssue, Repository, parse_repository
+from cjdev.domain.forge import (
+    Issue,
+    IssueRef,
+    NewIssue,
+    Repository,
+    parse_repository,
+)
 from cjdev.errors import ForgeError, ManifestError, PreconditionError
 from cjdev.infra.gitcode import (
     DryRunForge,
@@ -19,7 +25,12 @@ from cjdev.infra.gitcode import (
 )
 
 COMPILER = Repository("gitcode.com", "Cangjie", "cangjie_compiler")
+REF = IssueRef(COMPILER, "77")
 ISSUE = NewIssue(COMPILER, "[Bug]: x", "### What\n\nIt crashes.\n", ("bug", "sema"))
+
+
+def no_token() -> str:
+    raise AssertionError("a dry run that files nothing needs no token")
 
 
 class FakeSend:
@@ -38,7 +49,7 @@ class FakeSend:
     def __call__(
         self, method: str, url: str, headers: Mapping[str, str], body: bytes
     ) -> tuple[int, bytes]:
-        self.sent.append((method, url, headers, json.loads(body)))
+        self.sent.append((method, url, headers, json.loads(body) if body else {}))
         return self._status, json.dumps(self._answer).encode()
 
 
@@ -124,15 +135,55 @@ class TestADryRun:
     def test_it_prints_the_request_and_the_body_and_files_nothing(self):
         # Arrange
         lines: list[str] = []
+        send = FakeSend()
 
         # Act
-        filed = DryRunForge(lines.append).create_issue(ISSUE)
+        filed = DryRunForge(lines.append, GitCodeForge(no_token, send)).create_issue(
+            ISSUE
+        )
 
         # Assert
         assert filed is None
         assert lines[0] == "POST https://api.gitcode.com/api/v5/repos/Cangjie/issues"
         assert "labels: bug,sema" in lines
         assert lines[-1] == ISSUE.body
+        assert send.sent == []
+
+    def test_it_reads_an_issue_for_real(self):
+        # Arrange: the plan of `start --dry-run` is named after the title.
+        send = FakeSend(answer={"title": "ICE"})
+
+        # Act
+        issue = DryRunForge(print, GitCodeForge(lambda: "tok", send)).read_issue(REF)
+
+        # Assert
+        assert issue.title == "ICE"
+
+
+class TestReadingAnIssue:
+    def test_it_is_a_get_of_the_issue_in_its_repository(self):
+        # Arrange
+        send = FakeSend(answer={"title": "[Bug]: ICE", "number": "77"})
+
+        # Act
+        issue = GitCodeForge(lambda: "tok", send).read_issue(REF)
+
+        # Assert
+        method, url, headers, _ = send.sent[0]
+        assert method == "GET"
+        assert url == (
+            "https://api.gitcode.com/api/v5/repos/Cangjie/cangjie_compiler/issues/77"
+        )
+        assert headers["Authorization"] == "Bearer tok"
+        assert issue == Issue(REF, "[Bug]: ICE")
+
+    def test_a_missing_issue_is_the_forge_s_answer(self):
+        # Arrange
+        send = FakeSend(status=404, answer={"message": "Not Found"})
+
+        # Act / Assert
+        with pytest.raises(ForgeError, match="404: Not Found"):
+            GitCodeForge(lambda: "tok", send).read_issue(REF)
 
 
 class TestTheToken:
