@@ -199,6 +199,13 @@ cjdev issue new cangjie_compiler -t bug-report --dry-run   # print the request i
 - `cjdev issue attach ISSUE_URL` - make it the issue of the branch set you are in, for
   one started with `branch new` or `start --no-issue`.
 
+### Agents
+
+- `cjdev skill install` - install the agent skill that ships with this version, as
+  `~/.claude/skills/cjdev/SKILL.md`; `--dir` names another skills directory, such as
+  `~/.agents/skills` for Codex. `cjdev skill show` prints it. Run it again after an
+  upgrade.
+
 ## Documentation
 
 The command line reference documentation can be viewed with `cjdev -h`.
