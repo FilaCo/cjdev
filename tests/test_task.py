@@ -62,7 +62,17 @@ def git(cwd: Path, *args: str) -> str:
 def commit(repository: Path, name: str) -> str:
     (repository / name).write_text(name)
     git(repository, "add", name)
-    git(repository, "commit", "--quiet", "-m", name)
+    git(
+        repository,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        name,
+    )
     return git(repository, "rev-parse", "HEAD")
 
 
