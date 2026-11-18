@@ -274,7 +274,7 @@ class TestHeldByBranchSet:
 
 class TestScratch:
     def test_a_scratch_path_moves_in_from_the_profiles_build_directory(self):
-        # Act
+        # Arrange / Act
         plan = plan_of(unit("compiler"))
 
         # Assert
@@ -456,7 +456,7 @@ class TestScratch:
 
 class TestSteps:
     def test_the_tokens_are_substituted_in_build_and_install(self):
-        # Act
+        # Arrange / Act
         plan = plan_of(unit("compiler"))
 
         # Assert
@@ -528,7 +528,7 @@ class TestSteps:
         )
 
     def test_every_command_writes_to_the_units_own_log(self):
-        # Act
+        # Arrange / Act
         plan = plan_of(unit("compiler"))
 
         # Assert
@@ -549,7 +549,7 @@ class TestSteps:
 
 class TestEnvironment:
     def test_the_sdk_under_construction_travels_in_the_environment(self):
-        # Act
+        # Arrange / Act
         plan = plan_of(unit("compiler"))
 
         # Assert
@@ -593,7 +593,7 @@ class TestEnvironment:
         assert not build.env["LD_LIBRARY_PATH"].endswith(os.pathsep)
 
     def test_without_ccache_there_is_no_shim(self):
-        # Act
+        # Arrange / Act
         plan = plan_of(unit("compiler"))
 
         # Assert
@@ -971,7 +971,7 @@ class TestAgainstARealTree:
             assert (kept / "build").is_file()
 
     def test_the_output_is_teed_into_the_units_log_while_it_runs(self, workspace: Path):
-        # Act
+        # Arrange / Act
         real_build(workspace, manifest(REAL)).perform(
             workspace, SET, profile=Profile.RELEASE
         )
@@ -984,7 +984,7 @@ class TestAgainstARealTree:
         ]
 
     def test_the_scratch_paths_reach_the_stores_exclude_file(self, workspace: Path):
-        # Act
+        # Arrange / Act
         real_build(workspace, manifest(REAL)).perform(
             workspace, SET, profile=Profile.RELEASE
         )
@@ -1472,7 +1472,7 @@ class TestWhereTheBuildRuns:
         )
 
     def test_the_lock_stays_above_the_environment(self):
-        # Arrange / Act: a worktree holds one profile's scratch at a time, so
+        # Arrange / Act / Assert: a worktree holds one profile's scratch at a time, so
         # the two environments contend exactly as two profiles do.
         assert (
             plan_of(unit("compiler"), environment=CONTAINER).units[0].lock

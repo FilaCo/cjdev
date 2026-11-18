@@ -60,7 +60,7 @@ HOST = Host(
 
 class TestUnbuilt:
     def test_every_unit_outside_the_selection_counts_not_only_dependencies(self):
-        # Act: nothing in the graph says the compiler needs stdlib, but a dist
+        # Arrange / Act: nothing in the graph says the compiler needs stdlib, but a dist
         # with a compiler and no stdlib compiles nothing.
         missing = unbuilt(["compiler"], UNITS, frozenset())
 
@@ -68,13 +68,13 @@ class TestUnbuilt:
         assert missing == ("runtime", "stdlib")
 
     def test_what_the_profile_already_built_is_not_missing(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert unbuilt(["compiler"], UNITS, frozenset({"runtime", "stdlib"})) == ()
 
 
 class TestCheckProfile:
     def test_a_partial_build_in_another_profile_names_what_it_lacks(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError) as refusal:
             check_profile(
                 Profile.RELEASE,
@@ -86,11 +86,11 @@ class TestCheckProfile:
         assert refusal.value.remedy == "cjdev build -p release"
 
     def test_the_branch_set_s_own_profile_is_never_refused(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         check_profile(Profile.DEBUG, Profile.DEBUG, ("runtime",), branch_set="main")
 
     def test_a_branch_set_with_no_full_build_yet_has_nothing_to_disagree_with(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         check_profile(Profile.RELEASE, None, ("runtime",), branch_set="main")
 
 
@@ -123,7 +123,7 @@ def build_plan(root: Path, profile: Profile, names: tuple[str, ...] = ()):
 
 class TestTheRecord:
     def test_with_no_record_the_default_is_release(self, root: Path):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert profiles().resolve(root, "main", None) is Profile.RELEASE
 
     def test_a_full_build_becomes_the_default(self, root: Path):
@@ -185,7 +185,7 @@ class TestTheFile:
         assert read_record(path).profile is Profile.DEBUG
 
     def test_a_missing_file_is_an_empty_record(self, tmp_path: Path):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert read_record(tmp_path / "none.toml") == BranchSetRecord()
 
     def test_a_profile_cjdev_does_not_know_names_the_file(self, tmp_path: Path):

@@ -16,11 +16,13 @@ def quiet_console() -> tuple[Console, StringIO]:
 
 class TestOutputCapture:
     def test_a_units_output_is_attributed_to_it(self):
+        # Arrange
         progress = ConsoleProgress(quiet_console()[0])
 
         def speak(label: str) -> None:
             progress.emit(f"from {label}")
 
+        # Act
         Runner(jobs=4).run(
             [
                 Work(key=n, label=n, action=lambda n=n: speak(n))
@@ -29,6 +31,7 @@ class TestOutputCapture:
             observer=progress,
         )
 
+        # Assert
         # Attribution survives concurrency because `started` arrives on the
         # worker's own thread, which is what binds the buffer to it.
         assert progress.lines("a") == ("from a",)
@@ -36,33 +39,40 @@ class TestOutputCapture:
         assert progress.lines("c") == ("from c",)
 
     def test_output_is_never_printed_as_it_happens(self):
+        # Arrange
         console, sink = quiet_console()
         progress = ConsoleProgress(console)
         progress.track(["a"])
 
+        # Act
         Runner(jobs=1).run(
             [Work(key="a", label="a", action=lambda: progress.emit("secret"))],
             observer=progress,
         )
 
+        # Assert
         assert "secret" not in sink.getvalue()
 
 
 class TestDisplay:
     def test_nothing_is_drawn_without_a_terminal(self):
+        # Arrange
         # A pipe or a CI log gets no animation: 12 redraws a second is control
         # codes once it is not being watched.
         console, sink = quiet_console()
         progress = ConsoleProgress(console)
         progress.track(["a", "b"])
 
+        # Act
         with progress:
             progress.started("a")
             progress.finished("a", Outcome.DONE)
 
+        # Assert
         assert sink.getvalue() == ""
 
     def test_without_a_terminal_a_fallback_still_reports_each_unit(self):
+        # Arrange
         # Otherwise a CI log shows nothing at all for the ten minutes a clone
         # takes, which reads as a hang.
         console, _ = quiet_console()
@@ -70,11 +80,13 @@ class TestDisplay:
         progress = ConsoleProgress(console, fallback=fallback)
         progress.track(["a", "b"])
 
+        # Act
         with progress:
             for label in ("a", "b"):
                 progress.started(label)
                 progress.finished(label, Outcome.DONE)
 
+        # Assert
         assert "[1/2] a" in seen.getvalue()
         assert "[2/2] b" in seen.getvalue()
 
@@ -112,11 +124,13 @@ class TestDisplay:
         assert "slow" in sink.getvalue()
 
     def test_rows_keep_their_given_order_whatever_finishes_first(self):
+        # Arrange
         sink = StringIO()
         console = Console(file=sink, force_terminal=True, width=40)
         progress = ConsoleProgress(console)
         progress.track(["first", "second"])
 
+        # Act
         with progress:
             progress.started("second")
             progress.finished("second", Outcome.DONE)
@@ -124,74 +138,94 @@ class TestDisplay:
             progress.finished("first", Outcome.FAILED)
 
         drawn = sink.getvalue()
+
+        # Assert
         assert drawn.index("first") < drawn.index("second")
 
     def test_the_current_step_is_shown_against_the_running_unit(self):
+        # Arrange
         sink = StringIO()
         console = Console(file=sink, force_terminal=True, width=70)
         progress = ConsoleProgress(console)
         progress.track(["alpha"], title="Fetching")
 
+        # Act
         with progress:
             progress.started("alpha")
             progress.step("fetching from upstream")
 
         drawn = sink.getvalue()
+
+        # Assert
         assert "fetching from upstream" in drawn
         assert "Fetching" in drawn
 
     def test_a_step_outside_any_unit_is_dropped_rather_than_misattributed(self):
+        # Arrange
         # `step` reads the thread-local a worker sets; on the main thread
         # there is no unit it could belong to.
         progress = ConsoleProgress(quiet_console()[0])
         progress.track(["a"])
 
+        # Act
         progress.step("from nowhere")
 
+        # Assert
         assert "from nowhere" not in str(progress.__rich__())
 
 
 class TestEstimate:
     def test_no_estimate_until_something_has_finished(self):
+        # Arrange
         sink = StringIO()
         console = Console(file=sink, force_terminal=True, width=70)
         progress = ConsoleProgress(console)
         progress.track(["a", "b"], jobs=1)
 
+        # Act
         with progress:
             progress.started("a")
 
+        # Assert
         assert "left" not in sink.getvalue()
 
     def test_the_headline_counts_what_is_done_against_the_total(self):
+        # Arrange
         sink = StringIO()
         console = Console(file=sink, force_terminal=True, width=70)
         progress = ConsoleProgress(console)
         progress.track(["a", "b"])
 
+        # Act
         with progress:
             progress.started("a")
             progress.finished("a", Outcome.DONE)
 
+        # Assert
         assert "1/2 done" in sink.getvalue()
 
     def test_the_summary_names_every_outcome_it_saw(self):
+        # Arrange
         progress = ConsoleProgress(quiet_console()[0])
         progress.track(["a", "b", "c"])
 
+        # Act
         with progress:
             progress.finished("a", Outcome.DONE)
             progress.finished("b", Outcome.FAILED)
             progress.finished("c", Outcome.CANCELLED)
 
+        # Assert
         assert progress.summary().startswith("1 done, 1 failed, 1 cancelled in ")
 
 
 class TestDurations:
     def test_seconds_keep_a_decimal_while_they_are_the_whole_answer(self):
+        # Arrange / Act / Assert
         assert format_duration(0.0) == "0.0s"
         assert format_duration(8.42) == "8.4s"
 
     def test_minutes_drop_it(self):
+        # Arrange / Act / Assert
         assert format_duration(65) == "1m 05s"
         assert format_duration(600) == "10m 00s"

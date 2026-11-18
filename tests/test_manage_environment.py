@@ -126,13 +126,13 @@ class TestTheImage:
         assert executor.ran[0].argv == ("docker", "build")
 
     def test_a_host_workspace_has_no_image_to_build(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError) as refusal:
             use_case(mode=Mode.HOST).build(ROOT)
         assert refusal.value.remedy == 'set mode = "container" in .cjdev/config.toml'
 
     def test_a_host_workspace_has_no_image_to_remove_either(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError, match="no image to remove"):
             use_case(mode=Mode.HOST).remove()
 
@@ -149,25 +149,25 @@ class TestTheImage:
 
 class TestTheImageABuildNeeds:
     def test_a_missing_image_is_one_to_build(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert use_case(present=False).image_missing()
 
     def test_a_present_image_is_not_built_again(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert not use_case(present=True).image_missing()
 
     def test_a_host_workspace_has_none_to_miss(self):
-        # Act / Assert: no runtime is asked, because there is none to ask.
+        # Arrange / Act / Assert: no runtime is asked, because there is none to ask.
         assert not use_case(mode=Mode.HOST, present=False).image_missing()
 
     def test_refuse_names_the_command_that_builds_it(self):
-        # Act / Assert: the absence is the diagnosis someone asked to see.
+        # Arrange / Act / Assert: the absence is the diagnosis someone asked to see.
         with pytest.raises(PreconditionError) as refusal:
             use_case(image=ImagePolicy.REFUSE).image_missing()
         assert refusal.value.remedy == "cjdev env build"
 
     def test_refuse_says_nothing_when_the_image_is_there(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert not use_case(image=ImagePolicy.REFUSE, present=True).image_missing()
 
     def test_it_is_built_as_a_tracked_row(self):

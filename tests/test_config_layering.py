@@ -56,15 +56,19 @@ def override(**fields: Any) -> WorkspaceConfig:
 
 class TestEmptyWorkspace:
     def test_the_file_init_writes_leaves_the_manifest_unchanged(self, base: Manifest):
+        # Arrange / Act
         # FR-4: a comment-only file is a valid workspace. The whole promise of
         # the template rests on this being an identity.
         result = layer(base, WorkspaceConfig())
 
+        # Assert
         assert result.effective == base
 
     def test_every_value_credits_the_layer_below(self, base: Manifest):
+        # Arrange / Act
         result = layer(base, WorkspaceConfig())
 
+        # Assert
         assert result.schema_version == Sourced(1, BUNDLED)
         assert result.default_group == Sourced("sdk", BUNDLED)
         assert result.projects[0].upstream_url == Sourced(
@@ -75,6 +79,7 @@ class TestEmptyWorkspace:
 
 class TestPartialOverride:
     def test_one_field_of_one_project_inherits_the_rest(self, base: Manifest):
+        # Arrange / Act
         # FR-2: restating the whole project to change its remote is the copy
         # the override layer exists to spare.
         result = layer(
@@ -83,6 +88,8 @@ class TestPartialOverride:
         )
 
         changed = result.effective.project("a")
+
+        # Assert
         assert changed.upstream_url == "https://mirror/a.git"
         assert changed.role is ProjectRole.BUILDABLE
         assert changed.default_branch == "main"
@@ -90,27 +97,33 @@ class TestPartialOverride:
         assert result.effective.project("b") == base.project("b")
 
     def test_provenance_follows_the_field_not_the_project(self, base: Manifest):
+        # Arrange / Act
         result = layer(
             base,
             override(projects={"a": ProjectOverride(upstream="https://mirror/a.git")}),
         )
 
+        # Assert
         assert result.projects[0].upstream_url.layer == WORKSPACE
         assert result.projects[0].role.layer == BUNDLED
         assert result.projects[0].default_branch.layer == BUNDLED
 
     def test_one_field_of_one_unit_inherits_the_others(self, base: Manifest):
+        # Arrange / Act
         result = layer(
             base,
             override(build_units={"u": UnitOverride(path=PurePosixPath("elsewhere"))}),
         )
 
         changed = result.effective.unit("u")
+
+        # Assert
         assert changed.path == PurePosixPath("elsewhere")
         assert changed.project == "a"
         assert changed.depends_on == ()
 
     def test_an_explicit_empty_depends_on_is_a_real_answer(self, base: Manifest):
+        # Arrange / Act
         # `None` inherits; `[]` detaches. The difference is the point of the
         # override being field-wise rather than whole-table.
         result = layer(
@@ -124,6 +137,7 @@ class TestPartialOverride:
             ),
         )
 
+        # Assert
         assert result.effective.unit("u").depends_on == ()
         assert result.build_units[0].depends_on.layer == WORKSPACE
 
@@ -132,6 +146,7 @@ class TestAdding:
     def test_a_workspace_adds_a_project_the_bundled_manifest_lacks(
         self, base: Manifest
     ):
+        # Arrange / Act
         # FR-3: there is nothing below to inherit from, so every field is owed.
         result = layer(
             base,
@@ -146,10 +161,12 @@ class TestAdding:
             ),
         )
 
+        # Assert
         assert [p.name for p in result.effective.projects] == ["a", "b", "c"]
         assert result.effective.project("c").default_branch == "trunk"
 
     def test_an_added_project_missing_a_field_is_refused(self, base: Manifest):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match=r"config.toml.*project c.*upstream"):
             layer(
                 base,
@@ -157,6 +174,7 @@ class TestAdding:
             )
 
     def test_an_added_unit_defaults_to_no_dependencies(self, base: Manifest):
+        # Arrange / Act
         # The bundled manifest treats edge-less projects the same way (interop
         # contributes nothing yet): a unit can land before its edges do.
         result = layer(
@@ -166,14 +184,17 @@ class TestAdding:
             ),
         )
 
+        # Assert
         assert [u.name for u in result.effective.build_units] == ["u", "v"]
         assert result.effective.unit("v").depends_on == ()
 
     def test_an_added_unit_missing_project_or_path_is_refused(self, base: Manifest):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match=r"config.toml.*unit v.*path"):
             layer(base, override(build_units={"v": UnitOverride(project="a")}))
 
     def test_added_names_are_appended_in_their_own_order(self, base: Manifest):
+        # Arrange / Act
         # Manifest order is the tie-break for every ordering cjdev produces:
         # an override appends, it does not shuffle the bundled positions.
         result = layer(
@@ -194,23 +215,28 @@ class TestAdding:
             ),
         )
 
+        # Assert
         assert [p.name for p in result.effective.projects] == ["a", "b", "z", "m"]
 
 
 class TestGroupsAndDefaultGroup:
     def test_redeclaring_a_group_replaces_it_whole(self, base: Manifest):
+        # Arrange / Act
         # Member-by-member merging would invent append semantics nothing
         # asked for; "override" says replace.
         result = layer(base, override(groups={"sdk": ("b",)}))
 
+        # Assert
         assert result.effective.group("sdk") == (base.project("b"),)
         assert result.groups[0].members.layer == WORKSPACE
 
     def test_a_workspace_may_declare_a_new_group_and_point_the_default_at_it(
         self, base: Manifest
     ):
+        # Arrange / Act
         result = layer(base, override(groups={"tiny": ("b",)}, default_group="tiny"))
 
+        # Assert
         assert [p.name for p in result.effective.default_projects()] == ["b"]
         assert result.default_group == Sourced("tiny", WORKSPACE)
 
@@ -219,6 +245,7 @@ class TestValidationOnTheEffectiveResult:
     def test_two_valid_layers_may_not_combine_into_a_dangling_reference(
         self, base: Manifest
     ):
+        # Arrange / Act / Assert
         # FR-7: the workspace re-points a unit at a name that exists in
         # neither layer. Per-file checks would each pass; the merged graph
         # is what has to hold.
@@ -235,6 +262,7 @@ class TestValidationOnTheEffectiveResult:
     def test_a_dangling_name_is_blamed_on_the_layer_that_introduced_it(
         self, base: Manifest
     ):
+        # Arrange / Act / Assert
         # The workspace introduced it, so the workspace file is named - not
         # "the manifest", which with two files in play names nothing.
         with pytest.raises(ManifestError, match=r"^config\.toml:"):
@@ -246,6 +274,7 @@ class TestValidationOnTheEffectiveResult:
     def test_a_name_the_bundled_layer_introduced_is_blamed_on_the_bundled_file(
         self, base: Manifest
     ):
+        # Arrange / Act
         # The bundled file owns its own references, so the bundled file is
         # what gets named when one of them dangles after a merge. The one
         # way to reach it: the workspace shadows a bundled *group* away from
@@ -256,9 +285,12 @@ class TestValidationOnTheEffectiveResult:
         # that removes nothing leaves every bundled reference credited to
         # the bundled file, which is the provenance the blame reads.
         result = layer(base, WorkspaceConfig())
+
+        # Assert
         assert result.build_units[0].project.layer == BUNDLED
 
     def test_a_cycle_through_the_two_layers_is_refused(self, base: Manifest):
+        # Arrange / Act / Assert
         # The refusal names both files: `build_order` knows unit names only,
         # so the wrap around it is the provenance the reader acts on.
         with pytest.raises(
@@ -282,16 +314,19 @@ class TestValidationOnTheEffectiveResult:
     def test_a_group_member_no_layer_knows_is_refused_with_the_file_named(
         self, base: Manifest
     ):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match=r"^config.toml: group sdk"):
             layer(base, override(groups={"sdk": ("ghost",)}))
 
     def test_a_default_group_no_layer_declares_is_refused(self, base: Manifest):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match=r"^config.toml: default_group"):
             layer(base, override(default_group="nowhere"))
 
     def test_the_effective_manifest_keeps_an_added_complete_project(
         self, base: Manifest
     ):
+        # Arrange / Act
         # The effective manifest validates itself in `__post_init__`; an added
         # project that satisfies every reference survives it.
         result = layer(
@@ -307,13 +342,16 @@ class TestValidationOnTheEffectiveResult:
             ),
         )
 
+        # Assert
         assert result.effective.projects[-1].name == "c"
 
 
 class TestSchemaVersion:
     def test_the_workspace_version_wins_when_declared(self, base: Manifest):
+        # Arrange / Act
         result = layer(base, override(schema_version=1))
 
+        # Assert
         assert result.schema_version == Sourced(1, WORKSPACE)
         assert result.effective.schema_version == 1
 

@@ -62,8 +62,10 @@ def _walk(command: object) -> Iterator[object]:
 
 
 def test_help_lists_commands():
+    # Arrange / Act
     result = runner.invoke(cli, ["-h"])
 
+    # Assert
     assert result.exit_code == 0
     for command in ("branch", "init", "status", "config"):
         assert command in result.output
@@ -84,9 +86,11 @@ class TestConfigShow:
     def test_outside_any_workspace_the_bundled_manifest_is_shown_as_such(
         self, tmp_path: Path
     ):
+        # Arrange / Act
         # FR-9: the same answer `init` will act on, with no workspace in play.
         result = runner.invoke(cli, ["config", "show", str(tmp_path)])
 
+        # Assert
         assert result.exit_code == 0
         assert "cangjie_compiler" in result.output
 
@@ -115,11 +119,14 @@ class TestConfigShow:
         assert json.loads(result.stdout)["data"]["environment"]["mode"] == "host"
 
     def test_the_json_payload_carries_the_layer_of_every_value(self, tmp_path: Path):
+        # Arrange / Act
         # The machine surface hides nothing: provenance is always in the
         # document, whatever the verbosity flag said.
         result = runner.invoke(cli, ["config", "show", str(tmp_path), "--json"])
 
         document = json.loads(result.stdout)
+
+        # Assert
         assert document["command"] == "config show"
         assert document["ok"]
         assert document["data"]["schema_version"] == {
@@ -139,6 +146,7 @@ class TestConfigShow:
     def test_a_workspace_override_changes_the_effective_config(
         self, empty_workspace: Path
     ):
+        # Arrange
         # FR-1/FR-2: the nearest workspace's file layers over the bundled
         # manifest, one field of one project at a time.
         config = Path(WorkspaceLayout(empty_workspace).config_file)
@@ -147,6 +155,7 @@ class TestConfigShow:
             'upstream = "https://gitcode.com/FilaCo/cangjie_compiler.git"\n'
         )
 
+        # Act
         result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
 
         document = json.loads(result.stdout)
@@ -155,18 +164,23 @@ class TestConfigShow:
             for p in document["data"]["projects"]
             if p["name"] == "cangjie_compiler"
         )
+
+        # Assert
         assert upstream["value"] == "https://gitcode.com/FilaCo/cangjie_compiler.git"
         assert upstream["layer"] == "workspace"
 
     def test_verbose_names_the_layer_of_every_value(self, empty_workspace: Path):
+        # Arrange
         # FR-8: -v changes what is shown. The layers are in the table now -
         # and in the JSON payload they were there regardless.
         config = Path(WorkspaceLayout(empty_workspace).config_file)
         config.write_text('[projects.cangjie_compiler]\nupstream = "https://x/a.git"\n')
 
+        # Act
         plain = runner.invoke(cli, ["config", "show", str(empty_workspace)])
         verbose = runner.invoke(cli, ["config", "show", str(empty_workspace), "-v"])
 
+        # Assert
         assert plain.exit_code == verbose.exit_code == 0
         assert "workspace" not in plain.output
         assert "workspace" in verbose.output
@@ -175,14 +189,17 @@ class TestConfigShow:
     def test_verbose_lines_the_layer_column_up_for_scanning(
         self, empty_workspace: Path
     ):
+        # Arrange
         # The layer column exists to be skimmed vertically - "which of these
         # did I override". It prints before the value, in a fixed-width slot,
         # so every layer lands on the same column whatever the value is.
         config = Path(WorkspaceLayout(empty_workspace).config_file)
         config.write_text('[projects.cangjie_compiler]\nupstream = "https://x/a.git"\n')
 
+        # Act
         verbose = runner.invoke(cli, ["config", "show", str(empty_workspace), "-v"])
 
+        # Assert
         assert verbose.exit_code == 0
         columns: set[int] = set()
         for line in verbose.output.splitlines():
@@ -194,6 +211,7 @@ class TestConfigShow:
     def test_no_line_of_the_table_carries_trailing_whitespace(
         self, empty_workspace: Path
     ):
+        # Arrange
         # Labels are padded to the column width only where something follows
         # on the line; padding a section header anyway left trailing
         # whitespace on a dozen lines of every run.
@@ -201,33 +219,42 @@ class TestConfigShow:
             ["config", "show", str(empty_workspace)],
             ["config", "show", str(empty_workspace), "-v"],
         ):
+            # Act
             result = runner.invoke(cli, argv)
 
+            # Assert
             assert result.exit_code == 0
             assert not any(line != line.rstrip() for line in result.output.splitlines())
 
     def test_a_broken_workspace_config_fails_with_the_file_named(
         self, empty_workspace: Path
     ):
+        # Arrange
         # FR-6: with two files in play, the refusal says which one refused.
         config = Path(WorkspaceLayout(empty_workspace).config_file)
         config.write_text("schema_version = 99\n")
 
+        # Act
         result = runner.invoke(cli, ["config", "show", str(empty_workspace)])
 
+        # Assert
         assert isinstance(result.exception, ManifestError)
         assert "config.toml" in str(result.exception)
 
     def test_the_comment_only_template_layers_to_an_unchanged_manifest(
         self, empty_workspace: Path
     ):
+        # Arrange
         # FR-4, end to end: the file `init` writes must be a no-op layer.
         config = Path(WorkspaceLayout(empty_workspace).config_file)
         config.write_text(render_workspace_config(DEFAULT_ENVIRONMENT))
 
+        # Act
         result = runner.invoke(cli, ["config", "show", str(empty_workspace), "--json"])
 
         document = json.loads(result.stdout)
+
+        # Assert
         assert document["data"]["schema_version"]["layer"] == "bundled"
         assert len(document["data"]["projects"]) == len(Container().manifest().projects)
 
@@ -235,6 +262,7 @@ class TestConfigShow:
 def test_a_workspace_override_changes_what_status_reports(
     empty_workspace: Path,
 ):
+    # Arrange
     # FR-1: the layering is not a `config show` toy - every command resolves
     # its set through the same composition root, so an added project is
     # reported as held-or-absent by `status` too.
@@ -246,25 +274,32 @@ def test_a_workspace_override_changes_what_status_reports(
         'default_branch = "main"\n'
     )
 
+    # Act
     result = runner.invoke(cli, ["status", str(empty_workspace), "--json"])
 
     document = json.loads(result.stdout)
     names = {p["name"] for p in document["data"]["projects"]}
+
+    # Assert
     assert "mirror" in names
 
 
 class TestStatus:
     def test_it_refuses_outside_a_workspace(self, tmp_path: Path):
+        # Arrange / Act
         result = runner.invoke(cli, ["status", str(tmp_path)])
 
+        # Assert
         assert isinstance(result.exception, PreconditionError)
         assert PreconditionError.exit_code == 3  # preconditions unmet
 
     def test_an_empty_workspace_reports_the_manifest_as_absent(
         self, empty_workspace: Path
     ):
+        # Arrange / Act
         result = runner.invoke(cli, ["status", str(empty_workspace)])
 
+        # Assert
         assert result.exit_code == 0
         assert "cangjie_compiler" in result.output
         assert "No branch sets yet" in result.output
@@ -275,6 +310,7 @@ class TestStatus:
     def test_an_unreadable_store_is_reported_and_is_not_a_success(
         self, empty_workspace: Path
     ):
+        # Arrange
         # A report that saw only part of the workspace must not be mistaken
         # for a clean one by a prompt or a script.
         layout = WorkspaceLayout(empty_workspace)
@@ -282,14 +318,17 @@ class TestStatus:
         store.mkdir(parents=True)
         (store / "HEAD").write_text("not a git repository")
 
+        # Act
         result = runner.invoke(cli, ["status", str(empty_workspace)])
 
+        # Assert
         assert result.exit_code == 1
         assert "cangjie_compiler" in result.output
         assert "not a git repository" in result.output
 
 
 def test_every_command_uses_the_typed_context():
+    # Arrange / Act / Assert
     # Guards against a missing `cls=`: the annotation would still type-check
     # while the command silently received a bare click Context at run time.
     for command in _walk(get_command(cli)):
@@ -297,20 +336,25 @@ def test_every_command_uses_the_typed_context():
 
 
 def test_the_root_callback_puts_a_container_on_the_context():
+    # Arrange
     # Called directly rather than through a subcommand: every real command
     # currently raises, which would mask whether the wiring ran at all.
     ctx = SimpleNamespace(obj=None)
 
+    # Act
     cli_cb(cast(CjdevContext, ctx))
 
+    # Assert
     assert isinstance(ctx.obj, Container)
 
 
 def test_the_container_loads_the_bundled_manifest():
+    # Arrange / Act / Assert
     assert Container().manifest().projects
 
 
 def test_no_terminal_means_no_question_rather_than_a_wait_for_one():
+    # Arrange / Act / Assert
     # The one line standing between an unattended caller and a command that
     # hangs with nothing on either stream.
     assert isinstance(_prompt_with_stdin(isatty=False), NonInteractivePrompt)
@@ -318,6 +362,7 @@ def test_no_terminal_means_no_question_rather_than_a_wait_for_one():
 
 
 def test_consent_given_up_front_does_not_also_answer_a_wizard():
+    # Arrange / Act / Assert
     # Consent is permission, not a setting. The two must not collapse into
     # one knob here, or whatever eventually supplies the permission would
     # silently pick the settings as well.
@@ -341,35 +386,42 @@ def _prompt_with_stdin(
 
 class TestInitNeedsSomewhereToAsk:
     def test_no_terminal_is_a_refusal_rather_than_a_default_set(self, tmp_path: Path):
+        # Arrange / Act
         # The wizard is the only way `init` learns the project set, and there
         # is no flag that supplies one yet. Picking a set unasked would fetch
         # gigabytes nobody chose.
         result = runner.invoke(cli, ["init", str(tmp_path / "ws")])
 
+        # Assert
         assert isinstance(result.exception, InputRequiredError)
         assert InputRequiredError.exit_code == 3  # preconditions unmet
         assert not (tmp_path / "ws").exists()
 
     def test_a_dry_run_still_works_without_one(self, tmp_path: Path):
+        # Arrange / Act
         # It asks nothing, so the plan is available to a pipe.
         result = runner.invoke(cli, ["init", str(tmp_path / "ws"), "--dry-run"])
 
+        # Assert
         assert result.exit_code == 0
 
 
 class TestWorkspacesMayNest:
     def test_a_root_inside_a_workspace_is_allowed(self, empty_workspace: Path):
+        # Arrange / Act
         # `find_root` answers with the nearest marker, so an inner workspace
         # shadows the outer one and nothing has to be refused for it.
         result = runner.invoke(
             cli, ["init", str(empty_workspace / "inner"), "--dry-run"]
         )
 
+        # Assert
         assert result.exit_code == 0
 
     def test_a_nested_init_does_not_inherit_the_enclosing_workspace(
         self, empty_workspace: Path
     ):
+        # Arrange
         # `init` provisions from the workspace it is creating - the bundled
         # manifest, until the new workspace has a config of its own. Walking
         # up would answer a fresh nested init with the *enclosing* workspace's
@@ -378,10 +430,12 @@ class TestWorkspacesMayNest:
         config = Path(WorkspaceLayout(empty_workspace).config_file)
         config.write_text('default_group = "solo"\n[groups]\nsolo = ["cangjie_test"]\n')
 
+        # Act
         result = runner.invoke(
             cli, ["init", str(empty_workspace / "inner"), "--dry-run"]
         )
 
+        # Assert
         assert result.exit_code == 0
         assert "cangjie_test" not in result.output
         # The bundled default group is what a fresh workspace gets.
@@ -390,8 +444,10 @@ class TestWorkspacesMayNest:
     def test_re_running_on_the_workspace_itself_is_supported(
         self, empty_workspace: Path
     ):
+        # Arrange / Act
         result = runner.invoke(cli, ["init", str(empty_workspace), "--dry-run"])
 
+        # Assert
         assert result.exit_code == 0
 
 
@@ -399,6 +455,7 @@ class TestWhatInitProvisionsFrom:
     def test_a_fresh_workspace_provisions_from_the_bundled_manifest(
         self, tmp_path: Path
     ):
+        # Arrange
         # Container level: `manifest_for_init` reads the workspace being
         # created, not the nearest one a walk up would find.
         config = Path(WorkspaceLayout(tmp_path).config_file)
@@ -407,11 +464,13 @@ class TestWhatInitProvisionsFrom:
 
         container = Container()
 
+        # Act / Assert
         assert container.manifest_for_init(tmp_path / "inner") == container.manifest(
             None
         )
 
     def test_a_re_run_honours_the_workspace_it_is_reconfiguring(self, tmp_path: Path):
+        # Arrange
         # The workspace's own config counts - but only its own: this is what
         # keeps a re-run consistent with every later command run inside.
         config = Path(WorkspaceLayout(tmp_path).config_file)
@@ -423,7 +482,10 @@ class TestWhatInitProvisionsFrom:
 
         container = Container()
 
+        # Act
         effective = container.manifest_for_init(tmp_path)
+
+        # Assert
         assert (
             next(
                 project.upstream_url
@@ -436,30 +498,38 @@ class TestWhatInitProvisionsFrom:
 
 class TestInitDoesNotOverclaim:
     def test_a_dry_run_does_not_say_the_workspace_is_ready(self, tmp_path: Path):
+        # Arrange / Act
         # It creates nothing, so "ready" would be a claim about a workspace
         # that does not exist - the one message a dry run must never print.
         result = runner.invoke(cli, ["init", str(tmp_path / "ws"), "--dry-run"])
 
+        # Assert
         assert result.exit_code == 0
         assert "Workspace ready" not in result.output
         assert "was not touched" in result.output
         assert not (tmp_path / "ws").exists()
 
     def test_a_dry_run_prints_the_skeleton_it_would_create(self, tmp_path: Path):
+        # Arrange / Act
         # Printed by the dry-run filesystem itself rather than by a second
         # renderer that would have to be kept in step with it.
         result = runner.invoke(cli, ["init", str(tmp_path / "ws"), "--dry-run"])
 
+        # Assert
         assert "mkdir -p" in result.output
         assert ".cjdev" in result.output
 
 
 def test_a_reported_error_is_prefixed_rather_than_traced(capsys):
+    # Arrange
     from cjdev.cli._console import print_error
 
+    # Act
     print_error("something went wrong\n  and here is why")
 
     printed = capsys.readouterr().err
+
+    # Assert
     assert printed.startswith("error: something went wrong")
     assert "and here is why" in printed
 
@@ -473,9 +543,12 @@ class TestTheEnvelope:
     """
 
     def test_a_report_arrives_versioned_and_wrapped(self, empty_workspace: Path):
+        # Arrange / Act
         result = runner.invoke(cli, ["status", str(empty_workspace), "--json"])
 
         document = json.loads(result.stdout)
+
+        # Assert
         assert document["schema"] == SCHEMA
         assert document["command"] == "status"
         assert document["ok"]
@@ -488,28 +561,35 @@ class TestTheEnvelope:
     def test_stdout_carries_the_document_and_the_transcript_goes_to_stderr(
         self, empty_workspace: Path
     ):
+        # Arrange
         # A parser owes nothing to whatever else the command had to say, so
         # the whole of stdout has to parse while -v is still echoing.
         store = Path(WorkspaceLayout(empty_workspace).object_store("cangjie_compiler"))
         store.mkdir(parents=True)
 
+        # Act
         result = runner.invoke(cli, ["status", str(empty_workspace), "--json", "-v"])
 
+        # Assert
         assert json.loads(result.stdout)["command"] == "status"
         assert "$ git" in result.stderr
 
     def test_a_partly_read_workspace_is_a_document_and_a_failure_at_once(
         self, empty_workspace: Path
     ):
+        # Arrange
         # Everything that could be read is still worth reporting; `ok: false`
         # and the exit code are what stop it being mistaken for a clean run.
         store = Path(WorkspaceLayout(empty_workspace).object_store("cangjie_compiler"))
         store.mkdir(parents=True)
         (store / "HEAD").write_text("not a git repository")
 
+        # Act
         result = runner.invoke(cli, ["status", str(empty_workspace), "--json"])
 
         document = json.loads(result.stdout)
+
+        # Assert
         assert result.exit_code == 1
         assert not document["ok"]
         assert document["data"]["projects"]
@@ -520,6 +600,7 @@ class TestTheEnvelope:
     def test_the_transcript_arrives_in_manifest_order_under_verbose(
         self, empty_workspace: Path
     ):
+        # Arrange
         # Every project of the manifest is probed, one git invocation each;
         # the fan-out decides when they run, not in what order they print.
         # The whole manifest is more labels than this test needs, so the
@@ -529,16 +610,20 @@ class TestTheEnvelope:
                 parents=True
             )
 
+        # Act
         result = runner.invoke(cli, ["status", str(empty_workspace), "-v"])
 
         stderr = result.stderr
         compiler = stderr.index("$ git")
         runtime = stderr.index("cangjie_runtime", compiler)
+
+        # Assert
         assert stderr.index("cangjie_compiler", compiler) < runtime
 
     def test_verbose_does_not_slow_the_fan_out(
         self, monkeypatch: pytest.MonkeyPatch, empty_workspace: Path
     ):
+        # Arrange
         # The contract the help text now states: -v changes what is shown,
         # never what is done. Pinned at the seam rather than by timing, so it
         # cannot flake: `report_status` is built through the container, and
@@ -562,13 +647,17 @@ class TestTheEnvelope:
             return use_case
 
         monkeypatch.setattr(Container, "report_status", spy)
+
+        # Act
         runner.invoke(cli, ["status", str(empty_workspace), "-v"])
 
+        # Assert
         assert seen["jobs"] == DEFAULT_QUERY_JOBS
 
     def test_status_resolves_the_workspace_config_exactly_once(
         self, monkeypatch: pytest.MonkeyPatch, empty_workspace: Path
     ):
+        # Arrange
         # The CLI resolves the manifest for the transcript labels and hands
         # the same instance to the use case: a second resolution would let
         # the file change in between, and the report could disagree with the
@@ -582,22 +671,29 @@ class TestTheEnvelope:
             return real(self, start)
 
         monkeypatch.setattr(Container, "manifest", counted)
+
+        # Act
         result = runner.invoke(cli, ["status", str(empty_workspace)])
 
+        # Assert
         assert result.exit_code == 0
         assert calls == 1
 
     def test_a_failure_travels_inside_the_document_rather_than_beside_it(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):
+        # Arrange
         # Through `main()` rather than the runner: the envelope for a failure
         # is printed on the way out, which is the path CliRunner skips.
         monkeypatch.setattr(sys, "argv", ["cjdev", "status", str(tmp_path), "--json"])
 
+        # Act / Assert
         with pytest.raises(SystemExit) as stopped:
             main()
 
         document = json.loads(capsys.readouterr().out)
+
+        # Assert
         assert stopped.value.code == 3  # preconditions unmet
         assert not document["ok"]
         assert document["command"] == "status"
@@ -641,6 +737,7 @@ class TestTheEnvelope:
     def test_the_same_failure_reads_as_a_line_when_nobody_asked_for_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):
+        # Arrange
         # The code and the message are the same either way; only the shape
         # differs, and stdout stays empty for a run that produced no document.
         monkeypatch.setattr(sys, "argv", ["cjdev", "status", str(tmp_path)])
@@ -648,13 +745,17 @@ class TestTheEnvelope:
         with pytest.raises(SystemExit):
             main()
 
+        # Act
         printed = capsys.readouterr()
+
+        # Assert
         assert printed.out == ""
         assert "error: " in printed.err
 
     def test_a_named_remedy_is_printed_with_the_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ):
+        # Arrange
         # The remedy is a field rather than a sentence in the message: the
         # caller it exists for re-runs the command, and this is where it
         # learns what to add. `init` without a terminal is the one failure
@@ -662,9 +763,11 @@ class TestTheEnvelope:
         monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
         monkeypatch.setattr(sys, "argv", ["cjdev", "init", str(tmp_path / "ws")])
 
+        # Act / Assert
         with pytest.raises(SystemExit):
             main()
 
+        # Assert
         assert "try: run it from a terminal" in capsys.readouterr().err
 
 
@@ -693,7 +796,7 @@ class TestBranchNew:
         return root
 
     def test_it_refuses_outside_a_workspace(self, tmp_path: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(
             cli, ["branch", "new", "fix/ice", "--workspace", str(tmp_path)]
         )
@@ -703,7 +806,7 @@ class TestBranchNew:
         assert PreconditionError.exit_code == 3  # preconditions unmet
 
     def test_a_workspace_with_no_projects_names_the_fix(self, empty_workspace: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(
             cli, ["branch", "new", "fix/ice", "--workspace", str(empty_workspace)]
         )
@@ -715,7 +818,7 @@ class TestBranchNew:
     def test_the_short_flag_names_the_workspace_too(self, empty_workspace: Path):
         # The workspace is context, not the subject, so it arrives as an
         # option - and the short spelling reaches the same walk-up.
-        # Act
+        # Arrange / Act
         result = runner.invoke(
             cli, ["branch", "new", "fix/ice", "-w", str(empty_workspace)]
         )
@@ -725,6 +828,7 @@ class TestBranchNew:
         assert "cjdev init" in (result.exception.remedy or "")
 
     def test_the_workspace_is_no_longer_a_positional_argument(self):
+        # Arrange / Act
         # The second positional lands on no parameter at all: the parser
         # refuses the invocation before any code of ours runs. What is
         # pinned here is the usage line - the shape is ours - not the
@@ -736,7 +840,7 @@ class TestBranchNew:
         assert "branch new [OPTIONS] {branch_set}" in result.output
 
     def test_a_name_git_would_refuse_creates_nothing(self, provisioned: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(
             cli, ["branch", "new", "fix/../escape", "--workspace", str(provisioned)]
         )
@@ -765,7 +869,7 @@ class TestBranchNew:
     def test_the_report_is_available_to_something_that_is_not_a_person(
         self, provisioned: Path
     ):
-        # Act
+        # Arrange / Act
         result = runner.invoke(
             cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned), "--json"]
         )
@@ -815,7 +919,7 @@ class TestBranchNew:
         assert "[1/1] cangjie_compiler" in result.stderr
 
     def test_what_it_ran_is_in_the_workspace_log(self, provisioned: Path):
-        # Act
+        # Arrange / Act
         runner.invoke(
             cli, ["branch", "new", "fix/ice", "--workspace", str(provisioned)]
         )
@@ -873,7 +977,7 @@ class TestBuild:
         assert result.exception.remedy == "cd into a branch set"
 
     def test_it_builds_the_named_unit_from_inside_the_worktree(self, branch_set: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["build", "compiler"])
 
         # Assert
@@ -889,7 +993,7 @@ class TestBuild:
     def test_the_profile_reaches_the_script_and_keys_the_directory(
         self, branch_set: Path
     ):
-        # Act
+        # Arrange / Act
         runner.invoke(cli, ["build", "compiler", "--profile", "debug"])
 
         # Assert
@@ -903,7 +1007,7 @@ class TestBuild:
     def test_the_report_is_available_to_something_that_is_not_a_person(
         self, branch_set: Path
     ):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["build", "compiler", "--json"])
 
         # Assert
@@ -919,7 +1023,7 @@ class TestBuild:
         assert unit["seconds"] is not None
 
     def test_arguments_after_a_double_dash_reach_the_script(self, branch_set: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["build", "compiler", "--", "--no-tests"])
 
         # Assert
@@ -939,7 +1043,7 @@ class TestBuild:
         assert isinstance(result.exception, UsageError)
 
     def test_a_dry_run_changes_nothing(self, branch_set: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["build", "compiler", "--dry-run", "-v"])
 
         # Assert
@@ -949,7 +1053,7 @@ class TestBuild:
         assert "was not touched" in result.stdout
 
     def test_what_it_ran_is_in_the_workspace_log(self, branch_set: Path):
-        # Act
+        # Arrange / Act
         runner.invoke(cli, ["build", "compiler"])
 
         # Assert
@@ -1086,7 +1190,7 @@ class TestBuildInAContainer:
     def test_a_missing_image_is_built_and_the_build_goes_on(
         self, branch_set: Path, runtime: Path
     ):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["build", "compiler"])
 
         # Assert: one command on a fresh machine, not two.
@@ -1100,7 +1204,7 @@ class TestBuildInAContainer:
     def test_the_image_build_is_its_own_journal_entry(
         self, branch_set: Path, runtime: Path
     ):
-        # Act
+        # Arrange / Act
         runner.invoke(cli, ["build", "compiler"])
 
         # Assert: the entry is `env build`'s, so it reads as that command run
@@ -1110,7 +1214,7 @@ class TestBuildInAContainer:
         assert image < log.index("docker build --tag") < log.index("--- cjdev build")
 
     def test_the_report_says_the_image_was_built(self, branch_set: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["build", "compiler", "--json"])
 
         # Assert
@@ -1131,7 +1235,7 @@ class TestBuildInAContainer:
     def test_a_dry_run_says_it_would_build_the_image_and_builds_none(
         self, branch_set: Path, runtime: Path
     ):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["build", "compiler", "--dry-run"])
 
         # Assert
@@ -1158,21 +1262,21 @@ class TestBuildInAContainer:
 
 class TestPassthroughSplit:
     def test_the_first_flag_starts_the_passthrough(self):
-        # Act / Assert: click drops the `--` before the command sees it.
+        # Arrange / Act / Assert: click drops the `--` before the command sees it.
         assert split_passthrough(["compiler", "--no-tests"]) == (
             ["compiler"],
             ["--no-tests"],
         )
 
     def test_a_value_after_a_flag_belongs_to_it(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert split_passthrough(["stdlib", "--target", "native"]) == (
             ["stdlib"],
             ["--target", "native"],
         )
 
     def test_units_alone_pass_nothing_through(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert split_passthrough(["compiler", "stdlib"]) == (
             ["compiler", "stdlib"],
             [],
@@ -1218,7 +1322,7 @@ class TestEnv:
         assert result.exception.remedy is not None
 
     def test_outside_a_workspace_there_is_nothing_to_run_in(self, tmp_path: Path):
-        # Act
+        # Arrange / Act
         with mock.patch.object(Path, "cwd", return_value=tmp_path):
             result = runner.invoke(cli, ["env", "run", "--", "ls"])
 
@@ -1263,7 +1367,7 @@ class TestTest:
         return tmp_path
 
     def test_failures_for_want_of_a_tool_are_counted_apart(self, branch_set: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["test", "compiler"])
 
         # Assert
@@ -1290,7 +1394,7 @@ class TestTest:
         assert (results / "results.json").exists()
 
     def test_arguments_after_a_double_dash_reach_main_py(self, branch_set: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(
             cli, ["test", "compiler", "--dry-run", "--", "--timeout=180"]
         )
@@ -1348,7 +1452,7 @@ class TestIssue:
     def test_no_terminal_and_no_body_file_is_a_refusal_naming_the_flag(
         self, worktree: Path
     ):
-        # Act
+        # Arrange / Act
         result = runner.invoke(
             cli, ["issue", "new", "cangjie_compiler", "-t", "bug-report"]
         )

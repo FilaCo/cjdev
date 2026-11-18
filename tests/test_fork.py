@@ -26,25 +26,25 @@ FORK = "https://gitcode.com/filaco/cangjie_compiler.git"
     ],
 )
 def test_the_namespace_is_replaced_and_the_rest_kept(upstream: str, fork: str):
-    # Act / Assert
+    # Arrange / Act / Assert
     assert fork_url(upstream, "filaco") == fork
 
 
 def test_a_url_with_no_namespace_has_no_fork():
-    # Act / Assert
+    # Arrange / Act / Assert
     with pytest.raises(PreconditionError):
         fork_url("https://gitcode.com/cangjie_compiler.git", "filaco")
 
 
 @pytest.mark.parametrize("owner", ["", "a/b", "evil.com:x", "-flag"])
 def test_an_owner_that_would_change_the_host_or_path_is_refused(owner: str):
-    # Act / Assert
+    # Arrange / Act / Assert
     with pytest.raises(UsageError):
         fork_url(UPSTREAM, owner)
 
 
 def test_the_web_page_of_an_ssh_remote_is_its_https_one():
-    # Act / Assert
+    # Arrange / Act / Assert
     assert (
         web_page("git@gitcode.com:filaco/stdx.git") == "https://gitcode.com/filaco/stdx"
     )
@@ -84,7 +84,7 @@ def test_a_clean_project_on_the_default_branch_does_not_block_the_commit():
 
 @pytest.mark.parametrize("branch", ["main", None])
 def test_a_commit_off_a_branch_set_branch_is_refused(branch: str | None):
-    # Act / Assert
+    # Arrange / Act / Assert
     with pytest.raises(PreconditionError):
         decide_commit([pending("a", changes=True, branch=branch)])
 
@@ -120,7 +120,7 @@ def unpushed(**changes: object) -> Unpushed:
 
 
 def test_the_first_push_sets_tracking():
-    # Act
+    # Arrange / Act
     (step,) = decide_push([unpushed()]).steps
 
     # Assert
@@ -130,7 +130,7 @@ def test_the_first_push_sets_tracking():
 
 
 def test_a_branch_with_nothing_of_its_own_is_skipped():
-    # Act
+    # Arrange / Act
     (step,) = decide_push([unpushed(ahead=0)]).steps
 
     # Assert
@@ -148,13 +148,13 @@ def test_a_branch_with_nothing_of_its_own_is_skipped():
     ],
 )
 def test_a_push_that_would_land_wrong_is_refused(state: dict[str, object]):
-    # Act / Assert
+    # Arrange / Act / Assert
     with pytest.raises(PreconditionError):
         decide_push([unpushed(**state)])
 
 
 def test_a_rewrite_goes_out_only_with_the_lease_pinned_to_what_was_seen():
-    # Act
+    # Arrange / Act
     (step,) = decide_push(
         [unpushed(origin_head="abc", behind=2, tracked=True)], force=True
     ).steps

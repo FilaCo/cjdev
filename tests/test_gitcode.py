@@ -55,14 +55,14 @@ class FakeSend:
 
 class TestTheRepository:
     def test_it_comes_from_the_upstream_url(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert (
             parse_repository("https://gitcode.com/Cangjie/cangjie_compiler.git")
             == COMPILER
         )
 
     def test_an_ssh_remote_is_refused_rather_than_guessed_at(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError):
             parse_repository("git@gitcode.com:Cangjie/cangjie_compiler.git")
 
@@ -104,7 +104,7 @@ class TestCreatingAnIssue:
         assert send.sent[0][2]["Authorization"] == "Bearer tok"
 
     def test_it_answers_with_the_number_and_the_url(self):
-        # Act
+        # Arrange / Act
         filed = GitCodeForge(lambda: "tok", FakeSend()).create_issue(ISSUE)
 
         # Assert
@@ -188,7 +188,7 @@ class TestReadingAnIssue:
 
 class TestTheToken:
     def test_the_variable_wins_over_the_credential_helper(self):
-        # Act: the variable is the one a caller sets on purpose.
+        # Arrange / Act: the variable is the one a caller sets on purpose.
         token = find_token(
             "gitcode.com", environ={"GITCODE_TOKEN": "env"}, fill=lambda _: "git"
         )
@@ -197,14 +197,14 @@ class TestTheToken:
         assert token == "env"
 
     def test_without_it_the_credential_helper_answers(self):
-        # Act
+        # Arrange / Act
         token = find_token("gitcode.com", environ={}, fill=lambda _: "git")
 
         # Assert
         assert token == "git"
 
     def test_with_neither_the_refusal_names_the_variable(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError) as refusal:
             find_token("gitcode.com", environ={}, fill=lambda _: None)
         assert refusal.value.remedy is not None
@@ -250,3 +250,39 @@ class TestGitCredentialFill:
 
         # Act / Assert
         assert credential_fill("gitcode.com") is None
+
+
+def test_publish_resumes_an_existing_pull_on_a_later_page():
+    # Arrange
+    from urllib.parse import parse_qs, urlsplit
+
+    repo = Repository("gitcode.com", "upstream", "compiler")
+    issue = repo.url + "/issues/7"
+    writes = []
+
+    def send(method, url, headers, body):
+        if method == "GET":
+            page = parse_qs(urlsplit(url).query)["page"]
+            head = {"ref": "fix", "repo": {"full_name": "me/compiler"}}
+            pr = {
+                "head": head,
+                "base": {"ref": "main"},
+                "number": 2,
+                "html_url": repo.url + "/pulls/2",
+                "body": "Review notes",
+            }
+            if page == ["1"]:
+                return 200, json.dumps(
+                    [pr | {"head": head | {"ref": "other"}}] * 100
+                ).encode()
+            return 200, json.dumps([pr]).encode()
+        writes.append((method, json.loads(body)))
+        return 200, b"{}"
+
+    # Act / Assert
+    assert (
+        GitCodeForge(lambda: "token", send)
+        .publish(repo, "me", "fix", "main", "Fix", issue)
+        .endswith("/pulls/2")
+    )
+    assert writes == [("PATCH", {"body": f"Review notes\n\n{issue}"})]

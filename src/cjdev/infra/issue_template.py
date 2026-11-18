@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from cjdev.application.ports import Command, Executor
 from cjdev.domain.issue_form import Choice, FieldKind, FormField, IssueForm
 from cjdev.errors import PreconditionError
 
@@ -36,6 +37,13 @@ def load_form(path: Path) -> IssueForm:
         return _form(document)
     except (OSError, yaml.YAMLError, KeyError, TypeError, ValueError) as exc:
         raise PreconditionError(f"{path} is not a readable issue form: {exc}") from None
+
+
+def parse_form(text: str) -> IssueForm:
+    try:
+        return _form(yaml.safe_load(text))
+    except (yaml.YAMLError, KeyError, TypeError, ValueError) as exc:
+        raise PreconditionError(f"cannot read issue form: {exc}") from None
 
 
 def _form(document: dict) -> IssueForm:
@@ -71,3 +79,29 @@ def _choice(option: object) -> Choice:
     if isinstance(option, dict):
         return Choice(str(option["label"]), bool(option.get("required")))
     return Choice(str(option))
+
+
+class UpstreamForms:
+    """Read the default branch's issue forms before a task has a checkout."""
+
+    def __init__(self, executor: Executor, store: Path) -> None:
+        self.executor = executor
+        self.store = store
+        self.tree = f"refs/remotes/upstream/HEAD:{TEMPLATE_DIR.as_posix()}"
+
+    def names(self) -> tuple[str, ...]:
+        files = self._git("ls-tree", "--name-only", self.tree)
+        return tuple(
+            sorted(
+                name[:-4]
+                for name in files.splitlines()
+                if name.endswith(".yml") and not name.startswith(_NOT_FORMS)
+            )
+        )
+
+    def load(self, name: str) -> IssueForm:
+        return parse_form(self._git("show", f"{self.tree}/{name}.yml"))
+
+    def _git(self, *args: str) -> str:
+        command = Command(("git", *args), self.store, mutates=False)
+        return self.executor.run(command).stdout

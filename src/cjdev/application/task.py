@@ -15,7 +15,7 @@ from cjdev.application.ports import Executor, FileSystem, Forge
 from cjdev.application.report_status import ManifestProvider
 from cjdev.application.runner import DEFAULT_NETWORK_JOBS, Runner, RunObserver, Work
 from cjdev.application.workspace import held_projects
-from cjdev.domain.forge import home_of, parse_issue_url
+from cjdev.domain.forge import home_of, parse_issue_url, parse_repository
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.record import BranchSetRecord, Task, task_name
 from cjdev.errors import AbortedError, UsageError
@@ -75,6 +75,10 @@ class Tasks:
                 "--home goes with --no-issue: an issue's home is the project "
                 "it is filed against."
             )
+        if "#" in subject and "://" not in subject:
+            project, _, number = subject.rpartition("#")
+            repo = parse_repository(manifest.project(project).upstream_url)
+            subject = f"{repo.url}/issues/{number}"
         ref = parse_issue_url(subject)
         task = Task(home=home_of(ref, manifest.projects), issue=ref.url)
         # Read even when --name spares the title: a mistyped number is cheaper

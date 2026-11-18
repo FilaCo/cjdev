@@ -106,7 +106,7 @@ class TestDecide:
     LAYOUT = WorkspaceLayout(PurePath("/ws"))
 
     def test_the_link_is_where_upstream_looks_and_the_store_is_shared(self):
-        # Act
+        # Arrange / Act
         (provision,) = decide(self.LAYOUT, "main", compiler(SOURCE), ())
 
         # Assert
@@ -117,7 +117,7 @@ class TestDecide:
         assert provision.linked is None
 
     def test_what_is_linked_now_is_carried_to_the_fetch(self):
-        # Act
+        # Arrange / Act
         (provision,) = decide(
             self.LAYOUT,
             "main",
@@ -131,7 +131,7 @@ class TestDecide:
     def test_a_directory_cjdev_did_not_fetch_is_refused_with_the_way_out(self):
         # Upstream's own clone looks the same whether it finished or not, and
         # trusting a partial one is the "No SOURCES given" dead end.
-        # Act
+        # Arrange / Act
         with pytest.raises(PreconditionError) as refused:
             decide(
                 self.LAYOUT,
@@ -285,7 +285,7 @@ class TestProvide:
         # Arrange
         (provision,) = planned(workspace, compiler(SOURCE))
 
-        # Act
+        # Act / Assert
         with pytest.raises(PreconditionError):
             run(provision, Upstream(None))
 

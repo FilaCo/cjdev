@@ -68,13 +68,16 @@ def ids(units: tuple[BuildUnit, ...]) -> list[str]:
 
 class TestBuildOrder:
     def test_orders_the_whole_graph_by_dependency(self, sdk: Manifest):
+        # Arrange / Act
         order = ids(sdk.build_order())
 
+        # Assert
         assert order.index("compiler") < order.index("stdlib")
         assert order.index("runtime") < order.index("stdlib")
         assert order.index("stdlib") < order.index("cjpm")
 
     def test_breaks_ties_by_manifest_order(self):
+        # Arrange
         # Two independent units: nothing but declaration order can decide,
         # and the decision has to be the same every run.
         graph = manifest(
@@ -82,30 +85,38 @@ class TestBuildOrder:
             units=[unit("b", "b"), unit("a", "a")],
         )
 
+        # Act / Assert
         assert ids(graph.build_order()) == ["b", "a"]
 
     def test_selecting_a_unit_pulls_in_its_dependencies(self, sdk: Manifest):
+        # Arrange / Act
         # `--upto runtime/stdlib`: the unit and what it needs, and
         # explicitly not cjpm, which needs *it*.
         order = ids(sdk.build_order(["stdlib"]))
 
+        # Assert
         assert order == ["compiler", "runtime", "stdlib"]
 
     def test_selection_is_deduplicated(self, sdk: Manifest):
+        # Arrange / Act
         order = ids(sdk.build_order(["stdlib", "compiler"]))
 
+        # Assert
         assert order == ["compiler", "runtime", "stdlib"]
 
     def test_rejects_a_cycle_naming_the_units_involved(self):
+        # Arrange
         graph = manifest(
             projects=[project("p")],
             units=[unit("a", "p", "b"), unit("b", "p", "a")],
         )
 
+        # Act / Assert
         with pytest.raises(ManifestError, match="cycle"):
             graph.build_order()
 
     def test_rejects_an_unknown_selection_listing_what_exists(self, sdk: Manifest):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match="unknown build unit"):
             sdk.build_order(["nope"])
 
@@ -114,6 +125,7 @@ class TestDependents:
     def test_returns_the_unit_and_everything_downstream_in_build_order(
         self, sdk: Manifest
     ):
+        # Arrange / Act / Assert
         # `--from runtime/runtime`: what a change to it forces to rebuild.
         assert ids(sdk.dependents_of("runtime")) == [
             "compiler",
@@ -123,6 +135,7 @@ class TestDependents:
         ]
 
     def test_a_leaf_dependent_is_just_itself_and_its_dependencies(self, sdk: Manifest):
+        # Arrange / Act / Assert
         assert ids(sdk.dependents_of("cjpm")) == [
             "compiler",
             "runtime",
@@ -133,39 +146,48 @@ class TestDependents:
 
 class TestLookup:
     def test_units_of_a_project_with_several(self, sdk: Manifest):
+        # Arrange / Act / Assert
         assert ids(sdk.units_of("runtime")) == [
             "runtime",
             "stdlib",
         ]
 
     def test_a_project_that_builds_nothing_has_no_units(self):
+        # Arrange
         graph = manifest(projects=[project("cases", ProjectRole.TEST_DATA)], units=[])
 
+        # Act / Assert
         assert graph.units_of("cases") == ()
 
     def test_unknown_project_is_reported_with_the_known_ones(self, sdk: Manifest):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match="compiler, runtime, tools"):
             sdk.project("nope")
 
 
 class TestValidation:
     def test_rejects_a_duplicate_project(self):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match="declared more than once"):
             manifest(projects=[project("a"), project("a")], units=[])
 
     def test_rejects_a_duplicate_build_unit(self):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match="declared more than once"):
             manifest(projects=[project("a")], units=[unit("u", "a"), unit("u", "a")])
 
     def test_rejects_a_unit_owned_by_an_unknown_project(self):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match="unknown project"):
             manifest(projects=[project("a")], units=[unit("u", "ghost")])
 
     def test_rejects_a_dependency_on_an_unknown_unit(self):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match="unknown unit"):
             manifest(projects=[project("a")], units=[unit("u", "a", "ghost")])
 
     def test_rejects_a_unit_depending_on_itself(self):
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError, match="depends on itself"):
             manifest(projects=[project("a")], units=[unit("u", "a", "u")])
 
@@ -229,7 +251,7 @@ class TestBuildData:
             )
 
     def test_the_same_scratch_in_two_projects_is_two_paths(self):
-        # Act
+        # Arrange / Act
         built = manifest(
             projects=[project("a"), project("b")],
             units=[
