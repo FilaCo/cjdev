@@ -62,12 +62,13 @@ class FileIssue:
         *,
         profile: Profile,
         body: str | None = None,
+        form: IssueForm | None = None,
     ) -> Outcome:
         """`body` is the filled draft; None opens the editor on one."""
         layout = WorkspaceLayout(root)
         repository = parse_repository(self._manifest().project(project).upstream_url)
         worktree = Path(layout.worktree(branch_set, project))
-        form = self._form(worktree, template)
+        form = form or self._form(worktree, template)
 
         draft = layout.issue_draft(branch_set, project, template)
         edited = body is None

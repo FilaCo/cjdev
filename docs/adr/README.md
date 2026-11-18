@@ -48,3 +48,4 @@ Status: accepted, YYYY-MM-DD. Closes #NNNN.
 | [0052](0052-java-interop-units.md) | The java interop builds as two units, and the generator's JDK sources are scratch | accepted |
 | [0059](0059-a-failed-unit-cancels-its-dependents.md) | A failed build unit cancels what depends on it, not everything after it | accepted |
 | [0065](0065-agent-skill-ships-in-the-wheel.md) | The agent skill ships in the wheel and installs user-level | accepted |
+| [0071](0071-guided-task-lifecycle.md) | A task keeps the same branch set when an experiment is published | accepted |

@@ -400,3 +400,89 @@ class TestSync:
         assert result.exit_code == 0, result.output
         assert git(worktree, "rev-parse", "HEAD") == before
         assert "git fetch" in result.output
+
+
+def test_task_lifecycle(root: Path, forge: FakeForge, monkeypatch: pytest.MonkeyPatch):
+    from cjdev.infra.prompt import NonInteractivePrompt
+
+    result = invoke(root, monkeypatch, "start", "cangjie_compiler#812")
+    assert result.exit_code == 0, result.output
+    assert record(root, BRANCH).task == Task(PROJECTS[0], URL)
+    where = root / BRANCH
+    result = invoke(where, monkeypatch, "ship")
+    assert result.exit_code == 0, result.output
+    assert "No projects" in result.output
+    monkeypatch.setattr(NonInteractivePrompt, "confirm", lambda *args: True)
+    dirty = where / PROJECTS[1] / "local"
+    dirty.touch()
+    result = invoke(where, monkeypatch, "done")
+    assert isinstance(result.exception, PreconditionError)
+    assert (where / PROJECTS[0]).exists()
+    dirty.unlink()
+    dist = root / ".cjdev/dist" / BRANCH
+    dist.mkdir(parents=True)
+    result = invoke(where, monkeypatch, "done")
+    assert result.exit_code == 0, result.exception
+    assert not where.exists()
+    assert not dist.exists()
+    assert record(root, BRANCH).task is None
+    for project in PROJECTS:
+        store = Path(WorkspaceLayout(root).object_store(project))
+        assert not git(store, "branch", "--list", BRANCH)
+
+
+def test_wizard_files_issue_from_bare_store(root, remote, forge, monkeypatch):
+    from cjdev.infra.prompt import NonInteractivePrompt
+
+    upstream = remote / PROJECTS[0]
+    forms = upstream / ".gitcode/ISSUE_TEMPLATE"
+    forms.mkdir(parents=True)
+    form = forms / "bug.yml"
+    form.write_text("title: '[Bug] '\nbody: []\n")
+    git(upstream, "add", ".")
+    git(upstream, "commit", "-qm", "issue form")
+    store = Path(WorkspaceLayout(root).object_store(PROJECTS[0]))
+    git(store, "fetch", "upstream")
+    monkeypatch.setattr(
+        NonInteractivePrompt, "edit", lambda *a, **kw: "# [Bug] Crash\n"
+    )
+    monkeypatch.setattr(forge, "create_issue", lambda issue: FiledIssue("812", URL))
+    monkeypatch.chdir(root)
+    result = runner.invoke(cli, ["start"], input="\n")
+    assert result.exit_code == 0, result.exception
+    assert record(root, "issue-812-bug-crash").task == Task(PROJECTS[0], URL)
+
+
+def test_ship_experiment_and_retire_after_merge(root, remote, forge, monkeypatch):
+    from cjdev.infra import task_checkout
+    from cjdev.infra.prompt import NonInteractivePrompt
+
+    result = invoke(root, monkeypatch, "start", "--no-issue", "experiment")
+    assert result.exit_code == 0
+    where = root / "experiment"
+    project = where / PROJECTS[0]
+    sha = commit(project, "change")
+    fork = remote / "fork.git"
+    git(remote, "init", "--bare", str(fork))
+    git(project, "remote", "add", "origin", str(fork))
+    monkeypatch.setattr(task_checkout, "fork_owner", lambda *args: "me")
+    published = []
+
+    class Pulls:
+        def publish(self, repo, owner, branch, base, title, issue):
+            published.append((repo.name, branch, base, title, issue))
+            return "https://gitcode.com/Cangjie/cangjie_compiler/pulls/123"
+
+        def pull(self, *args, **kwargs):
+            return {"merged_at": "today", "head": {"sha": sha}}
+
+    monkeypatch.setattr(Container, "gitcode", lambda self: Pulls())
+    monkeypatch.chdir(where)
+    result = runner.invoke(cli, ["ship"], input="cangjie_compiler#812\n")
+    assert result.exit_code == 0, result.exception
+    assert published == [(PROJECTS[0], "experiment", "main", "change", URL)]
+    assert record(root, "experiment").task == Task(PROJECTS[0], URL)
+    monkeypatch.setattr(NonInteractivePrompt, "confirm", lambda *args: True)
+    result = invoke(where, monkeypatch, "done")
+    assert result.exit_code == 0, result.exception
+    assert git(fork, "rev-parse", "refs/heads/experiment") == sha

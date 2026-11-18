@@ -250,3 +250,37 @@ class TestGitCredentialFill:
 
         # Act / Assert
         assert credential_fill("gitcode.com") is None
+
+
+def test_publish_resumes_an_existing_pull_on_a_later_page():
+    from urllib.parse import parse_qs, urlsplit
+
+    repo = Repository("gitcode.com", "upstream", "compiler")
+    issue = repo.url + "/issues/7"
+    writes = []
+
+    def send(method, url, headers, body):
+        if method == "GET":
+            page = parse_qs(urlsplit(url).query)["page"]
+            head = {"ref": "fix", "repo": {"full_name": "me/compiler"}}
+            pr = {
+                "head": head,
+                "base": {"ref": "main"},
+                "number": 2,
+                "html_url": repo.url + "/pulls/2",
+                "body": "Review notes",
+            }
+            if page == ["1"]:
+                return 200, json.dumps(
+                    [pr | {"head": head | {"ref": "other"}}] * 100
+                ).encode()
+            return 200, json.dumps([pr]).encode()
+        writes.append((method, json.loads(body)))
+        return 200, b"{}"
+
+    assert (
+        GitCodeForge(lambda: "token", send)
+        .publish(repo, "me", "fix", "main", "Fix", issue)
+        .endswith("/pulls/2")
+    )
+    assert writes == [("PATCH", {"body": f"Review notes\n\n{issue}"})]

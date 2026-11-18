@@ -62,6 +62,22 @@ cjdev sync                                # fast-forward to fresh upstream
   are in whose branch has no commits of its own. A diverged branch is reported with
   the rebase that would fix it, never rebased.
 
+### Task workflow
+
+Run `cjdev start` inside a workspace and choose **New issue**, **Existing issue**,
+or **Experiment**. For a new issue, choose the project (default is
+`[forge] issue_home`, initially `cangjie_compiler`) and one of its upstream issue
+templates, then fill the draft in your editor. For an existing issue enter
+`project#number` or its URL. Both paths suggest an editable branch name from the
+issue number and title. An experiment asks for a branch name directly.
+
+From the resulting branch set, build, test and commit as usual. Run `cjdev ship`
+to push committed work to the forks and open a PR in each changed project.
+For an experiment, choose an existing issue or file one during publication.
+Every PR description carries the issue URL. Run the upstream CI and review
+manually. After merge, run `cjdev done` inside the set and confirm local cleanup
+of its worktrees, branches, task record, build output, dist, logs and drafts.
+
 ### Commit and push
 
 From anywhere inside a branch set, one command per step across every project of it:

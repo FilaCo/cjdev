@@ -229,10 +229,13 @@ class Container:
         return NonInteractivePrompt(assume_yes=assume_yes)
 
     def forge(self, *, dry_run: bool = False) -> Forge:
-        gitcode = GitCodeForge(
+        gitcode = self.gitcode()
+        return DryRunForge(self.emit, gitcode) if dry_run else gitcode
+
+    def gitcode(self) -> GitCodeForge:
+        return GitCodeForge(
             lambda: find_token(HOST, environ=os.environ, fill=credential_fill)
         )
-        return DryRunForge(self.emit, gitcode) if dry_run else gitcode
 
     def manifest_for_init(self, root: Path) -> Manifest:
         """The manifest `init` provisions from: the workspace it is creating

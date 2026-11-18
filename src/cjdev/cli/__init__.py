@@ -12,6 +12,7 @@ from .config import cli as config_cli
 from .env import cli as env_cli
 from .init import cli as init_cli
 from .issue import cli as issue_cli
+from .lifecycle import cli as lifecycle_cli
 from .push import cli as push_cli
 from .skill import cli as skill_cli
 from .start import cli as start_cli
@@ -37,6 +38,7 @@ cli.add_typer(config_cli, cls=CjdevGroup)
 cli.add_typer(env_cli, cls=CjdevGroup)
 cli.add_typer(test_cli, cls=CjdevGroup)
 cli.add_typer(issue_cli, cls=CjdevGroup)
+cli.add_typer(lifecycle_cli, cls=CjdevGroup)
 cli.add_typer(skill_cli, cls=CjdevGroup)
 
 

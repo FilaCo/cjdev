@@ -33,7 +33,7 @@ def file_lock(path: PurePath) -> Iterator[None]:
         )
     lock = Path(path)
     lock.parent.mkdir(parents=True, exist_ok=True)
-    with lock.open("w", encoding="utf-8") as handle:
+    with lock.open("a", encoding="utf-8") as handle:
         try:
             flock(handle, LOCK_EX | LOCK_NB)
         except OSError as busy:

@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from typing import final
+from urllib.parse import urlencode
 
 from cjdev.domain.forge import FiledIssue, Issue, IssueRef, NewIssue, Repository
 from cjdev.errors import ForgeError, PreconditionError
@@ -60,7 +61,88 @@ class GitCodeForge:
             )
         return Issue(ref, answer["title"])
 
+    def pull(
+        self,
+        repository: Repository,
+        owner: str,
+        branch: str,
+        base: str,
+        *,
+        merged: bool = False,
+    ) -> dict | None:
+        repo = _require_gitcode(repository)
+        url = f"{API}/repos/{repo.owner}/{repo.name}/pulls"
+        page = 1
+        while True:
+            query = urlencode(
+                {
+                    "base": base,
+                    "state": "merged" if merged else "open",
+                    "page": page,
+                    "per_page": 100,
+                }
+            )
+            _, raw = self._request("GET", f"{url}?{query}", b"")
+            try:
+                pulls = json.loads(raw)
+                if not isinstance(pulls, list):
+                    raise ValueError
+                for pr in pulls:
+                    head = pr["head"]
+                    fork = head.get("repo") or {}
+                    if (
+                        head["ref"] == branch
+                        and pr["base"]["ref"] == base
+                        and (fork.get("full_name") or "").casefold()
+                        == f"{owner}/{repo.name}".casefold()
+                    ):
+                        return pr
+            except (TypeError, KeyError, ValueError, AttributeError):
+                raise ForgeError(
+                    "GitCode returned an unreadable pull request list"
+                ) from None
+            if len(pulls) < 100:
+                return None
+            page += 1
+
+    def publish(
+        self,
+        repository: Repository,
+        owner: str,
+        branch: str,
+        base: str,
+        title: str,
+        issue: str,
+    ) -> str:
+        existing = self.pull(repository, owner, branch, base)
+        url = f"{API}/repos/{repository.owner}/{repository.name}/pulls"
+        if existing:
+            body = existing.get("body") or ""
+            if issue not in body.splitlines():
+                self._call(
+                    "PATCH",
+                    f"{url}/{existing['number']}",
+                    json.dumps(
+                        {"body": f"{body.rstrip()}\n\n{issue}".strip()}
+                    ).encode(),
+                )
+            return existing["html_url"]
+        payload = {
+            "head": f"{owner}:{branch}",
+            "base": base,
+            "title": title,
+            "body": issue,
+        }
+        _, answer, _ = self._call("POST", url, json.dumps(payload).encode())
+        if not answer.get("html_url"):
+            raise ForgeError("GitCode returned no URL for the pull request")
+        return answer["html_url"]
+
     def _call(self, method: str, url: str, body: bytes) -> tuple[int, dict, bytes]:
+        status, raw = self._request(method, url, body)
+        return status, _json(raw), raw
+
+    def _request(self, method: str, url: str, body: bytes) -> tuple[int, bytes]:
         status, raw = self._send(
             method,
             url,
@@ -75,7 +157,7 @@ class GitCodeForge:
         if not 200 <= status < 300:
             message = answer.get("message") or raw.decode(errors="replace")[:200]
             raise ForgeError(f"GitCode answered {status}: {message}", status=status)
-        return status, answer, raw
+        return status, raw
 
 
 def issue_url(ref: IssueRef) -> str:
