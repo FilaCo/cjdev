@@ -83,15 +83,15 @@ def invoke(where: Path, monkeypatch: pytest.MonkeyPatch, *args: str):
 
 class TestTheName:
     def test_it_is_the_number_and_the_title_as_a_slug(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert task_name("812", "[Bug]: ICE on @ObjCImpl") == BRANCH
 
     def test_a_title_with_nothing_ascii_leaves_the_number(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert task_name("9", "编译器崩溃") == "issue-9"
 
     def test_a_long_title_is_cut_at_a_word(self):
-        # Act
+        # Arrange / Act
         name = task_name("1", "word " * 20)
 
         # Assert
@@ -102,7 +102,7 @@ class TestTheName:
 
 class TestTheIssueUrl:
     def test_it_names_the_repository_and_the_number(self):
-        # Act
+        # Arrange / Act
         ref = parse_issue_url(URL)
 
         # Assert
@@ -121,7 +121,7 @@ class TestTheIssueUrl:
         ],
     )
     def test_anything_else_is_refused(self, url: str):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(UsageError):
             parse_issue_url(url)
 
@@ -180,16 +180,17 @@ class TestTheRecord:
 
 class TestTheSetting:
     def test_it_defaults_to_the_compiler(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert parse_issue_home("", source="c") == DEFAULT_ISSUE_HOME
 
     def test_the_workspace_names_another(self):
-        # Act / Assert
+        # Arrange
         text = '[forge]\nissue_home = "cangjie_runtime"\n'
+        # Act / Assert
         assert parse_issue_home(text, source="c") == "cangjie_runtime"
 
     def test_a_stray_key_is_still_refused(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(ManifestError):
             parse_issue_home("[forge]\nissue_house = 1\n", source="c")
 
@@ -254,7 +255,7 @@ class TestStart:
     def test_the_task_is_recorded_with_its_issue_and_home(
         self, root: Path, forge: FakeForge, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(root, monkeypatch, "start", URL, "--name", "fix")
 
         # Assert
@@ -279,7 +280,7 @@ class TestStart:
     def test_a_home_no_project_has_is_refused_before_anything_runs(
         self, root: Path, forge: FakeForge, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(
             root, monkeypatch, "start", "--no-issue", "fix", "--home", "nope"
         )
@@ -291,7 +292,7 @@ class TestStart:
     def test_an_issue_s_home_is_not_overridden(
         self, root: Path, forge: FakeForge, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(root, monkeypatch, "start", URL, "--home", "cangjie_test")
 
         # Assert
@@ -300,7 +301,7 @@ class TestStart:
     def test_a_dry_run_records_nothing(
         self, root: Path, forge: FakeForge, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(root, monkeypatch, "start", URL, "--dry-run")
 
         # Assert
@@ -311,7 +312,7 @@ class TestStart:
     def test_branch_new_records_no_task(
         self, root: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(root, monkeypatch, "branch", "new", "fix")
 
         # Assert
@@ -413,25 +414,47 @@ class TestSync:
 
 
 def test_task_lifecycle(root: Path, forge: FakeForge, monkeypatch: pytest.MonkeyPatch):
+    # Arrange
     from cjdev.infra.prompt import NonInteractivePrompt
 
+    # Act
     result = invoke(root, monkeypatch, "start", "cangjie_compiler#812")
+
+    # Assert
     assert result.exit_code == 0, result.output
     assert record(root, BRANCH).task == Task(PROJECTS[0], URL)
+
+    # Arrange
     where = root / BRANCH
+
+    # Act
     result = invoke(where, monkeypatch, "ship")
+
+    # Assert
     assert result.exit_code == 0, result.output
     assert "No projects" in result.output
+
+    # Arrange
     monkeypatch.setattr(NonInteractivePrompt, "confirm", lambda *args: True)
     dirty = where / PROJECTS[1] / "local"
     dirty.touch()
+
+    # Act
     result = invoke(where, monkeypatch, "done")
+
+    # Assert
     assert isinstance(result.exception, PreconditionError)
     assert (where / PROJECTS[0]).exists()
+
+    # Arrange
     dirty.unlink()
     dist = root / ".cjdev/dist" / BRANCH
     dist.mkdir(parents=True)
+
+    # Act
     result = invoke(where, monkeypatch, "done")
+
+    # Assert
     assert result.exit_code == 0, result.exception
     assert not where.exists()
     assert not dist.exists()
@@ -442,6 +465,7 @@ def test_task_lifecycle(root: Path, forge: FakeForge, monkeypatch: pytest.Monkey
 
 
 def test_wizard_files_issue_from_bare_store(root, remote, forge, monkeypatch):
+    # Arrange
     from cjdev.infra.prompt import NonInteractivePrompt
 
     upstream = remote / PROJECTS[0]
@@ -458,17 +482,27 @@ def test_wizard_files_issue_from_bare_store(root, remote, forge, monkeypatch):
     )
     monkeypatch.setattr(forge, "create_issue", lambda issue: FiledIssue("812", URL))
     monkeypatch.chdir(root)
+
+    # Act
     result = runner.invoke(cli, ["start"], input="\n")
+
+    # Assert
     assert result.exit_code == 0, result.exception
     assert record(root, "issue-812-bug-crash").task == Task(PROJECTS[0], URL)
 
 
 def test_ship_experiment_and_retire_after_merge(root, remote, forge, monkeypatch):
+    # Arrange
     from cjdev.infra import task_checkout
     from cjdev.infra.prompt import NonInteractivePrompt
 
+    # Act
     result = invoke(root, monkeypatch, "start", "--no-issue", "experiment")
+
+    # Assert
     assert result.exit_code == 0
+
+    # Arrange
     where = root / "experiment"
     project = where / PROJECTS[0]
     sha = commit(project, "change")
@@ -488,11 +522,21 @@ def test_ship_experiment_and_retire_after_merge(root, remote, forge, monkeypatch
 
     monkeypatch.setattr(Container, "gitcode", lambda self: Pulls())
     monkeypatch.chdir(where)
+
+    # Act
     result = runner.invoke(cli, ["ship"], input="cangjie_compiler#812\n")
+
+    # Assert
     assert result.exit_code == 0, result.exception
     assert published == [(PROJECTS[0], "experiment", "main", "change", URL)]
     assert record(root, "experiment").task == Task(PROJECTS[0], URL)
+
+    # Arrange
     monkeypatch.setattr(NonInteractivePrompt, "confirm", lambda *args: True)
+
+    # Act
     result = invoke(where, monkeypatch, "done")
+
+    # Assert
     assert result.exit_code == 0, result.exception
     assert git(fork, "rev-parse", "refs/heads/experiment") == sha

@@ -87,7 +87,7 @@ def plan_for(
 
 class TestClassify:
     def test_each_path_goes_to_the_suite_it_sits_in(self):
-        # Act
+        # Arrange / Act
         suites = classify(TESTS, [LLT / "compiler" / "a.cj", HLT / "API", LLT])
 
         # Assert
@@ -97,14 +97,14 @@ class TestClassify:
         }
 
     def test_a_path_outside_both_suites_has_nothing_to_run_it_with(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(UsageError, match="not inside"):
             classify(TESTS, [ROOT / "main" / "cangjie_compiler"])
 
 
 class TestDecide:
     def test_the_run_sees_the_profile_s_own_sdk(self):
-        # Act
+        # Arrange / Act
         command = plan_for({Suite.LLT: (LLT,)}).runs[0].command
 
         # Assert
@@ -112,7 +112,7 @@ class TestDecide:
         assert command.env["CANGJIE_TEST"] == str(TESTS)
 
     def test_the_suite_and_host_choose_the_list_and_config(self):
-        # Act
+        # Arrange / Act
         argv = plan_for({Suite.LLT: (LLT,)}).runs[0].command.argv
 
         # Assert
@@ -122,7 +122,7 @@ class TestDecide:
         assert argv[argv.index("--test_list") + 1] == str(LLT / "cjnative_testlist")
 
     def test_scratch_and_logs_stay_out_of_the_framework_s_worktree(self):
-        # Act
+        # Arrange / Act
         argv = plan_for({Suite.HLT: (HLT,)}).runs[0].command.argv
 
         # Assert
@@ -132,7 +132,7 @@ class TestDecide:
         assert argv[argv.index("--json_output") + 1] == f"{scratch}/results.json"
 
     def test_only_failures_are_printed_and_with_their_output(self):
-        # Act
+        # Arrange / Act
         argv = plan_for({Suite.LLT: (LLT,)}).runs[0].command.argv
 
         # Assert
@@ -140,7 +140,7 @@ class TestDecide:
         assert "--fail-verbose" in argv
 
     def test_the_caller_s_arguments_come_last_so_theirs_win(self):
-        # Act
+        # Arrange / Act
         argv = (
             plan_for({Suite.LLT: (LLT,)}, passthrough=("-j", "2")).runs[0].command.argv
         )
@@ -150,14 +150,14 @@ class TestDecide:
         assert argv.index("-j") < len(argv) - 2
 
     def test_one_run_per_suite(self):
-        # Act
+        # Arrange / Act
         plan = plan_for({Suite.LLT: (LLT / "a",), Suite.HLT: (HLT / "b",)})
 
         # Assert
         assert [run.suite for run in plan.runs] == [Suite.LLT, Suite.HLT]
 
     def test_the_terminal_is_the_caller_s_while_it_runs(self):
-        # Act
+        # Arrange / Act
         command = plan_for({Suite.LLT: (LLT,)}).runs[0].command
 
         # Assert: a run of thousands of cases is watched, and the summary
@@ -165,7 +165,7 @@ class TestDecide:
         assert command.interactive
 
     def test_a_container_workspace_tests_the_container_s_dist(self):
-        # Act
+        # Arrange / Act
         command = plan_for({Suite.LLT: (LLT,)}, mode=Mode.CONTAINER).runs[0].command
 
         # Assert
@@ -194,7 +194,7 @@ class TestPlan:
     def test_a_profile_never_built_is_a_refusal_not_a_thousand_failures(
         self, root: Path
     ):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError) as refusal:
             self.use_case().plan(
                 root,
@@ -206,7 +206,7 @@ class TestPlan:
         assert refusal.value.remedy == "cjdev build -p release"
 
     def test_a_branch_set_without_the_framework_names_the_fix(self, tmp_path: Path):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError, match="cangjie_test_framework"):
             self.use_case().plan(
                 tmp_path, "main", profile=Profile.DEBUG, paths=[tmp_path], cwd=tmp_path
@@ -246,7 +246,7 @@ class TestPlan:
         assert str(java) in plan.runs[0].command.argv
 
     def test_a_path_that_does_not_exist_is_the_invocation_being_wrong(self, root: Path):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(UsageError, match="no such test path"):
             self.use_case().plan(
                 root,
@@ -259,7 +259,7 @@ class TestPlan:
     def test_naming_nothing_is_refused_rather_than_running_the_whole_suite(
         self, root: Path
     ):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(UsageError, match="name what to test"):
             self.use_case().plan(
                 root, "main", profile=Profile.DEBUG, paths=[], cwd=root

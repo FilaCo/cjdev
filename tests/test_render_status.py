@@ -57,6 +57,7 @@ def render(
 
 
 def test_the_sha_is_abbreviated():
+    # Arrange / Act / Assert
     # A short SHA; forty columns of hash in a table read
     # many times a day is the reason.
     assert "4ee0b52" in render(checkout())
@@ -64,17 +65,21 @@ def test_the_sha_is_abbreviated():
 
 
 def test_a_clean_checkout_says_nothing_beyond_where_it_is():
+    # Arrange / Act
     output = render(checkout())
 
+    # Assert
     assert "dirty" not in output
     assert "alpha" in output and "main" in output
 
 
 def test_a_dirty_checkout_says_so():
+    # Arrange / Act / Assert
     assert "dirty" in render(checkout(dirty=True))
 
 
 def test_a_detached_checkout_is_labelled_rather_than_left_blank():
+    # Arrange / Act / Assert
     assert "detached" in render(checkout(branch=None))
 
 
@@ -84,39 +89,50 @@ class TestOnlyDriftWorthActingOnIsShown:
     the one row that does need attention. `--json` carries the counts."""
 
     def test_drift_is_reported_with_its_remote(self):
+        # Arrange / Act
         output = render(checkout(tracking=(Tracking("upstream", ahead=2, behind=1),)))
 
+        # Assert
         assert "upstream ↑2 ↓1" in output
 
     def test_a_remote_in_sync_is_not_mentioned(self):
+        # Arrange / Act
         output = render(checkout(tracking=(Tracking("upstream", 0, 0),)))
 
+        # Assert
         assert "upstream" not in output
 
     def test_a_side_with_nothing_on_it_is_dropped(self):
+        # Arrange / Act
         output = render(checkout(tracking=(Tracking("origin", ahead=3, behind=0),)))
 
+        # Assert
         assert "origin ↑3" in output
         assert "↓" not in output
 
 
 class TestTheActiveBranchSet:
     def test_it_is_marked_rather_than_coloured(self):
+        # Arrange / Act / Assert
         # A colour is invisible in a pipe and in a CI log; a mark is not.
         assert "* main" in render(checkout(), active="main")
 
     def test_the_others_are_not(self):
+        # Arrange / Act / Assert
         assert "* main" not in render(checkout(), active="fix/ice")
 
 
 def test_a_workspace_with_no_branch_sets_says_how_to_make_one():
+    # Arrange / Act
     output = render()
 
+    # Assert
     assert "No branch sets yet" in output
     assert "alpha" in output  # the projects it does hold are still reported
 
 
 def test_a_project_with_no_worktree_here_is_named_rather_than_omitted():
+    # Arrange / Act
     # "Not enrolled in this branch set" and "missing from the report" read
     # identically when the row is simply absent, and only one of them is
     # something the reader should act on.
@@ -125,11 +141,13 @@ def test_a_project_with_no_worktree_here_is_named_rather_than_omitted():
         stores=(Store("alpha", provisioned=True), Store("beta", provisioned=True)),
     )
 
+    # Assert
     assert "beta" in drawn
     assert "not checked out here" in drawn
 
 
 def test_a_project_the_workspace_does_not_hold_is_not_named_per_branch_set():
+    # Arrange / Act
     # It is absent from every branch set by definition, so saying so once per
     # set would be six lines telling the reader the same thing.
     drawn = render(
@@ -137,6 +155,7 @@ def test_a_project_the_workspace_does_not_hold_is_not_named_per_branch_set():
         stores=(Store("alpha", provisioned=True), Store("beta", provisioned=False)),
     )
 
+    # Assert
     assert "not checked out here" not in drawn
 
 
@@ -154,10 +173,12 @@ class TestAStaleRegistration:
         )
 
     def test_it_is_named_with_its_fact_and_the_command_that_fixes_it(self):
+        # Arrange / Act
         drawn = render(
             stores=(Store("alpha", provisioned=True, stale=(self.stale(),)),),
         )
 
+        # Assert
         assert "~ alpha" in drawn
         assert "the directory is gone from it" in drawn
         # The store path is in the command: `git worktree` operates on the
@@ -165,9 +186,11 @@ class TestAStaleRegistration:
         assert "git -C /ws/.cjdev/bare/alpha.git worktree prune" in drawn
 
     def test_a_workspace_without_one_is_not_touched(self):
+        # Arrange / Act / Assert
         assert "~" not in render(checkout())
 
     def test_the_json_payload_carries_the_fact_and_a_runnable_remedy(self):
+        # Arrange / Act
         payload = status_payload(
             WorkspaceStatus(
                 root=ROOT,
@@ -178,6 +201,8 @@ class TestAStaleRegistration:
         )
 
         projects = payload["projects"]
+
+        # Assert
         assert isinstance(projects, list) and projects
         (project,) = projects
         stale_list = project["stale"]

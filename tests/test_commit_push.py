@@ -101,7 +101,7 @@ class TestOrigin:
     def test_every_project_gets_its_fork_and_the_owner_is_recorded(
         self, root: Path, remote: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(root, monkeypatch, "config", "origin", "me")
 
         # Assert
@@ -129,7 +129,7 @@ class TestOrigin:
     def test_init_wires_origin_too(
         self, root: Path, remote: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(
             root, monkeypatch, "init", str(root), "--fork-owner", "me", "--dry-run"
         )
@@ -144,7 +144,7 @@ class TestOrigin:
     def test_without_an_owner_it_names_the_fix(
         self, root: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(root, monkeypatch, "config", "origin")
 
         # Assert
@@ -218,7 +218,7 @@ class TestPush:
     def test_only_what_is_ahead_goes_to_the_fork_with_tracking_set(
         self, committed: Path, remote: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # Act
+        # Arrange / Act
         result = invoke(checkout(committed, "cangjie_compiler"), monkeypatch, "push")
 
         # Assert

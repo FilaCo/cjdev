@@ -296,13 +296,13 @@ class TestBranchNames:
         ],
     )
     def test_it_is_refused(self, name: str):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(UsageError):
             check_branch_name(name)
 
     @pytest.mark.parametrize("name", ["main", "fix/parser-ice", "a/b/c", "v1.2.x"])
     def test_an_ordinary_name_is_accepted(self, name: str):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert check_branch_name(name) == name
 
     @pytest.mark.parametrize(
@@ -392,7 +392,7 @@ class TestEndToEnd:
     def test_every_project_gets_a_checkout_on_the_name(
         self, workspace: Path, manifest: Manifest
     ):
-        # Act
+        # Arrange / Act
         report = branch_set(manifest).perform(workspace, "fix/ice", jobs=2)
 
         # Assert
@@ -451,6 +451,7 @@ class TestEndToEnd:
     def test_a_stale_registration_is_not_read_as_a_live_checkout(
         self, workspace: Path, manifest: Manifest
     ):
+        # Arrange
         # A registration whose directory was removed by hand still holds the
         # branch git checked out into it, and it is the only reader-awareness
         # test away from a silent skip: reading it as a checkout made
@@ -462,8 +463,10 @@ class TestEndToEnd:
         use_case.perform(workspace, "fix/ice", jobs=2)
         subprocess.run(["rm", "-rf", str(workspace / "fix-ice" / "alpha")], check=True)
 
+        # Act
         again = use_case.perform(workspace, "fix/ice", jobs=2)
 
+        # Assert
         assert not again.ok
         (row,) = (row for row in again.rows if row.project == "alpha")
         assert row.action is Action.ADOPT

@@ -20,75 +20,97 @@ def failing(*, mutates: bool = True) -> Command:
 
 class TestHostExecutor:
     def test_captures_output_rather_than_streaming_it(self):
+        # Arrange / Act
         # Output already printed cannot be reordered into manifest order
         # later, so the executor must hold it.
         result = HostExecutor().run(echo("hello"))
 
+        # Assert
         assert result.ok
         assert result.stdout.strip() == "hello"
 
     def test_a_non_zero_exit_raises_with_the_command_and_its_output(self):
+        # Arrange / Act / Assert
         with pytest.raises(CommandError) as caught:
             HostExecutor().run(failing())
 
         message = str(caught.value)
+
+        # Assert
         assert "exited 3" in message
         assert "boom" in message  # the tail of the output, not a traceback
 
     def test_check_false_reports_the_failure_instead_of_raising(self):
+        # Arrange / Act
         result = HostExecutor().run(failing(), check=False)
 
+        # Assert
         assert not result.ok
         assert result.exit_code == 3
 
 
 class TestDryRun:
     def test_a_mutating_command_is_printed_and_not_run(self):
+        # Arrange
         printed: list[str] = []
         executor = build_executor(dry_run=True, emit=printed.append)
 
+        # Act
         result = executor.run(
             Command(argv=("rm", "-rf", "/"), cwd=Path.cwd(), mutates=True)
         )
 
+        # Assert
         assert result == Completed(result.command, 0, "", "")
         assert printed == ["rm -rf /  # ."]
 
     def test_a_read_only_command_still_runs(self):
+        # Arrange
         # A dry run that could not inspect the world would print a plan built
         # on guesses rather than the plan that would actually execute.
         printed: list[str] = []
         executor = build_executor(dry_run=True, emit=printed.append)
 
+        # Act
         result = executor.run(echo("observed", mutates=False))
 
+        # Assert
         assert result.stdout.strip() == "observed"
         assert printed == []
 
 
 class TestVerbose:
     def test_every_invocation_is_echoed(self):
+        # Arrange
         printed: list[str] = []
         executor = build_executor(verbose=True, emit=printed.append)
 
+        # Act
         executor.run(echo("hi"))
 
+        # Assert
         assert printed == ["$ echo hi  # ."]
 
     def test_a_failure_is_echoed_before_it_propagates(self):
+        # Arrange
         printed: list[str] = []
         executor = build_executor(verbose=True, emit=printed.append)
 
+        # Act / Assert
         with pytest.raises(CommandError):
             executor.run(failing())
 
+        # Assert
         assert printed[-1] == "  exited 3"
 
     def test_quiet_by_default(self):
+        # Arrange
         printed: list[str] = []
 
+        # Act
         build_executor(emit=printed.append).run(echo("hi"))
 
+        # Assert
         assert printed == []
 
 
@@ -167,7 +189,7 @@ class TestLoggedCommands:
         assert log.read_text(encoding="utf-8").splitlines() == ["build", "install"]
 
     def test_a_missing_binary_is_still_the_command_failing(self, tmp_path: Path):
-        # Act / Assert: the other half of the distinction above - this one is
+        # Arrange / Act / Assert: the other half of the distinction above - this one is
         # the command, not the log.
         with pytest.raises(CommandError) as caught:
             HostExecutor().run(

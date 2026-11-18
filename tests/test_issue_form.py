@@ -89,7 +89,7 @@ def filled(draft: str, **replace: str) -> str:
 
 class TestLoadingAForm:
     def test_the_greeting_is_not_a_field(self, worktree: Path):
-        # Act
+        # Arrange / Act
         form = load_form(worktree / TEMPLATE_DIR / "bug-report.yml")
 
         # Assert
@@ -106,14 +106,14 @@ class TestLoadingAForm:
     def test_a_label_loses_the_trailing_space_upstream_leaves_in_it(
         self, worktree: Path
     ):
-        # Act
+        # Arrange / Act
         form = load_form(worktree / TEMPLATE_DIR / "bug-report.yml")
 
         # Assert
         assert form.fields[2].label == VERSION
 
     def test_config_yml_configures_the_chooser_and_is_not_a_form(self, worktree: Path):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert template_names(worktree) == ("bug-report",)
 
     def test_a_broken_form_names_its_file(self, tmp_path: Path):
@@ -135,21 +135,25 @@ class TestTheDraft:
     def test_it_has_one_section_per_field_with_the_title_prefix_on_top(
         self, draft: str
     ):
+        # Arrange / Act in the draft fixture.
         # Assert
         assert draft.startswith("# [Bug]: \n")
         assert f"### {WHAT}\n" in draft
         assert f"### {BRANCHES}\n" in draft
 
     def test_descriptions_are_comments_with_the_entities_decoded(self, draft: str):
+        # Arrange / Act in the draft fixture.
         # Assert: the web form shows `|`, so the draft must too.
         assert "<!-- Required. 提供尽可能多的信息 | Provide" in draft
 
     def test_choices_are_task_items(self, draft: str):
+        # Arrange / Act in the draft fixture.
         # Assert
         assert "- [ ] dev\n- [ ] main\n" in draft
         assert "- [ ] Tools\n- [ ] LSP\n" in draft
 
     def test_the_version_is_prefilled(self, draft: str):
+        # Arrange / Act in the draft fixture.
         # Assert
         assert "cjc 1.0" in draft
 
@@ -183,7 +187,7 @@ class TestReadingItBack:
         )
 
     def test_a_complete_draft_becomes_a_title_and_a_body(self, form, complete: str):
-        # Act
+        # Arrange / Act
         title, body = read_draft(form, complete)
 
         # Assert
@@ -192,14 +196,14 @@ class TestReadingItBack:
         assert "- [x] main" in body
 
     def test_comments_are_not_sent(self, form, complete: str):
-        # Act
+        # Arrange / Act
         _, body = read_draft(form, complete)
 
         # Assert
         assert "<!--" not in body
 
     def test_an_empty_optional_field_reads_as_no_response(self, form, complete: str):
-        # Act
+        # Arrange / Act
         _, body = read_draft(form, complete)
 
         # Assert

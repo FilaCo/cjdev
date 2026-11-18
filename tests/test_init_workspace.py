@@ -123,6 +123,8 @@ def manifest(tmp_path: Path) -> Manifest:
 def test_plan_resolves_the_manifest_once(tmp_path: Path, manifest: Manifest) -> None:
     """`decide` and `observe` reason about one manifest, not two reads of a
     file that can change between them."""
+
+    # Arrange
     calls = 0
 
     def counted() -> Manifest:
@@ -140,8 +142,10 @@ def test_plan_resolves_the_manifest_once(tmp_path: Path, manifest: Manifest) -> 
         render_config=render_workspace_config,
     )
 
+    # Act
     use_case.plan(tmp_path)
 
+    # Assert
     assert calls == 1
 
 
@@ -149,10 +153,13 @@ class TestDecide:
     """The pure half. No filesystem, no git."""
 
     def test_a_fresh_workspace_provisions_every_project(self, manifest: Manifest):
+        # Arrange
         layout = WorkspaceLayout(PurePath("/ws"))
 
+        # Act
         plan = decide(layout, manifest, Observed(frozenset(), config_exists=False))
 
+        # Assert
         assert [p.name for p in plan.to_provision] == ["alpha", "beta"]
         assert plan.write_config
         assert layout.bare_dir in plan.directories
@@ -160,6 +167,7 @@ class TestDecide:
         assert layout.ccache_dir in plan.directories
 
     def test_re_running_tops_up_only_what_is_missing(self, manifest: Manifest):
+        # Arrange / Act
         # Idempotence is the point: `init` on a half-built workspace should
         # finish the job, not fail and not re-clone what is already there.
         plan = decide(
@@ -168,6 +176,7 @@ class TestDecide:
             Observed(frozenset({"alpha"}), config_exists=True),
         )
 
+        # Assert
         # The selection starts from what is on disk, so an unchanged answer
         # provisions nothing and removes nothing.
         assert plan.to_provision == ()
@@ -175,27 +184,32 @@ class TestDecide:
         assert not plan.write_config
 
     def test_a_complete_workspace_needs_nothing(self, manifest: Manifest):
+        # Arrange / Act
         plan = decide(
             WorkspaceLayout(PurePath("/ws")),
             manifest,
             Observed(frozenset({"alpha", "beta"}), config_exists=True),
         )
 
+        # Assert
         assert plan.is_noop
 
     def test_adding_to_the_selection_provisions_the_difference(
         self, manifest: Manifest
     ):
+        # Arrange / Act
         plan = decide(
             WorkspaceLayout(PurePath("/ws")),
             manifest,
             Observed(frozenset({"alpha"}), config_exists=True),
         ).with_selection(frozenset({"alpha", "beta"}))
 
+        # Assert
         assert [p.name for p in plan.to_provision] == ["beta"]
         assert plan.to_remove == ()
 
     def test_dropping_from_the_selection_removes_it(self, manifest: Manifest):
+        # Arrange / Act
         # Unchecking an existing project is how `init` doubles as the way to
         # change a workspace, rather than only create one.
         plan = decide(
@@ -204,20 +218,25 @@ class TestDecide:
             Observed(frozenset({"alpha", "beta"}), config_exists=True),
         ).with_selection(frozenset({"alpha"}))
 
+        # Assert
         assert [p.name for p in plan.to_remove] == ["beta"]
         assert plan.to_provision == ()
 
     def test_a_fresh_workspace_starts_from_the_manifests_default_group(self):
+        # Arrange
         # The bundled manifest offers the minimal SDK, not all six projects.
         from cjdev.infra.config import load_bundled_manifest
 
         bundled = load_bundled_manifest()
+
+        # Act
         plan = decide(
             WorkspaceLayout(PurePath("/ws")),
             bundled,
             Observed(frozenset(), config_exists=False),
         )
 
+        # Assert
         assert [p.name for p in plan.to_provision] == [
             "cangjie_compiler",
             "cangjie_runtime",
@@ -230,6 +249,7 @@ class TestJobCount:
     def test_a_bad_job_count_fails_before_anything_is_created(
         self, tmp_path: Path, manifest: Manifest
     ):
+        # Arrange
         # A usage error that has already written half a workspace is worse
         # than the one it reports, so the count is checked ahead of the first
         # `mkdir` rather than where the runner happens to be built.
@@ -237,9 +257,11 @@ class TestJobCount:
         root.mkdir()
         use_case = init_workspace(manifest)
 
+        # Act / Assert
         with pytest.raises(UsageError):
             use_case.apply(root, use_case.plan(root), jobs=0)
 
+        # Assert
         assert list(root.iterdir()) == []
 
 
@@ -254,31 +276,37 @@ class TestEndToEnd:
         return WorkspaceLayout(root)
 
     def test_the_tree_is_the_documented_one(self, initialised: WorkspaceLayout):
+        # Arrange / Act
         root = Path(initialised.root)
 
+        # Assert
         assert sorted(p.name for p in root.iterdir()) == [".cjdev"]
         assert Path(initialised.config_file).is_file()
         assert Path(initialised.bare_dir).is_dir()
         assert Path(initialised.ccache_dir).is_dir()
 
     def test_each_project_gets_a_bare_store(self, initialised: WorkspaceLayout):
+        # Arrange / Act / Assert
         for name in ("alpha", "beta"):
             store = Path(initialised.object_store(name))
             assert (store / "HEAD").is_file()
             assert not (store / ".git").exists()
 
     def test_upstream_refs_land_under_refs_remotes(self, initialised: WorkspaceLayout):
+        # Arrange / Act
         # The reason `init` does not use `git clone --bare`: a bare clone
         # writes branches into refs/heads/* and creates no refs/remotes/*,
         # leaving nothing to fast-forward the local default branch from.
         store = Path(initialised.object_store("alpha"))
 
+        # Assert
         assert (store / "refs" / "remotes" / "upstream" / "main").is_file()
         assert not (store / "refs" / "heads" / "main").is_file()
 
     def test_the_default_branch_is_detected_rather_than_assumed(
         self, initialised: WorkspaceLayout
     ):
+        # Arrange / Act
         # The sync commands read this ref back instead of hardcoding
         # main/master/dev.
         head = subprocess.run(
@@ -289,16 +317,20 @@ class TestEndToEnd:
             check=True,
         )
 
+        # Assert
         assert head.stdout.strip() == "refs/remotes/upstream/main"
 
     def test_running_init_again_changes_nothing_and_still_succeeds(
         self, initialised: WorkspaceLayout, manifest: Manifest
     ):
+        # Arrange
         marker = Path(initialised.config_file)
         marker.write_text("# edited by hand\n")
 
+        # Act
         report = init_workspace(manifest).perform(Path(initialised.root), jobs=2)
 
+        # Assert
         assert report.ok
         assert marker.read_text() == "# edited by hand\n"
 
@@ -307,6 +339,7 @@ class TestProvisioning:
     def test_a_project_with_an_unreachable_upstream_fails_with_its_output(
         self, tmp_path: Path
     ):
+        # Arrange
         from cjdev.errors import CommandError
 
         store = tmp_path / "broken.git"
@@ -318,9 +351,11 @@ class TestProvisioning:
             default_branch="main",
         )
 
+        # Act / Assert
         with pytest.raises(CommandError) as caught:
             provision_object_store(HostExecutor(), store, project)
 
+        # Assert
         assert "does-not-exist" in str(caught.value)
 
 
@@ -385,11 +420,14 @@ class TestDroppingAProjectWithRegistrationsLeft:
     def test_a_stale_registration_still_blocks_the_drop(
         self, moved_away: tuple[Path, Path, Project]
     ):
+        # Arrange
         store, registered_path, project = moved_away
 
+        # Act / Assert
         with pytest.raises(PreconditionError) as caught:
             remove_object_store(HostExecutor(), HostFileSystem(), store, project)
 
+        # Assert
         assert str(registered_path) in str(caught.value)
         assert "worktree prune" in str(caught.value)
         # The moved hint travels with the prune: without it the refusal
@@ -402,6 +440,7 @@ class TestDroppingAProjectWithRegistrationsLeft:
     def test_pruning_the_registrations_clears_the_refusal(
         self, deleted: tuple[Path, Path, Project]
     ):
+        # Arrange
         # The refusal names the command that unblocks it; running it - the
         # reader's decision, not cjdev's - lets the drop go through. The
         # worktree here was deleted, the case prune exists for; pinning the
@@ -414,13 +453,17 @@ class TestDroppingAProjectWithRegistrationsLeft:
             check=True,
             capture_output=True,
         )
+
+        # Act
         remove_object_store(HostExecutor(), HostFileSystem(), store, project)
 
+        # Assert
         assert not store.exists()
 
 
 class TestGitIsReadOnlyWhereItClaims:
     def test_listing_remotes_survives_a_dry_run(self, tmp_path: Path):
+        # Arrange
         # `observe` has to work under --dry-run or the plan is a guess.
         recorded: list[Command] = []
 
@@ -431,22 +474,29 @@ class TestGitIsReadOnlyWhereItClaims:
 
         path = tmp_path / "repo"
         make_upstream(path)
+
+        # Act
         Git(Recorder()).remotes(path)
 
+        # Assert
         assert [c.mutates for c in recorded] == [False]
 
 
 def test_the_rendered_config_is_valid_toml_and_carries_its_comments():
+    # Arrange
     import tomlkit
 
+    # Act
     text = render_workspace_config(DEFAULT_ENVIRONMENT)
 
+    # Assert
     assert tomlkit.parse(text) is not None
     assert "cjdev config show" in text
 
 
 class TestDryRun:
     def test_it_changes_nothing_at_all(self, tmp_path: Path, manifest: Manifest):
+        # Arrange
         # The workspace skeleton is written outside the executor, so it is
         # the part that quietly escapes a dry run.
         root = tmp_path / "ws"
@@ -454,18 +504,24 @@ class TestDryRun:
         printed: list[str] = []
         init = dry_run_workspace(manifest, printed)
 
+        # Act
         init.perform(root, jobs=2, dry_run=True)
 
+        # Assert
         assert list(root.iterdir()) == []
 
     def test_it_prints_the_commands_it_would_run(
         self, tmp_path: Path, manifest: Manifest
     ):
+        # Arrange
         root = tmp_path / "ws"
         root.mkdir()
         printed: list[str] = []
+
+        # Act
         dry_run_workspace(manifest, printed).perform(root, jobs=2, dry_run=True)
 
+        # Assert
         # The workspace skeleton first, then each project whole and in
         # manifest order, never interleaved.
         assert [line.split()[0] for line in printed[:4]] == [

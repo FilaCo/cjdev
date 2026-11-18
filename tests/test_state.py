@@ -20,47 +20,58 @@ def checkout(project: str, directory: str, branch: str | None = "fix/ice") -> Ch
 
 class TestBranchSetsComeFromGitNotFromDirectories:
     def test_worktrees_in_one_directory_are_one_branch_set(self):
+        # Arrange / Act
         sets = branch_sets_of(
             ROOT, [checkout("alpha", "fix-ice"), checkout("beta", "fix-ice")]
         )
 
+        # Assert
         assert len(sets) == 1
         assert [c.project for c in sets[0].checkouts] == ["alpha", "beta"]
 
     def test_the_name_is_the_branch_not_the_directory(self):
+        # Arrange / Act
         # Flattening is one-way, so `fix-ice` on disk cannot say
         # whether the branch is `fix/ice` or `fix-ice`. git can.
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice")])
 
+        # Assert
         assert sets[0].name == "fix/ice"
         assert sets[0].directory == ROOT / "fix-ice"
 
     def test_an_all_detached_branch_set_falls_back_to_the_directory(self):
+        # Arrange / Act
         # Every project still on its pinned base ref: there is no
         # branch anywhere to read the real name off.
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice", branch=None)])
 
+        # Assert
         assert sets[0].name == "fix-ice"
 
     def test_one_enrolled_project_is_enough_to_name_the_set(self):
+        # Arrange / Act
         # Projects enrol lazily, so a set is normally a mix.
         sets = branch_sets_of(
             ROOT,
             [checkout("alpha", "fix-ice", branch=None), checkout("beta", "fix-ice")],
         )
 
+        # Assert
         assert sets[0].name == "fix/ice"
 
     def test_sets_are_ordered_by_directory_not_by_arrival(self):
+        # Arrange / Act
         # The fan-out that produced these must not decide the order
         # they are printed in.
         sets = branch_sets_of(
             ROOT, [checkout("alpha", "main"), checkout("alpha", "fix-ice")]
         )
 
+        # Assert
         assert [s.directory.name for s in sets] == ["fix-ice", "main"]
 
     def test_a_worktree_outside_the_root_is_not_a_branch_set(self):
+        # Arrange
         # git reported it, but cjdev did not lay it out, so presenting it as
         # part of a branch set would describe a layout that nobody chose.
         stray = Checkout(
@@ -72,37 +83,49 @@ class TestBranchSetsComeFromGitNotFromDirectories:
             tracking=(),
         )
 
+        # Act / Assert
         assert branch_sets_of(ROOT, [stray]) == ()
 
     def test_a_worktree_nested_deeper_than_one_level_is_not_one_either(self):
+        # Arrange
         # The root holds branch sets and nothing else; anything deeper
         # is something a person made by hand.
         deep = checkout("alpha", "fix-ice/extra")
 
+        # Act / Assert
         assert branch_sets_of(ROOT, [deep]) == ()
 
 
 class TestActiveBranchSet:
     def test_standing_inside_a_worktree_selects_its_branch_set(self):
+        # Arrange
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice")])
 
+        # Act
         active = active_branch_set(ROOT, ROOT / "fix-ice" / "alpha" / "src", sets)
 
+        # Assert
         assert active == "fix/ice"
 
     def test_standing_at_the_root_selects_nothing(self):
+        # Arrange
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice")])
 
+        # Act / Assert
         assert active_branch_set(ROOT, ROOT, sets) is None
 
     def test_standing_outside_the_workspace_selects_nothing(self):
+        # Arrange
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice")])
 
+        # Act / Assert
         assert active_branch_set(ROOT, PurePath("/tmp/elsewhere"), sets) is None
 
     def test_a_stray_directory_in_the_root_is_not_a_branch_set(self):
+        # Arrange
         # A directory a user made in the root is not a branch set, so standing
         # in it must not name one either.
         sets = branch_sets_of(ROOT, [checkout("alpha", "fix-ice")])
 
+        # Act / Assert
         assert active_branch_set(ROOT, ROOT / "notes", sets) is None

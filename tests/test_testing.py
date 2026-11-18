@@ -29,7 +29,7 @@ def parsed():
 
 class TestSuiteFiles:
     def test_llt_on_linux_x86_is_the_list_and_config_upstream_ships_for_it(self):
-        # Act
+        # Arrange / Act
         files = suite_files(Suite.LLT, "linux_x86_64")
 
         # Assert
@@ -37,7 +37,7 @@ class TestSuiteFiles:
         assert files.cfg == PurePosixPath("configs/cjnative/cjnative_test.cfg")
 
     def test_an_exclude_file_follows_the_list_it_excludes_from(self):
-        # Act
+        # Arrange / Act
         files = suite_files(Suite.LLT, "linux_aarch64")
 
         # Assert: the framework concatenates the lists, so a headerless
@@ -47,7 +47,7 @@ class TestSuiteFiles:
         assert files.lists[1].name == "exclude_cjnative_aarch64"
 
     def test_hlt_runs_the_native_pair_of_its_host(self):
-        # Act
+        # Arrange / Act
         files = suite_files(Suite.HLT, "linux_x86_64")
 
         # Assert
@@ -57,7 +57,7 @@ class TestSuiteFiles:
         assert files.lists[0] == PurePosixPath("testlist")
 
     def test_an_unknown_host_is_refused_with_the_override_named(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError) as refusal:
             suite_files(Suite.HLT, "windows_x86_64")
         assert refusal.value.remedy == "pass --test_list and --test_cfg after `--`"
@@ -65,28 +65,28 @@ class TestSuiteFiles:
 
 class TestNeededUnits:
     def test_an_objc_case_needs_the_interoplib_and_the_mirror_generator(self):
-        # Act
+        # Arrange / Act
         units = needed_units(Suite.LLT, PurePosixPath("compiler/CJMP/objc/sema/a.cj"))
 
         # Assert
         assert units == ("objc-interoplib", "objc-interop-gen")
 
     def test_a_java_case_needs_only_the_interoplib(self):
-        # Act
+        # Arrange / Act
         units = needed_units(Suite.LLT, PurePosixPath("compiler/CJMP/java"))
 
         # Assert
         assert units == ("java-interoplib",)
 
     def test_a_directory_above_them_needs_nothing(self):
-        # Act
+        # Arrange / Act
         units = needed_units(Suite.LLT, PurePosixPath("compiler/CJMP"))
 
         # Assert
         assert units == ()
 
     def test_the_same_path_in_hlt_needs_nothing(self):
-        # Act
+        # Arrange / Act
         units = needed_units(Suite.HLT, PurePosixPath("compiler/CJMP/objc"))
 
         # Assert
@@ -95,14 +95,14 @@ class TestNeededUnits:
 
 class TestResults:
     def test_the_counts_are_the_framework_s(self):
-        # Act
+        # Arrange / Act
         result = parsed()
 
         # Assert
         assert (result.passed, result.failed) == (1, 3)
 
     def test_a_missing_tool_is_a_cause_of_its_own(self):
-        # Act
+        # Arrange / Act
         result = parsed()
 
         # Assert: two cases failing for want of gnustep-config say nothing
@@ -116,7 +116,7 @@ class TestResults:
         assert [f.case for f in result.other_failures()] == ["compiler/fail.cj"]
 
     def test_the_log_is_the_name_the_framework_gives_inside_its_log_dir(self):
-        # Act
+        # Arrange / Act
         failure = parsed().other_failures()[0]
 
         # Assert
@@ -135,14 +135,14 @@ class TestResults:
         assert (result.passed, result.failed) == (2, 1)
 
     def test_a_file_that_is_not_the_framework_s_json_is_a_failure_naming_it(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(CjdevError, match=r"results\.json"):
             parse_results(Suite.LLT, "{", source="results.json", log_dir=LOGS)
 
 
 class TestMissingTools:
     def test_a_case_that_failed_before_any_command_ran_has_one_string(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert missing_tools("sh: cjfmt: command not found") == ("cjfmt",)
 
     def test_stdout_counts_too_because_a_pipe_carries_stderr_there(self):
@@ -153,5 +153,5 @@ class TestMissingTools:
         assert missing_tools(output) == ("ObjCInteropGen",)
 
     def test_an_ordinary_failure_names_no_tool(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert missing_tools([{"stdout": "", "stderr": "error: x"}]) == ()

@@ -98,20 +98,25 @@ class TestWhatTheWorkspaceHolds:
     def test_it_reports_the_root_it_was_asked_about(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange / Act
         status = report(manifest).perform(workspace, cwd=workspace)
 
+        # Assert
         assert status.root == workspace
 
     def test_provisioned_projects_come_from_the_disk(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         # A workspace's project set is what its object stores say it
         # is, so removing one has to change the report.
         store = Path(WorkspaceLayout(workspace).object_store("beta"))
         subprocess.run(["rm", "-rf", str(store)], check=True)
 
+        # Act
         status = report(manifest).perform(workspace, cwd=workspace)
 
+        # Assert
         assert [(s.project, s.provisioned) for s in status.stores] == [
             ("alpha", True),
             ("beta", False),
@@ -120,6 +125,7 @@ class TestWhatTheWorkspaceHolds:
     def test_a_store_the_manifest_never_heard_of_is_still_reported(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         # Hiding a directory full of fetched objects because a manifest
         # override stopped listing it makes the report untrustworthy.
         layout = WorkspaceLayout(workspace)
@@ -129,15 +135,19 @@ class TestWhatTheWorkspaceHolds:
             manifest.projects[0],
         )
 
+        # Act
         status = report(manifest).perform(workspace, cwd=workspace)
 
+        # Assert
         assert [s.project for s in status.stores] == ["alpha", "beta", "gamma"]
 
     def test_a_fresh_workspace_has_no_branch_sets(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange / Act
         status = report(manifest).perform(workspace, cwd=workspace)
 
+        # Assert
         assert status.branch_sets == ()
         assert status.active is None
 
@@ -146,11 +156,14 @@ class TestBranchSets:
     def test_worktrees_across_projects_form_one_branch_set(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         add_worktree(workspace, "alpha", "fix-ice", "-b", "fix/ice", "upstream/main")
         add_worktree(workspace, "beta", "fix-ice", "-b", "fix/ice", "upstream/main")
 
+        # Act
         status = report(manifest).perform(workspace, cwd=workspace)
 
+        # Assert
         assert len(status.branch_sets) == 1
         assert status.branch_sets[0].name == "fix/ice"
         assert [c.project for c in status.branch_sets[0].checkouts] == [
@@ -161,13 +174,16 @@ class TestBranchSets:
     def test_checkouts_are_in_manifest_order_whatever_j_was(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         # Six projects queried at once must not let the scheduler pick
         # the order they are printed in.
         add_worktree(workspace, "beta", "fix-ice", "-b", "fix/ice", "upstream/main")
         add_worktree(workspace, "alpha", "fix-ice", "-b", "fix/ice", "upstream/main")
 
+        # Act
         status = report(manifest).perform(workspace, cwd=workspace, jobs=4)
 
+        # Assert
         assert [c.project for c in status.branch_sets[0].checkouts] == [
             "alpha",
             "beta",
@@ -176,83 +192,105 @@ class TestBranchSets:
     def test_a_detached_checkout_reports_no_branch(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         # A project not yet enrolled sits on its pinned base ref.
         add_worktree(workspace, "alpha", "fix-ice", "--detach", "upstream/main")
 
+        # Act
         checkout = report(manifest).perform(workspace, cwd=workspace).branch_sets[0]
 
+        # Assert
         assert checkout.checkouts[0].branch is None
 
     def test_the_active_branch_set_is_the_one_the_user_stands_in(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         path = add_worktree(
             workspace, "alpha", "fix-ice", "-b", "fix/ice", "upstream/main"
         )
 
+        # Act
         status = report(manifest).perform(workspace, cwd=path)
 
+        # Assert
         assert status.active == "fix/ice"
 
     def test_standing_in_the_root_makes_none_of_them_active(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         add_worktree(workspace, "alpha", "fix-ice", "-b", "fix/ice", "upstream/main")
 
+        # Act / Assert
         assert report(manifest).perform(workspace, cwd=workspace).active is None
 
 
 class TestPerProjectGitState:
     def test_a_clean_checkout_is_not_dirty(self, manifest: Manifest, workspace: Path):
+        # Arrange
         add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
 
+        # Act
         checkout = _only(report(manifest).perform(workspace, cwd=workspace))
 
+        # Assert
         assert checkout.dirty is False
         assert len(checkout.head) == 40
 
     def test_a_modified_tracked_file_is_dirty(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
         (path / "README").write_text("changed")
 
+        # Act / Assert
         assert _only(report(manifest).perform(workspace, cwd=workspace)).dirty
 
     def test_an_untracked_file_alone_is_not_dirty(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         # A rebase refuses to run on a dirty worktree, and an untracked scratch
         # file blocks no rebase. Reporting it as dirty would cry wolf.
         path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
         (path / "scratch.txt").write_text("notes")
 
+        # Act / Assert
         assert _only(report(manifest).perform(workspace, cwd=workspace)).dirty is False
 
     def test_local_commits_show_as_ahead_of_upstream(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         path = add_worktree(workspace, "alpha", "main", "-b", "main", "upstream/main")
         commit(path, "work")
 
+        # Act
         tracking = _only(report(manifest).perform(workspace, cwd=workspace)).tracking
 
+        # Assert
         assert [(t.remote, t.ahead, t.behind) for t in tracking] == [("upstream", 1, 0)]
 
     def test_a_remote_that_never_heard_of_the_branch_reports_nothing(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         # Not an error, and not a pair of zeros either: "never pushed" and "in
         # sync" are different answers.
         add_worktree(workspace, "alpha", "fix-ice", "-b", "fix/ice", "upstream/main")
 
+        # Act / Assert
         assert _only(report(manifest).perform(workspace, cwd=workspace)).tracking == ()
 
     def test_a_detached_checkout_is_compared_against_nothing(
         self, manifest: Manifest, workspace: Path
     ):
+        # Arrange
         add_worktree(workspace, "alpha", "fix-ice", "--detach", "upstream/main")
 
+        # Act / Assert
         assert _only(report(manifest).perform(workspace, cwd=workspace)).tracking == ()
 
 
@@ -271,19 +309,25 @@ class TestOneBrokenProjectDoesNotHideTheRest:
     def test_the_failure_is_attributed_to_its_project(
         self, manifest: Manifest, broken: Path
     ):
+        # Arrange / Act
         status = report(manifest).perform(broken, cwd=broken)
 
         failed = {s.project: s.error for s in status.stores if s.error is not None}
+
+        # Assert
         assert list(failed) == ["beta"]
         assert "git" in failed["beta"]
 
     def test_the_readable_projects_are_still_reported(
         self, manifest: Manifest, broken: Path
     ):
+        # Arrange
         add_worktree(broken, "alpha", "main", "-b", "main", "upstream/main")
 
+        # Act
         status = report(manifest).perform(broken, cwd=broken)
 
+        # Assert
         assert [c.project for c in status.branch_sets[0].checkouts] == ["alpha"]
 
 
@@ -303,29 +347,38 @@ class TestAStaleRegistration:
         return workspace
 
     def test_the_project_still_reads_as_healthy(self, manifest: Manifest, stale: Path):
+        # Arrange / Act
         status = report(manifest).perform(stale, cwd=stale)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
+
+        # Assert
         assert store.error is None
         assert store.provisioned
 
     def test_the_registration_is_reported_where_it_belongs(
         self, manifest: Manifest, stale: Path
     ):
+        # Arrange / Act
         status = report(manifest).perform(stale, cwd=stale)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
         (registration,) = store.stale
+
+        # Assert
         assert registration.path.name == "alpha"  # the branch-set dir removed above
 
     def test_the_remedy_is_the_full_command_against_the_store(
         self, manifest: Manifest, stale: Path
     ):
+        # Arrange / Act
         # Runnable as printed; the why is recorded on `_stale_registration`.
         status = report(manifest).perform(stale, cwd=stale)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
         (registration,) = store.stale
+
+        # Assert
         assert registration.remedy == (
             f"git -C {WorkspaceLayout(stale).object_store('alpha')} worktree prune"
         )
@@ -333,6 +386,7 @@ class TestAStaleRegistration:
     def test_the_moved_case_hint_carries_the_store_too(
         self, manifest: Manifest, stale: Path
     ):
+        # Arrange / Act
         # The repair inside the fact is the same command for the same
         # reason: a bare `git worktree repair <its new path>` runs on
         # whatever repository the reader stands in, and does not find a
@@ -342,6 +396,8 @@ class TestAStaleRegistration:
 
         (store,) = (s for s in status.stores if s.project == "alpha")
         (registration,) = store.stale
+
+        # Assert
         assert registration.fact == (
             "the directory is gone from it (if the worktree was moved rather "
             "than deleted, "
@@ -350,30 +406,37 @@ class TestAStaleRegistration:
         )
 
     def test_no_branch_set_is_reported_for_it(self, manifest: Manifest, stale: Path):
+        # Arrange / Act
         # A branch-set row would describe a directory that is not there;
         # the registration belongs to the project, not to the set.
         status = report(manifest).perform(stale, cwd=stale)
 
+        # Assert
         assert status.branch_sets == ()
         assert status.active is None
 
     def test_a_live_sibling_checkout_is_unaffected(
         self, manifest: Manifest, stale: Path
     ):
+        # Arrange
         # The queries that would enter the stale worktree are skipped, not
         # the ones for the rest of the store. The sibling sits at another
         # path: the registration blocks only recreating over the stale one.
         add_worktree(stale, "alpha", "other", "-b", "other", "upstream/main")
 
+        # Act
         status = report(manifest).perform(stale, cwd=stale)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
+
+        # Assert
         assert len(store.stale) == 1
         assert [c.project for c in status.branch_sets[0].checkouts] == ["alpha"]
 
     def test_a_stranger_worktree_is_not_reported_even_when_stale(
         self, manifest: Manifest, workspace: Path, tmp_path: Path
     ):
+        # Arrange
         # `branch_sets_of` drops live checkouts that are not one directory
         # under the root: this report describes the workspace, not everything
         # git knows. The same rule applies to stale registrations, or a
@@ -393,9 +456,12 @@ class TestAStaleRegistration:
         )
         subprocess.run(["rm", "-rf", str(outside)], check=True)
 
+        # Act
         status = report(manifest).perform(workspace, cwd=workspace)
 
         (alpha,) = (s for s in status.stores if s.project == "alpha")
+
+        # Assert
         assert alpha.stale == ()
 
 
@@ -416,20 +482,26 @@ class TestARegistrationWhoseDirectoryIsStillThere:
         return workspace
 
     def test_it_is_not_called_gone(self, manifest: Manifest, displaced: Path):
+        # Arrange / Act
         status = report(manifest).perform(displaced, cwd=displaced)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
         (registration,) = store.stale
+
+        # Assert
         assert registration.fact == (
             "the checkout is still in the directory, but the registration "
             "does not point at it"
         )
 
     def test_the_remedy_is_repair_not_prune(self, manifest: Manifest, displaced: Path):
+        # Arrange / Act
         status = report(manifest).perform(displaced, cwd=displaced)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
         (registration,) = store.stale
+
+        # Assert
         assert registration.remedy == (
             f"git -C {WorkspaceLayout(displaced).object_store('alpha')} "
             f"worktree repair {displaced / 'main' / 'alpha'}"
@@ -450,6 +522,7 @@ class TestARegistrationWhoseDirectoryIsStillThere:
     def test_a_locked_one_is_reported_stale_not_entered(
         self, manifest: Manifest, displaced_and_locked: Path
     ):
+        # Arrange / Act
         # Of the deadness tests in `_dead`, only the `.git` one catches this
         # entry. Read as live, the project dies inside the checkout with
         # `not a git repository`.
@@ -458,6 +531,8 @@ class TestARegistrationWhoseDirectoryIsStillThere:
         )
 
         (store,) = (s for s in status.stores if s.project == "alpha")
+
+        # Assert
         assert store.error is None
         (registration,) = store.stale
         assert registration.fact == (
@@ -468,6 +543,7 @@ class TestARegistrationWhoseDirectoryIsStillThere:
     def test_a_locked_one_is_repaired_like_the_unlocked_one(
         self, manifest: Manifest, displaced_and_locked: Path
     ):
+        # Arrange / Act
         # The same brokenness, the same remedy: repair reconnects under a
         # lock - the lock survives it - where unlock + prune would take the
         # live checkout with the registration.
@@ -477,6 +553,8 @@ class TestARegistrationWhoseDirectoryIsStillThere:
 
         (store,) = (s for s in status.stores if s.project == "alpha")
         (registration,) = store.stale
+
+        # Assert
         assert registration.remedy == (
             f"git -C {WorkspaceLayout(displaced_and_locked).object_store('alpha')} "
             f"worktree repair {displaced_and_locked / 'main' / 'alpha'}"
@@ -508,9 +586,12 @@ class TestALockedAndMissingWorktree:
     def test_it_is_reported_stale_not_entered(
         self, manifest: Manifest, locked_and_missing: Path
     ):
+        # Arrange / Act
         status = report(manifest).perform(locked_and_missing, cwd=locked_and_missing)
 
         (store,) = (s for s in status.stores if s.project == "alpha")
+
+        # Assert
         assert store.error is None
         (registration,) = store.stale
         assert registration.fact == (

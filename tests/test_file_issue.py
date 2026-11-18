@@ -245,12 +245,12 @@ class TestTheDraft:
 
 class TestRefusals:
     def test_an_unknown_form_lists_the_known_ones(self, root):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError, match="Known forms: bug-report"):
             use_case().perform(root, SET, PROJECT, "bug", profile=Profile.RELEASE)
 
     def test_a_project_not_in_the_branch_set_is_named(self, root):
-        # Act / Assert
+        # Arrange / Act / Assert
         with pytest.raises(PreconditionError, match="not checked out"):
             use_case().perform(
                 root, "other", PROJECT, "bug-report", profile=Profile.RELEASE

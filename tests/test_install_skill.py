@@ -45,7 +45,7 @@ COMMANDS = dict(_commands(get_command(cli)))
 
 class TestInstallSkill:
     def test_a_fresh_directory_gets_the_skill(self, tmp_path: Path):
-        # Act
+        # Arrange / Act
         target, outcome = _install().perform(tmp_path)
 
         # Assert
@@ -90,11 +90,11 @@ class TestInstallSkill:
 
 class TestBundledSkill:
     def test_the_name_matches_the_directory_it_is_installed_into(self):
-        # Act / Assert: the Agent Skills format requires the two to match.
+        # Arrange / Act / Assert: the Agent Skills format requires the two to match.
         assert _frontmatter()["name"] == SKILL_NAME
 
     def test_the_description_fits_the_agent_skills_limit(self):
-        # Act
+        # Arrange / Act
         description = _frontmatter()["description"]
 
         # Assert
@@ -128,13 +128,13 @@ class TestBundledSkill:
         assert listed == with_json
 
     def test_the_schema_it_tells_agents_to_pin_is_the_current_one(self):
-        # Act / Assert
+        # Arrange / Act / Assert
         assert f"Stop if `schema` is not `{SCHEMA}`" in SKILL
 
 
 class TestCli:
     def test_show_prints_the_skill_verbatim(self):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["skill", "show"])
 
         # Assert
@@ -142,7 +142,7 @@ class TestCli:
         assert result.stdout == SKILL
 
     def test_install_writes_into_the_named_directory(self, tmp_path: Path):
-        # Act
+        # Arrange / Act
         result = runner.invoke(cli, ["skill", "install", "--dir", str(tmp_path)])
 
         # Assert
