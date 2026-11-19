@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterator
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -948,6 +949,31 @@ third_party = []
 """
 
 
+def git_output(repo: Path, *args: str) -> str:
+    return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+
+def successful_command(*args: str) -> str:
+    result = runner.invoke(cli, list(args), terminal_width=220)
+    assert result.exit_code == 0, (result.output, result.exception)
+    return result.stdout
+
+
+@dataclass(frozen=True)
+class DependencyWorkspace:
+    upstream: Path
+    workspace_pin: str
+    upstream_commit: str
+    record: Path
+    journal: Path
+    main_dependency: Path
+
+
+SELECT_LLVM = ("deps", "set", "compiler", "llvm-project")
+RESET_LLVM = ("deps", "reset", "compiler", "llvm-project")
+LLVM_LINK = Path("third_party/llvm-project")
+
+
 class TestBuild:
     """`cjdev build`: the branch set is where you stand, not a flag."""
 
@@ -1120,29 +1146,17 @@ class TestBuild:
         assert "git ls-remote" in log
         assert "git fetch --quiet --depth 1" in log
 
-    @pytest.mark.usefixtures("git_available")
-    def test_dependency_selection_follows_only_its_branch_set(
-        self, branch_set: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    @pytest.fixture
+    def deps_workspace(
+        self, branch_set: Path, monkeypatch: pytest.MonkeyPatch, git_available
+    ) -> DependencyWorkspace:
         layout = WorkspaceLayout(branch_set)
         fork = branch_set / "upstreams/fork"
         upstream = branch_set / "upstreams/upstream"
-        fork_url, url = make_upstream(fork), make_upstream(upstream)
-
-        def git(repo, *args):
-            return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
-
-        def advance():
-            git(upstream, "commit", "--allow-empty", "-m", "advance")
-            return git(upstream, "rev-parse", "HEAD")
-
-        def command(*args):
-            result = runner.invoke(cli, list(args), terminal_width=220)
-            assert result.exit_code == 0, (result.output, result.exception)
-            return result.stdout
-
-        old = git(fork, "rev-parse", "HEAD")
-        first = advance()
+        fork_url = make_upstream(fork)
+        make_upstream(upstream)
+        git_output(upstream, "commit", "--allow-empty", "-m", "advance")
+        old = git_output(fork, "rev-parse", "HEAD")
         Path(layout.config_file).write_text(
             BUILD_CONFIG.replace("third_party = []", "")
             + "[[build_units.compiler.third_party]]\n"
@@ -1153,58 +1167,145 @@ class TestBuild:
         task = Path(layout.worktree("task", "cangjie_compiler"))
         task.mkdir(parents=True)
         (task / "build.py").write_text(SCRATCH_SCRIPT)
-        dependency = Path("third_party/llvm-project")
         for tree in (main, task):
-            (tree / dependency.parent).mkdir()
-        command("build", "compiler")
+            (tree / LLVM_LINK.parent).mkdir()
+        successful_command("build", "compiler")
         monkeypatch.chdir(task)
         record = Path(layout.record("task"))
         record.parent.mkdir(exist_ok=True)
         record.write_text('[task]\nhome = "compiler"\n[extension]\nkeep = true\n')
-        select = ("deps", "set", "compiler", "llvm-project")
-        workspace_log = Path(layout.command_log)
-        before_record, before_log = record.read_bytes(), workspace_log.read_bytes()
-        preview = command(*select, "preview", "--upstream", url, "--dry-run")
-        assert "preview" in preview
-        assert record.read_bytes() == before_record
-        assert workspace_log.read_bytes() == before_log
-        command(*select, old)
-        journal = workspace_log.read_text()
+        return DependencyWorkspace(
+            upstream,
+            old,
+            git_output(upstream, "rev-parse", "HEAD"),
+            record,
+            Path(layout.command_log),
+            main / LLVM_LINK,
+        )
+
+    @pytest.mark.parametrize("reset", [False, True], ids=["set", "reset"])
+    def test_dependency_preview_preserves_record_and_journal(
+        self, deps_workspace, reset
+    ):
+        # Arrange
+        ws = deps_workspace
+        successful_command(*SELECT_LLVM, "main", "--upstream", ws.upstream.as_uri())
+        args = RESET_LLVM if reset else (*SELECT_LLVM, "preview")
+        expected_ref = ws.workspace_pin[:8] if reset else "preview"
+        before_record, before_log = ws.record.read_bytes(), ws.journal.read_bytes()
+
+        # Act
+        preview = successful_command(*args, "--dry-run")
+
+        # Assert
+        assert expected_ref in preview
+        assert ws.record.read_bytes() == before_record
+        assert ws.journal.read_bytes() == before_log
+
+    def test_ref_only_selection_records_the_change_and_inherits_upstream(
+        self, deps_workspace
+    ):
+        # Arrange
+        ws = deps_workspace
+
+        # Act
+        successful_command(*SELECT_LLVM, ws.workspace_pin)
+
+        # Assert
+        journal = ws.journal.read_text()
         assert "deps set compiler llvm-project" in journal
         assert "replace .cjdev/state/task.toml" in journal
-        assert "upstream =" not in record.read_text()
-        command(*select, "main", "--upstream", url)
-        command("build", "compiler", "--dry-run")
-        assert not dependency.exists()
-        command("build", "compiler")
-        assert git(dependency, "rev-parse", "HEAD") == first
-        assert first[:8] in command("deps")
-        second = advance()
-        command("build", "compiler")
-        assert git(dependency, "rev-parse", "HEAD") == second
-        command(*select, first)
-        command("build", "compiler")
-        assert git(dependency, "rev-parse", "HEAD") == first
+        assert "upstream =" not in ws.record.read_text()
 
-        missing = (upstream.parent / "unreachable").as_uri()
-        command(*select, "different", "--upstream", missing)
-        assert runner.invoke(cli, ["build", "compiler"]).exit_code == 1
-        assert first[:8] in command("deps")
-        before_record, before_log = record.read_bytes(), workspace_log.read_bytes()
-        command("deps", "reset", "compiler", "llvm-project", "--dry-run")
-        assert record.read_bytes() == before_record
-        assert workspace_log.read_bytes() == before_log
-        command("deps", "reset", "compiler", "llvm-project")
-        assert "deps reset compiler llvm-project" in workspace_log.read_text()
-        command("build", "compiler")
-        assert git(dependency, "rev-parse", "HEAD") == old
-        assert git(main / dependency, "rev-parse", "HEAD") == old
-        assert "extension" in record.read_text() and "task" in record.read_text()
-        assert "[deps" not in record.read_text()
+    def test_preview_build_leaves_dependency_unlinked(self, deps_workspace):
+        # Arrange
+        successful_command(
+            *SELECT_LLVM, "main", "--upstream", deps_workspace.upstream.as_uri()
+        )
+
+        # Act
+        successful_command("build", "compiler", "--dry-run")
+
+        # Assert
+        assert not LLVM_LINK.exists()
+
+    def test_dependency_selection_follows_only_its_branch_set(self, deps_workspace):
+        # Arrange
+        ws = deps_workspace
+        successful_command(*SELECT_LLVM, "main", "--upstream", ws.upstream.as_uri())
+
+        # Act
+        successful_command("build", "compiler")
+        listing = successful_command("deps")
+
+        # Assert
+        assert git_output(LLVM_LINK, "rev-parse", "HEAD") == ws.upstream_commit
+        assert ws.upstream_commit[:8] in listing
+        assert git_output(ws.main_dependency, "rev-parse", "HEAD") == ws.workspace_pin
+
+    @pytest.mark.parametrize("pin", [False, True], ids=["moving-ref", "pinned-sha"])
+    def test_rebuild_resolves_the_selected_ref(self, deps_workspace, pin):
+        # Arrange
+        ws = deps_workspace
+        successful_command(*SELECT_LLVM, "main", "--upstream", ws.upstream.as_uri())
+        successful_command("build", "compiler")
+        git_output(ws.upstream, "commit", "--allow-empty", "-m", "advance again")
+        expected = git_output(ws.upstream, "rev-parse", "HEAD")
+        if pin:
+            successful_command(*SELECT_LLVM, ws.upstream_commit)
+            expected = ws.upstream_commit
+
+        # Act
+        successful_command("build", "compiler")
+
+        # Assert
+        assert git_output(LLVM_LINK, "rev-parse", "HEAD") == expected
+
+    def test_unreachable_selection_keeps_previous_link_and_fails_build(
+        self, deps_workspace
+    ):
+        # Arrange
+        ws = deps_workspace
+        successful_command(*SELECT_LLVM, "main", "--upstream", ws.upstream.as_uri())
+        successful_command("build", "compiler")
+        missing = (ws.upstream.parent / "unreachable").as_uri()
+        successful_command(*SELECT_LLVM, "different", "--upstream", missing)
+
+        # Act
+        result = runner.invoke(cli, ["build", "compiler"])
+        listing = successful_command("deps")
+
+        # Assert
+        assert result.exit_code == 1
+        assert ws.upstream_commit[:8] in listing
+
+    def test_reset_restores_workspace_pin_and_preserves_other_tables(
+        self, deps_workspace
+    ):
+        # Arrange
+        ws = deps_workspace
+        successful_command(*SELECT_LLVM, "main", "--upstream", ws.upstream.as_uri())
+        successful_command("build", "compiler")
+
+        # Act
+        successful_command(*RESET_LLVM)
+        successful_command("build", "compiler")
+
+        # Assert
+        assert "deps reset compiler llvm-project" in ws.journal.read_text()
+        assert git_output(LLVM_LINK, "rev-parse", "HEAD") == ws.workspace_pin
+        record = ws.record.read_text()
+        assert "[extension]" in record and "[task]" in record
+        assert "[deps" not in record
 
     def test_unknown_dependency_leaves_the_record_untouched(self, branch_set: Path):
+        # Arrange
         record = Path(WorkspaceLayout(branch_set).record("main"))
+
+        # Act
         result = runner.invoke(cli, ["deps", "set", "compiler", "missing", "main"])
+
+        # Assert
         assert isinstance(result.exception, PreconditionError)
         assert "Known dependencies" in str(result.exception)
         assert not record.exists()
