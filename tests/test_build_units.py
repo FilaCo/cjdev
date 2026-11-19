@@ -722,6 +722,8 @@ class FakeFileSystem:
         del text
         self.written.append(path)
 
+    replace_text = write_text
+
     def remove(self, path: PurePath) -> None:
         self.removed.append(path)
 

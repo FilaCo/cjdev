@@ -18,6 +18,7 @@ from cjdev.application.commit_branch_set import CommitBranchSet
 from cjdev.application.file_issue import FileIssue
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.install_skill import InstallSkill
+from cjdev.application.manage_dependencies import ManageDependencies
 from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Forge, Prompt
@@ -85,7 +86,7 @@ from cjdev.infra.issue_template import TEMPLATE_DIR, load_form, template_names
 from cjdev.infra.journal import CommandJournal, open_journal
 from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
-from cjdev.infra.record import read_record, save_record
+from cjdev.infra.record import RecordWriter, read_record
 from cjdev.infra.skill import load_bundled_skill
 
 
@@ -323,15 +324,29 @@ class Container:
             ),
         )
 
+    def _record_writer(self, dry_run: bool) -> RecordWriter:
+        return RecordWriter(
+            self.file_system(dry_run=dry_run), no_lock if dry_run else file_lock
+        )
+
+    def manage_dependencies(
+        self, root: Path, branch_set: str, *, dry_run: bool = False
+    ) -> ManageDependencies:
+        return ManageDependencies(
+            WorkspaceLayout(root),
+            branch_set,
+            self.layered(root),
+            read_record,
+            self._record_writer(dry_run).edit_dependency,
+        )
+
     def branch_set_profile(
         self, *, dry_run: bool = False, start: Path
     ) -> BranchSetProfile:
         return BranchSetProfile(
             manifest=lambda: self.manifest(start),
             read=read_record,
-            save=(lambda _record, path: self.emit(f"write {path}"))
-            if dry_run
-            else save_record,
+            save=self._record_writer(dry_run).save,
             environment=self.environment(start),
         )
 
@@ -494,9 +509,7 @@ class Container:
             forge=self.forge(dry_run=dry_run),
             fetch=fetch_upstream,
             read=read_record,
-            save=(lambda _record, path: self.emit(f"write {path}"))
-            if dry_run
-            else save_record,
+            save=self._record_writer(dry_run).save,
             issue_home=lambda: load_issue_home(start),
         )
 

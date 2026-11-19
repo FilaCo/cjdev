@@ -74,7 +74,8 @@ cjdev deps
 `deps` shows the requested source and ref alongside the linked commit, offline.
 Use a full commit SHA to pin a build. Omit `--upstream` to keep the selected
 repository. Run `cjdev deps reset compiler llvm-project` to restore the workspace
-selection on the next build.
+selection on the next build. Both `set` and `reset` accept `--dry-run` to preview
+the resulting selection.
 
 ### Task workflow
 

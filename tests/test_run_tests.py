@@ -56,6 +56,8 @@ class FakeFileSystem:
 
     def write_text(self, path: PurePath, text: str) -> None: ...
 
+    replace_text = write_text
+
     def remove(self, path: PurePath) -> None:
         self.removed.append(path)
 

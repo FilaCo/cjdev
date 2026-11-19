@@ -1162,7 +1162,16 @@ class TestBuild:
         record.parent.mkdir(exist_ok=True)
         record.write_text('[task]\nhome = "compiler"\n[extension]\nkeep = true\n')
         select = ("deps", "set", "compiler", "llvm-project")
+        workspace_log = Path(layout.command_log)
+        before_record, before_log = record.read_bytes(), workspace_log.read_bytes()
+        preview = command(*select, "preview", "--upstream", url, "--dry-run")
+        assert "preview" in preview
+        assert record.read_bytes() == before_record
+        assert workspace_log.read_bytes() == before_log
         command(*select, old)
+        journal = workspace_log.read_text()
+        assert "deps set compiler llvm-project" in journal
+        assert "replace .cjdev/state/task.toml" in journal
         assert "upstream =" not in record.read_text()
         command(*select, "main", "--upstream", url)
         command("build", "compiler", "--dry-run")
@@ -1181,7 +1190,12 @@ class TestBuild:
         command(*select, "different", "--upstream", missing)
         assert runner.invoke(cli, ["build", "compiler"]).exit_code == 1
         assert first[:8] in command("deps")
+        before_record, before_log = record.read_bytes(), workspace_log.read_bytes()
+        command("deps", "reset", "compiler", "llvm-project", "--dry-run")
+        assert record.read_bytes() == before_record
+        assert workspace_log.read_bytes() == before_log
         command("deps", "reset", "compiler", "llvm-project")
+        assert "deps reset compiler llvm-project" in workspace_log.read_text()
         command("build", "compiler")
         assert git(dependency, "rev-parse", "HEAD") == old
         assert git(main / dependency, "rev-parse", "HEAD") == old

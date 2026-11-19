@@ -6,17 +6,17 @@ cjdev added beside it.
 """
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path, PurePath
-from tempfile import NamedTemporaryFile
 from typing import Any
 
 import tomlkit
 
+from cjdev.application.ports import FileSystem
 from cjdev.domain.build import Profile
 from cjdev.domain.dependencies import Selection
 from cjdev.domain.record import BranchSetRecord, Task
 from cjdev.errors import PreconditionError
-from cjdev.infra.locks import file_lock
 
 HEADER = "Written by cjdev: what it remembers about this branch set."
 
@@ -130,49 +130,49 @@ def _dependencies(document: Any, path: PurePath) -> dict[tuple[str, str], Select
     return result
 
 
-def _update(path: PurePath, render: Callable[[], str]) -> None:
-    # Profile, task and dependency writers share the record. Hold the lock
-    # across the read as well as the replacement so independent edits compose.
-    with file_lock(path.with_suffix(".lock")):
-        text = render()
-        with NamedTemporaryFile(
-            dir=path.parent, delete=False, mode="w", encoding="utf-8"
-        ) as staged:
-            temp = Path(staged.name)
-            try:
-                staged.write(text)
-                staged.flush()
-                temp.replace(path)
-            finally:
-                temp.unlink(missing_ok=True)
+class RecordWriter:
+    """Serialize edits sharing a branch-set record and publish them atomically."""
 
+    def __init__(
+        self, fs: FileSystem, lock: Callable[[PurePath], AbstractContextManager[None]]
+    ) -> None:
+        self._fs = fs
+        self._lock = lock
 
-def save_record(record: BranchSetRecord, path: PurePath) -> None:
-    _update(path, lambda: render_record(record, path))
+    def save(self, record: BranchSetRecord, path: PurePath) -> None:
+        self._fs.mkdir(path.parent)
+        with self._lock(path.with_suffix(".lock")):
+            self._fs.replace_text(path, render_record(record, path))
 
-
-def change_dependency(
-    path: PurePath, unit: str, name: str, ref: str | None, upstream: str | None
-) -> None:
-    def render() -> str:
-        current = _read(path)
-        document: Any = _parse(current, path) if current else tomlkit.document()
-        if not current:
-            document.add(tomlkit.comment(HEADER))
-        _dependencies(document, path)
-        deps = document.setdefault("deps", {})
-        sources = deps.setdefault(unit, {})
-        if ref is None:
-            sources.pop(name, None)
-            if not sources:
-                del deps[unit]
-            if not deps:
-                del document["deps"]
-        else:
-            choice = sources.setdefault(name, {})
-            choice["ref"] = ref
-            if upstream is not None:
-                choice["upstream"] = upstream
-        return tomlkit.dumps(document)
-
-    _update(path, render)
+    def edit_dependency(
+        self,
+        path: PurePath,
+        unit: str,
+        name: str,
+        decide: Callable[[Selection | None], Selection | None],
+    ) -> Selection | None:
+        self._fs.mkdir(path.parent)
+        with self._lock(path.with_suffix(".lock")):
+            current = _read(path)
+            document: Any = _parse(current, path) if current else tomlkit.document()
+            previous = _dependencies(document, path).get((unit, name))
+            selected = decide(previous)
+            if selected == previous:
+                return selected
+            if not current:
+                document.add(tomlkit.comment(HEADER))
+            deps = document.setdefault("deps", {})
+            sources = deps.setdefault(unit, {})
+            if selected is None:
+                del sources[name]
+                if not sources:
+                    del deps[unit]
+                if not deps:
+                    del document["deps"]
+            else:
+                choice = sources.setdefault(name, {})
+                choice["ref"] = selected.ref
+                if selected.upstream is not None:
+                    choice["upstream"] = selected.upstream
+            self._fs.replace_text(path, tomlkit.dumps(document))
+            return selected

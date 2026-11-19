@@ -4,8 +4,9 @@ import os
 import shutil
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path, PurePath
+from tempfile import NamedTemporaryFile
 from typing import final
 
 from cjdev.application.ports import FileSystem
@@ -19,6 +20,14 @@ class HostFileSystem:
 
     def write_text(self, path: PurePath, text: str) -> None:
         Path(path).write_text(text, encoding="utf-8")
+
+    def replace_text(self, path: PurePath, text: str) -> None:
+        with ExitStack() as cleanup:
+            with NamedTemporaryFile(dir=path.parent, delete=False) as staged:
+                temporary = Path(staged.name)
+                cleanup.callback(temporary.unlink, missing_ok=True)
+                staged.write(text.encode("utf-8"))
+            temporary.replace(path)
 
     def remove(self, path: PurePath) -> None:
         target = Path(path)
@@ -70,6 +79,9 @@ class DryRunFileSystem:
     def write_text(self, path: PurePath, text: str) -> None:
         self._emit(f"write {path} ({len(text)} bytes)")
 
+    def replace_text(self, path: PurePath, text: str) -> None:
+        self._emit(f"replace {path} ({len(text.encode())} bytes)")
+
     def remove(self, path: PurePath) -> None:
         self._emit(f"rm -rf {path}")
 
@@ -113,6 +125,10 @@ class TracedFileSystem:
     def write_text(self, path: PurePath, text: str) -> None:
         with self._recorded(f"writing {path.name}", f"write {self._at(path)}"):
             self._inner.write_text(path, text)
+
+    def replace_text(self, path: PurePath, text: str) -> None:
+        with self._recorded(f"writing {path.name}", f"replace {self._at(path)}"):
+            self._inner.replace_text(path, text)
 
     def remove(self, path: PurePath) -> None:
         with self._recorded(f"removing {path.name}", f"rm -rf {self._at(path)}"):

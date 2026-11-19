@@ -4,12 +4,8 @@ from rich.table import Column, Table
 from rich.text import Text
 from typer import Option, Typer
 
-from cjdev.application.third_party import observe
+from cjdev.application.manage_dependencies import DependencyRequest, DependencyRow
 from cjdev.application.workspace import require_branch_set, require_root
-from cjdev.domain.dependencies import effective
-from cjdev.domain.layout import WorkspaceLayout
-from cjdev.errors import PreconditionError
-from cjdev.infra.record import change_dependency, read_record
 
 from ._console import console
 from ._context import CjdevCommand, CjdevContext, CjdevGroup
@@ -28,12 +24,7 @@ def _current() -> tuple[Path, str]:
     return root, require_branch_set(root, cwd)
 
 
-def _show(
-    ctx: CjdevContext, root: Path, branch: str, only: tuple[str, str] | None = None
-) -> None:
-    layout = WorkspaceLayout(root)
-    choices = read_record(layout.record(branch)).dependencies
-    layered = ctx.obj.layered(root)
+def _show(rows: list[DependencyRow]) -> None:
     table = Table(
         "Unit",
         "Dependency",
@@ -43,25 +34,15 @@ def _show(
         Column("Set by", overflow="fold"),
         padding=(0, 0),
     )
-    for unit, layers in zip(
-        layered.effective.build_units, layered.build_units, strict=True
-    ):
-        for source, seen in zip(
-            unit.third_party, observe(layout, branch, unit), strict=True
-        ):
-            key = (unit.name, source.name)
-            if only and key != only:
-                continue
-            selected = effective(unit.name, source, choices)
-            origin = branch if key in choices else layers.third_party.layer
-            table.add_row(
-                Text(unit.name),
-                Text(source.name),
-                Text(selected.upstream),
-                Text(selected.ref),
-                Text(seen.commit[:8] if seen.commit else "—"),
-                Text(origin),
-            )
+    for row in rows:
+        table.add_row(
+            Text(row.unit),
+            Text(row.source.name),
+            Text(row.source.upstream),
+            Text(row.source.ref),
+            Text(row.linked[:8] if row.linked else "—"),
+            Text(row.origin),
+        )
     console.print(table)
 
 
@@ -70,30 +51,25 @@ def deps(ctx: CjdevContext) -> None:
     """Show requested sources and linked commits, without contacting upstream."""
     if ctx.invoked_subcommand is None:
         begin("deps")
-        _show(ctx, *_current())
+        _show(ctx.obj.manage_dependencies(*_current()).run())
 
 
-def _change(
-    ctx: CjdevContext, unit: str, dependency: str, ref: str | None, upstream: str | None
-) -> None:
+def _change(ctx: CjdevContext, request: DependencyRequest, dry_run: bool) -> None:
     root, branch = _current()
-    sources = ctx.obj.manifest(root).unit(unit).third_party
-    matches = [source for source in sources if source.name == dependency]
-    if not matches:
-        known = ", ".join(source.name for source in sources) or "none"
-        raise PreconditionError(
-            f"Unknown dependency {dependency} for {unit}. Known dependencies: {known}."
-        )
-    if len(matches) > 1:
-        raise PreconditionError(
-            f"Multiple dependencies in {unit} are named {dependency}."
-        )
-    if any(value is not None and not value.strip() for value in (ref, upstream)):
-        raise PreconditionError("A dependency ref and upstream must be non-empty.")
-    change_dependency(
-        WorkspaceLayout(root).record(branch), unit, dependency, ref, upstream
-    )
-    _show(ctx, root, branch, (unit, dependency))
+    if not dry_run:
+        args = [
+            "deps",
+            "set" if request.ref is not None else "reset",
+            request.unit,
+            request.name,
+        ]
+        if request.ref is not None:
+            args.append(request.ref)
+        if request.upstream is not None:
+            args.extend(["--upstream", request.upstream])
+        ctx.obj.journal(root, args)
+    use_case = ctx.obj.manage_dependencies(root, branch, dry_run=dry_run)
+    _show(use_case.run(request))
 
 
 @cli.command("set", cls=CjdevCommand)
@@ -102,17 +78,23 @@ def select(
     unit: str,
     dependency: str,
     ref: str,
+    dry_run: bool = Option(False, "--dry-run", help="Preview the selection."),
     upstream: str | None = Option(
         None, "--upstream", help="Git URL. Omit to keep the current source."
     ),
 ) -> None:
     """Select a branch, tag or full commit SHA for subsequent builds."""
     begin("deps set")
-    _change(ctx, unit, dependency, ref, upstream)
+    _change(ctx, DependencyRequest(unit, dependency, ref, upstream), dry_run)
 
 
 @cli.command(cls=CjdevCommand)
-def reset(ctx: CjdevContext, unit: str, dependency: str) -> None:
+def reset(
+    ctx: CjdevContext,
+    unit: str,
+    dependency: str,
+    dry_run: bool = Option(False, "--dry-run", help="Preview the inherited selection."),
+) -> None:
     """Restore the inherited upstream and ref for subsequent builds."""
     begin("deps reset")
-    _change(ctx, unit, dependency, None, None)
+    _change(ctx, DependencyRequest(unit, dependency, None), dry_run)

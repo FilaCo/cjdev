@@ -23,7 +23,7 @@ from cjdev.errors import PreconditionError
 from cjdev.infra.executor.host import HostExecutor
 from cjdev.infra.filesystem import HostFileSystem
 from cjdev.infra.locks import no_lock
-from cjdev.infra.record import read_record, render_record, save_record
+from cjdev.infra.record import RecordWriter, read_record, render_record
 
 UNITS = ("compiler", "runtime", "stdlib")
 
@@ -106,7 +106,7 @@ def profiles() -> BranchSetProfile:
     return BranchSetProfile(
         manifest=lambda: MANIFEST,
         read=read_record,
-        save=save_record,
+        save=RecordWriter(HostFileSystem(), no_lock).save,
     )
 
 
