@@ -241,7 +241,11 @@ class TestStart:
         monkeypatch: pytest.MonkeyPatch,
     ):
         # Arrange: upstream moved after the workspace was fetched.
+        store = Path(WorkspaceLayout(root).object_store("cangjie_test"))
+        previous = git(store, "rev-parse", "upstream/main")
+        git(store, "tag", "release", previous)
         fresh = commit(remote / "cangjie_test", "later")
+        git(remote / "cangjie_test", "tag", "release", fresh)
 
         # Act
         result = invoke(root, monkeypatch, "start", URL)
@@ -249,6 +253,7 @@ class TestStart:
         # Assert
         assert result.exit_code == 0, result.output
         assert git(checkout(root, BRANCH, "cangjie_test"), "rev-parse", "HEAD") == fresh
+        assert git(store, "rev-parse", "refs/tags/release") == previous
         assert f"cd {root / BRANCH}" in result.output
         assert forge.read == [parse_issue_url(URL)]
 

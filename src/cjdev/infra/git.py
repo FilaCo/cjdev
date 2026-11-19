@@ -275,11 +275,11 @@ class Git:
             return None
         return Tracking(remote=remote, ahead=int(parts[0]), behind=int(parts[1]))
 
-    def fetch(self, store: Path, remote: str) -> None:
+    def fetch(self, store: Path, remote: str, *, tags: bool = True) -> None:
         # --prune so a branch deleted upstream does not linger as a stale
         # remote-tracking ref and quietly serve as somebody's base.
         self._run(
-            ("fetch", "--quiet", "--prune", "--tags", remote),
+            ("fetch", "--quiet", "--prune", "--tags" if tags else "--no-tags", remote),
             cwd=store,
             what=f"fetching from {remote}",
         )
@@ -773,7 +773,8 @@ def fetch_commit(
 
 
 def fetch_upstream(executor: Executor, store: PurePath) -> None:
-    Git(executor).fetch(Path(store), UPSTREAM)
+    # Starting a task needs branch tips even if upstream has retagged a release.
+    Git(executor).fetch(Path(store), UPSTREAM, tags=False)
 
 
 def inspect_sync(executor: Executor, probe: SyncProbe) -> Drift:
