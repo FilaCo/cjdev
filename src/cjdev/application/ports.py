@@ -124,6 +124,10 @@ class FileSystem(Protocol):
 
     def write_text(self, path: PurePath, text: str) -> None: ...
 
+    def replace_text(self, path: PurePath, text: str) -> None:
+        """Atomically publish a complete file to concurrent readers."""
+        ...
+
     def remove(self, path: PurePath) -> None:
         """A file or a whole directory: callers delete what is there, and the
         distinction is the filesystem's business rather than theirs."""

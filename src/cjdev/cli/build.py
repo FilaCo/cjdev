@@ -97,9 +97,11 @@ def build(
     )
     ctx.obj.emit = progress.emit
     ctx.obj.report_step = progress.step
+    image = _image_first(ctx, root, dry_run=dry_run, verbose=verbose, out=out.display)
+    if not dry_run:
+        ctx.obj.journal(root, ["build", *(units or [])])
     profiles = ctx.obj.branch_set_profile(dry_run=dry_run, start=root)
     chosen = profiles.resolve(root, branch_set, profile)
-    image = _image_first(ctx, root, dry_run=dry_run, verbose=verbose, out=out.display)
     if image and dry_run:
         # The plan reads the image's PATH and ccache label, and there is no
         # image to read them from: guessing them would plan a build nobody
@@ -120,8 +122,6 @@ def build(
                 soft_wrap=True,
             )
         return
-    if not dry_run:
-        ctx.obj.journal(root, ["build", *(units or [])])
     use_case = ctx.obj.build_units(dry_run=dry_run, verbose=verbose, start=root)
 
     plan = use_case.plan(

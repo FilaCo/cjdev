@@ -18,6 +18,7 @@ from cjdev.application.commit_branch_set import CommitBranchSet
 from cjdev.application.file_issue import FileIssue
 from cjdev.application.init_workspace import InitWorkspace
 from cjdev.application.install_skill import InstallSkill
+from cjdev.application.manage_dependencies import ManageDependencies
 from cjdev.application.manage_environment import ManageEnvironment
 from cjdev.application.new_branch_set import NewBranchSet
 from cjdev.application.ports import Executor, FileSystem, Forge, Prompt
@@ -85,7 +86,7 @@ from cjdev.infra.issue_template import TEMPLATE_DIR, load_form, template_names
 from cjdev.infra.journal import CommandJournal, open_journal
 from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
-from cjdev.infra.record import read_record, render_record
+from cjdev.infra.record import RecordWriter, read_record
 from cjdev.infra.skill import load_bundled_skill
 
 
@@ -316,10 +317,27 @@ class Container:
             # there is nothing for a second one to collide with.
             lock=no_lock if dry_run else file_lock,
             environment=environment,
+            selections=lambda path: read_record(path).dependencies,
             resolve=lambda cwd, upstream, ref: resolve_ref(outside, cwd, upstream, ref),
             fetch=lambda into, upstream, commit: fetch_commit(
                 outside, into, upstream, commit
             ),
+        )
+
+    def _record_writer(self, dry_run: bool) -> RecordWriter:
+        return RecordWriter(
+            self.file_system(dry_run=dry_run), no_lock if dry_run else file_lock
+        )
+
+    def manage_dependencies(
+        self, root: Path, branch_set: str, *, dry_run: bool = False
+    ) -> ManageDependencies:
+        return ManageDependencies(
+            WorkspaceLayout(root),
+            branch_set,
+            self.layered(root),
+            read_record,
+            self._record_writer(dry_run).edit_dependency,
         )
 
     def branch_set_profile(
@@ -327,9 +345,8 @@ class Container:
     ) -> BranchSetProfile:
         return BranchSetProfile(
             manifest=lambda: self.manifest(start),
-            file_system=self.file_system(dry_run=dry_run),
             read=read_record,
-            render=render_record,
+            save=self._record_writer(dry_run).save,
             environment=self.environment(start),
         )
 
@@ -489,11 +506,10 @@ class Container:
         return Tasks(
             manifest=lambda: self.manifest(start),
             executor=self.executor(dry_run=dry_run, verbose=verbose),
-            file_system=self.file_system(dry_run=dry_run),
             forge=self.forge(dry_run=dry_run),
             fetch=fetch_upstream,
             read=read_record,
-            render=render_record,
+            save=self._record_writer(dry_run).save,
             issue_home=lambda: load_issue_home(start),
         )
 

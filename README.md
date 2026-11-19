@@ -62,6 +62,21 @@ cjdev sync                                # fast-forward to fresh upstream
   are in whose branch has no commits of its own. A diverged branch is reported with
   the rebase that would fix it, never rebased.
 
+To build one task with upstream LLVM while another uses a workspace-pinned fork,
+run these commands inside the task's checkout:
+
+```bash
+cjdev deps set compiler llvm-project main --upstream https://gitcode.com/Cangjie/llvm-project.git
+cjdev build compiler
+cjdev deps
+```
+
+`deps` shows the requested source and ref alongside the linked commit, offline.
+Use a full commit SHA to pin a build. Omit `--upstream` to keep the selected
+repository. Run `cjdev deps reset compiler llvm-project` to restore the workspace
+selection on the next build. Both `set` and `reset` accept `--dry-run` to preview
+the resulting selection.
+
 ### Task workflow
 
 Run `cjdev start` inside a workspace and choose **New issue**, **Existing issue**,

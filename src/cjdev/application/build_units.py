@@ -45,6 +45,7 @@ from cjdev.domain.build import (
     RunStep,
     substitute,
 )
+from cjdev.domain.dependencies import Selections
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment, Mode
 from cjdev.domain.layout import WorkspaceLayout
 from cjdev.domain.manifest import BuildUnit, Manifest
@@ -108,6 +109,7 @@ class Observed:
     homes: frozenset[PurePath] = frozenset()
     """The scratch homes under `.cjdev/build` that already exist, for every
     path found `PRESENT`: what absorbing it would replace."""
+    selections: Selections = field(default_factory=dict)
     excluded: Mapping[str, tuple[Seen, ...]] = field(default_factory=dict)
     """Per project, the symlinks at paths its store's `info/exclude` lists."""
 
@@ -288,7 +290,10 @@ def held_by_branch_set(
 
 
 def observe(
-    layout: WorkspaceLayout, branch_set: str, units: Sequence[BuildUnit]
+    layout: WorkspaceLayout,
+    branch_set: str,
+    units: Sequence[BuildUnit],
+    selections: Selections | None = None,
 ) -> Observed:
     scratch = {
         unit.name: tuple(
@@ -303,6 +308,7 @@ def observe(
         for unit in units
     }
     return Observed(
+        selections=selections or {},
         scratch=scratch,
         moved={
             unit.name: marker
@@ -493,7 +499,11 @@ def _unit_plan(
             ),
         ),
         third_party=sources.decide(
-            layout, branch_set, unit, observed.third_party.get(unit.name, ())
+            layout,
+            branch_set,
+            unit,
+            observed.third_party.get(unit.name, ()),
+            observed.selections,
         ),
         depends_on=unit.depends_on,
     )
@@ -796,6 +806,7 @@ class BuildUnits:
         environment: Environment = DEFAULT_ENVIRONMENT,
         resolve: sources.Resolve | None = None,
         fetch: sources.Fetch | None = None,
+        selections: Callable[[PurePath], Selections] | None = None,
     ) -> None:
         # A provider rather than a Manifest: the workspace layer is resolved
         # when the command runs, from where the caller stands - not when the
@@ -810,6 +821,7 @@ class BuildUnits:
         # fetching stays on this machine, with its credentials.
         self._resolve = resolve
         self._fetch = fetch
+        self._selections = selections
 
     def plan(
         self,
@@ -829,7 +841,10 @@ class BuildUnits:
             raise PreconditionError(
                 "the manifest declares no build units, so there is nothing to build."
             )
-        observed = observe(layout, branch_set, units)
+        choices = (
+            self._selections(layout.record(branch_set)) if self._selections else {}
+        )
+        observed = observe(layout, branch_set, units, choices)
         if not names:
             # A narrowing that leaves nothing keeps the selection, so that
             # `decide` names the project with no worktree and its remedy.
