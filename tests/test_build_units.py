@@ -13,6 +13,7 @@ from pathlib import Path, PurePath, PurePosixPath
 from typing import Any, final
 
 import pytest
+import yaml
 
 from cjdev.application.build_units import (
     EXCLUDE_HEADER,
@@ -909,6 +910,33 @@ REAL = unit(
 
 
 class TestAgainstARealTree:
+    def test_clangd_follows_the_built_compiler_profile(self, workspace: Path):
+        compiler = replace(REAL, project="cangjie_compiler")
+        tree = workspace / SET / compiler.project
+        tree.mkdir()
+        (tree / "build.py").write_text(
+            "from pathlib import Path\n"
+            "out = Path('build/build')\n"
+            "out.mkdir(parents=True, exist_ok=True)\n"
+            "(out / 'compile_commands.json').write_text('[]')\n"
+        )
+        build = real_build(workspace, manifest(compiler, projects=(compiler.project,)))
+        config = tree / ".clangd"
+        for profile in (Profile.RELEASE, Profile.DEBUG):
+            assert build.perform(workspace, SET, profile=profile).ok
+            flags = yaml.safe_load(config.read_text())["CompileFlags"]
+            directory = (tree / flags["CompilationDatabase"]).resolve()
+            home = WorkspaceLayout(workspace).build_dir(
+                SET, "host", profile.value, "compiler"
+            )
+            assert directory == home / "build/build"
+            assert (directory / "compile_commands.json").is_file()
+
+        custom = "CompileFlags: {Add: [-Wall]}\n"
+        config.write_text(custom)
+        assert build.perform(workspace, SET, profile=Profile.RELEASE).ok
+        assert config.read_text() == custom
+
     def test_the_artefacts_land_outside_the_worktree(self, workspace: Path):
         # Arrange
         layout = WorkspaceLayout(workspace)
