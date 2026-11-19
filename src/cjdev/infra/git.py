@@ -738,7 +738,7 @@ def resolve_ref(
         Command(
             # The peeled line has to be asked for by name: a pattern matches a
             # whole trailing path component, and `^{}` makes it another one.
-            argv=("git", "ls-remote", upstream, ref, f"{ref}^{{}}"),
+            argv=("git", "ls-remote", "--", upstream, ref, f"{ref}^{{}}"),
             cwd=Path(cwd),
             mutates=False,
             what=f"resolving {ref}",
@@ -766,7 +766,7 @@ def fetch_commit(
     what = f"fetching {directory.parent.name}"
     for argv, cwd in (
         (("init", "--quiet", directory.name), directory.parent),
-        (("fetch", "--quiet", "--depth", "1", upstream, commit), directory),
+        (("fetch", "--quiet", "--depth", "1", "--", upstream, commit), directory),
         (("checkout", "--quiet", "--detach", "FETCH_HEAD"), directory),
     ):
         executor.run(Command(argv=("git", *argv), cwd=cwd, what=what))

@@ -289,6 +289,10 @@ build clones libuv - which is why the image carries git and CA certificates. Wha
 configure would clone unchecked is a unit's `third_party` instead: fetched out here
 before the build, and linked by commit at the path the configure looks at (ADR-0027).
 
+Builds resolve each third-party source against the current branch set's selections
+(ADR-0076). The workspace supplies the defaults and the cache is shared by commit.
+`deps` reads the same selection and reports the commit linked in that worktree.
+
 ## The machine surface
 
 `--json` is a contract with something that is not a person, so it is shaped like one.

@@ -5,14 +5,18 @@ owns its own table, and a write of the profile must not drop a table a newer
 cjdev added beside it.
 """
 
+from collections.abc import Callable
 from pathlib import Path, PurePath
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 import tomlkit
 
 from cjdev.domain.build import Profile
+from cjdev.domain.dependencies import Selection
 from cjdev.domain.record import BranchSetRecord, Task
 from cjdev.errors import PreconditionError
+from cjdev.infra.locks import file_lock
 
 HEADER = "Written by cjdev: what it remembers about this branch set."
 
@@ -22,7 +26,11 @@ def read_record(path: PurePath) -> BranchSetRecord:
     if not text:
         return BranchSetRecord()
     document = _parse(text, path)
-    return BranchSetRecord(profile=_profile(document, path), task=_task(document, path))
+    return BranchSetRecord(
+        profile=_profile(document, path),
+        task=_task(document, path),
+        dependencies=_dependencies(document, path),
+    )
 
 
 def _profile(document: Any, path: PurePath) -> Profile | None:
@@ -58,8 +66,7 @@ def _task(document: Any, path: PurePath) -> Task | None:
 
 
 def render_record(record: BranchSetRecord, path: PurePath) -> str:
-    """The file's next text. Returned rather than written, so the write goes
-    through the `FileSystem` port and a dry run declines it."""
+    """Merge profile and task fields into the existing record."""
     current = _read(path)
     document = _parse(current, path) if current else tomlkit.document()
     if not current:
@@ -96,3 +103,76 @@ def _parse(text: str, path: PurePath) -> Any:
         raise PreconditionError(
             f"{path} is not valid TOML: {exc}", remedy=f"delete {path}"
         ) from exc
+
+
+def _dependencies(document: Any, path: PurePath) -> dict[tuple[str, str], Selection]:
+    result = {}
+    units = document.get("deps", {})
+    error = PreconditionError(
+        f"{path}: expected [deps.UNIT.DEPENDENCY] with a ref and optional upstream."
+    )
+    if not isinstance(units, dict):
+        raise error
+    for unit, sources in units.items():
+        if not isinstance(sources, dict):
+            raise error
+        for name, data in sources.items():
+            if not isinstance(data, dict):
+                raise error
+            ref, upstream = data.get("ref"), data.get("upstream")
+            if not isinstance(ref, str) or not ref.strip():
+                raise error
+            if upstream is not None and (
+                not isinstance(upstream, str) or not upstream.strip()
+            ):
+                raise error
+            result[unit, name] = Selection(ref, upstream)
+    return result
+
+
+def _update(path: PurePath, render: Callable[[], str]) -> None:
+    # Profile, task and dependency writers share the record. Hold the lock
+    # across the read as well as the replacement so independent edits compose.
+    with file_lock(path.with_suffix(".lock")):
+        text = render()
+        with NamedTemporaryFile(
+            dir=path.parent, delete=False, mode="w", encoding="utf-8"
+        ) as staged:
+            temp = Path(staged.name)
+            try:
+                staged.write(text)
+                staged.flush()
+                temp.replace(path)
+            finally:
+                temp.unlink(missing_ok=True)
+
+
+def save_record(record: BranchSetRecord, path: PurePath) -> None:
+    _update(path, lambda: render_record(record, path))
+
+
+def change_dependency(
+    path: PurePath, unit: str, name: str, ref: str | None, upstream: str | None
+) -> None:
+    def render() -> str:
+        current = _read(path)
+        document: Any = _parse(current, path) if current else tomlkit.document()
+        if not current:
+            document.add(tomlkit.comment(HEADER))
+        _dependencies(document, path)
+        deps = document.setdefault("deps", {})
+        sources = deps.setdefault(unit, {})
+        if ref is None:
+            sources.pop(name, None)
+            if not sources:
+                del deps[unit]
+            if not deps:
+                del document["deps"]
+        else:
+            choice = sources.setdefault(name, {})
+            choice["ref"] = ref
+            if upstream is not None:
+                choice["upstream"] = upstream
+        return tomlkit.dumps(document)
+
+    _update(path, render)

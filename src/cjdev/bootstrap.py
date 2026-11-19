@@ -85,7 +85,7 @@ from cjdev.infra.issue_template import TEMPLATE_DIR, load_form, template_names
 from cjdev.infra.journal import CommandJournal, open_journal
 from cjdev.infra.locks import file_lock, no_lock
 from cjdev.infra.prompt import InteractivePrompt, NonInteractivePrompt
-from cjdev.infra.record import read_record, render_record
+from cjdev.infra.record import read_record, save_record
 from cjdev.infra.skill import load_bundled_skill
 
 
@@ -316,6 +316,7 @@ class Container:
             # there is nothing for a second one to collide with.
             lock=no_lock if dry_run else file_lock,
             environment=environment,
+            selections=lambda path: read_record(path).dependencies,
             resolve=lambda cwd, upstream, ref: resolve_ref(outside, cwd, upstream, ref),
             fetch=lambda into, upstream, commit: fetch_commit(
                 outside, into, upstream, commit
@@ -327,9 +328,10 @@ class Container:
     ) -> BranchSetProfile:
         return BranchSetProfile(
             manifest=lambda: self.manifest(start),
-            file_system=self.file_system(dry_run=dry_run),
             read=read_record,
-            render=render_record,
+            save=(lambda _record, path: self.emit(f"write {path}"))
+            if dry_run
+            else save_record,
             environment=self.environment(start),
         )
 
@@ -489,11 +491,12 @@ class Container:
         return Tasks(
             manifest=lambda: self.manifest(start),
             executor=self.executor(dry_run=dry_run, verbose=verbose),
-            file_system=self.file_system(dry_run=dry_run),
             forge=self.forge(dry_run=dry_run),
             fetch=fetch_upstream,
             read=read_record,
-            render=render_record,
+            save=(lambda _record, path: self.emit(f"write {path}"))
+            if dry_run
+            else save_record,
             issue_home=lambda: load_issue_home(start),
         )
 

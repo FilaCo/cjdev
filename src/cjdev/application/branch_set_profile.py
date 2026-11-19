@@ -11,7 +11,6 @@ from pathlib import Path, PurePath
 from typing import final
 
 from cjdev.application.build_units import BuildPlan
-from cjdev.application.ports import FileSystem
 from cjdev.application.report_status import ManifestProvider
 from cjdev.domain.build import Profile
 from cjdev.domain.environment import DEFAULT_ENVIRONMENT, Environment
@@ -20,7 +19,7 @@ from cjdev.domain.record import BranchSetRecord
 from cjdev.errors import PreconditionError
 
 ReadRecord = Callable[[PurePath], BranchSetRecord]
-RenderRecord = Callable[[BranchSetRecord, PurePath], str]
+SaveRecord = Callable[[BranchSetRecord, PurePath], None]
 
 
 def unbuilt(
@@ -58,15 +57,13 @@ class BranchSetProfile:
     def __init__(
         self,
         manifest: ManifestProvider,
-        file_system: FileSystem,
         read: ReadRecord,
-        render: RenderRecord,
+        save: SaveRecord,
         environment: Environment = DEFAULT_ENVIRONMENT,
     ) -> None:
         self._manifest = manifest
-        self._fs = file_system
         self._read = read
-        self._render = render
+        self._save = save
         self._environment = environment
 
     def resolve(self, root: Path, branch_set: str, chosen: Profile | None) -> Profile:
@@ -103,8 +100,7 @@ class BranchSetProfile:
             return
         path = WorkspaceLayout(plan.root).record(plan.branch_set)
         record = BranchSetRecord(profile=plan.profile)
-        self._fs.mkdir(path.parent)
-        self._fs.write_text(path, self._render(record, path))
+        self._save(record, path)
 
     def _record(self, root: Path, branch_set: str) -> BranchSetRecord:
         return self._read(WorkspaceLayout(root).record(branch_set))

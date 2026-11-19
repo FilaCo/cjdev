@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import final
 
-from cjdev.application.branch_set_profile import ReadRecord, RenderRecord
-from cjdev.application.ports import Executor, FileSystem, Forge
+from cjdev.application.branch_set_profile import ReadRecord, SaveRecord
+from cjdev.application.ports import Executor, Forge
 from cjdev.application.report_status import ManifestProvider
 from cjdev.application.runner import DEFAULT_NETWORK_JOBS, Runner, RunObserver, Work
 from cjdev.application.workspace import held_projects
@@ -37,20 +37,18 @@ class Tasks:
         self,
         manifest: ManifestProvider,
         executor: Executor,
-        file_system: FileSystem,
         forge: Forge,
         fetch: Fetch,
         read: ReadRecord,
-        render: RenderRecord,
+        save: SaveRecord,
         issue_home: Callable[[], str],
     ) -> None:
         self._manifest = manifest
         self._executor = executor
-        self._fs = file_system
         self._forge = forge
         self._fetch = fetch
         self._read = read
-        self._render = render
+        self._save = save
         self._issue_home = issue_home
 
     def start(
@@ -111,8 +109,7 @@ class Tasks:
 
     def remember(self, root: Path, branch_set: str, task: Task) -> None:
         path = WorkspaceLayout(root).record(branch_set)
-        self._fs.mkdir(path.parent)
-        self._fs.write_text(path, self._render(BranchSetRecord(task=task), path))
+        self._save(BranchSetRecord(task=task), path)
 
     def attach(self, root: Path, branch_set: str, url: str) -> tuple[Task, str | None]:
         """The task, and the issue it replaced, if any."""

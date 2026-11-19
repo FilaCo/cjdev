@@ -6,10 +6,11 @@ context from here instead of being told again.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import final
 
 from cjdev.domain.build import Profile
+from cjdev.domain.dependencies import Selections
 
 SLUG_LENGTH = 40
 """Of the title's part of a derived name: enough to recognise the issue in
@@ -49,6 +50,8 @@ class BranchSetRecord:
     task: Task | None = None
     """None for a branch set nobody started as a task: `branch new` records
     nothing."""
+
+    dependencies: Selections = field(default_factory=dict)
 
     def default_profile(self) -> Profile:
         return self.profile or Profile.RELEASE

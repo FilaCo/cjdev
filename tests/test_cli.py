@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Iterator
 from importlib.metadata import version
@@ -1118,6 +1119,81 @@ class TestBuild:
         log = Path(layout.command_log).read_text()
         assert "git ls-remote" in log
         assert "git fetch --quiet --depth 1" in log
+
+    @pytest.mark.usefixtures("git_available")
+    def test_dependency_selection_follows_only_its_branch_set(
+        self, branch_set: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        layout = WorkspaceLayout(branch_set)
+        fork = branch_set / "upstreams/fork"
+        upstream = branch_set / "upstreams/upstream"
+        fork_url, url = make_upstream(fork), make_upstream(upstream)
+
+        def git(repo, *args):
+            return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+        def advance():
+            git(upstream, "commit", "--allow-empty", "-m", "advance")
+            return git(upstream, "rev-parse", "HEAD")
+
+        def command(*args):
+            result = runner.invoke(cli, list(args), terminal_width=220)
+            assert result.exit_code == 0, (result.output, result.exception)
+            return result.stdout
+
+        old = git(fork, "rev-parse", "HEAD")
+        first = advance()
+        Path(layout.config_file).write_text(
+            BUILD_CONFIG.replace("third_party = []", "")
+            + "[[build_units.compiler.third_party]]\n"
+            + 'path = "third_party/llvm-project"\n'
+            + f'upstream = "{fork_url}"\nref = "{old}"\n'
+        )
+        main = Path.cwd()
+        task = Path(layout.worktree("task", "cangjie_compiler"))
+        task.mkdir(parents=True)
+        (task / "build.py").write_text(SCRATCH_SCRIPT)
+        dependency = Path("third_party/llvm-project")
+        for tree in (main, task):
+            (tree / dependency.parent).mkdir()
+        command("build", "compiler")
+        monkeypatch.chdir(task)
+        record = Path(layout.record("task"))
+        record.parent.mkdir(exist_ok=True)
+        record.write_text('[task]\nhome = "compiler"\n[extension]\nkeep = true\n')
+        select = ("deps", "set", "compiler", "llvm-project")
+        command(*select, old)
+        assert "upstream =" not in record.read_text()
+        command(*select, "main", "--upstream", url)
+        command("build", "compiler", "--dry-run")
+        assert not dependency.exists()
+        command("build", "compiler")
+        assert git(dependency, "rev-parse", "HEAD") == first
+        assert first[:8] in command("deps")
+        second = advance()
+        command("build", "compiler")
+        assert git(dependency, "rev-parse", "HEAD") == second
+        command(*select, first)
+        command("build", "compiler")
+        assert git(dependency, "rev-parse", "HEAD") == first
+
+        missing = (upstream.parent / "unreachable").as_uri()
+        command(*select, "different", "--upstream", missing)
+        assert runner.invoke(cli, ["build", "compiler"]).exit_code == 1
+        assert first[:8] in command("deps")
+        command("deps", "reset", "compiler", "llvm-project")
+        command("build", "compiler")
+        assert git(dependency, "rev-parse", "HEAD") == old
+        assert git(main / dependency, "rev-parse", "HEAD") == old
+        assert "extension" in record.read_text() and "task" in record.read_text()
+        assert "[deps" not in record.read_text()
+
+    def test_unknown_dependency_leaves_the_record_untouched(self, branch_set: Path):
+        record = Path(WorkspaceLayout(branch_set).record("main"))
+        result = runner.invoke(cli, ["deps", "set", "compiler", "missing", "main"])
+        assert isinstance(result.exception, PreconditionError)
+        assert "Known dependencies" in str(result.exception)
+        assert not record.exists()
 
 
 FAKE_RUNTIME = """\
