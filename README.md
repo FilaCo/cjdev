@@ -147,6 +147,10 @@ because the upstream scripts overwrite `CC` and `CXX` with their own lookup. The
 is shared across branch sets and across environments; ccache hashes the compiler
 binary, so a host entry and a container entry coexist rather than collide.
 
+After `cjdev build compiler`, clangd can find the compilation database from
+`cangjie_compiler/.clangd`. cjdev updates its generated file when you build another
+profile or environment and preserves an existing hand-written configuration.
+
 ### The environment
 
 Where a build runs is a property of the workspace, answered once at `cjdev init` and
